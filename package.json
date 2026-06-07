@@ -1,0 +1,21 @@
+{
+  "name": "team-dashboard-site",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "^14.2.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.12.7",
+    "lucide-react": "0.383.0",
+    "@upstash/redis": "^1.34.0"
+  }
+}

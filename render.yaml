@@ -1,0 +1,28 @@
+# Render blueprint (alternative to Vercel — see README for the recommended path).
+# NOTE: on Render's FREE plan this service spins down after ~15 min idle and takes
+# ~30-60s to wake, which makes for a bad Saturday-morning experience. Use the
+# starter plan (always-on) if deploying here. vercel.json's cron does not apply on
+# Render — schedule the sync with cron-job.org hitting /api/sync?key=CRON_SECRET,
+# or add a Render Cron Job.
+services:
+  - type: web
+    name: team-dashboard
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: SITE_PASSWORD
+        sync: false
+      - key: CALENDAR_KEY
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: NOTIFY_EMAILS
+        sync: false
