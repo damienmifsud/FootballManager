@@ -1710,24 +1710,78 @@ function ImportSheet({ data, persist, close }) {
 function PlayersImportSheet({ data, persist, close }) {
   const [txt, setTxt] = useState("");
 
+  const MONTHS = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
   const parseDob = (s) => {
     if (!s) return "";
-    const t = s.trim();
+    const t = String(s).trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
-    const m = t.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})$/); // dd/mm/yyyy (AU)
+    let m = t.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})$/); // dd/mm/yyyy (AU)
     if (m) return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+    m = t.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})$/); // "12 Mar 2018" (Majestri)
+    if (m && MONTHS[m[2].slice(0, 3).toLowerCase()]) return `${m[3]}-${MONTHS[m[2].slice(0, 3).toLowerCase()]}-${String(m[1]).padStart(2, "0")}`;
     return "";
   };
+  const fixMobile = (s) => {
+    const d = String(s || "").replace(/\D/g, "");
+    if (!d) return "";
+    if (d.length === 9 && d[0] === "4") return "0" + d; // leading zero stripped by spreadsheet
+    if (d.length === 11 && d.startsWith("61")) return "0" + d.slice(2);
+    return d.length >= 8 ? (d[0] === "0" ? d : d) : "";
+  };
+  // RFC-4180-ish CSV line splitter (handles quoted fields with commas)
+  const splitCSV = (line) => {
+    const out = []; let cur = "", inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQ) {
+        if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+        else if (ch === '"') inQ = false;
+        else cur += ch;
+      } else if (ch === '"') inQ = true;
+      else if (ch === ",") { out.push(cur); cur = ""; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out.map(s => s.trim());
+  };
 
-  const parsed = txt.split("\n").map(l => l.trim()).filter(Boolean).map((line, i) => {
-    const parts = (line.includes("\t") ? line.split("\t") : line.split(",")).map(s => s.trim());
-    const [name, number, position, parentName, parentContact, dob] = parts;
-    const pos = POSITIONS.includes((position || "").toUpperCase()) ? position.toUpperCase() : "MID";
-    return name ? {
-      id: uid(), name, number: parseInt(number, 10) || i + 1, position: pos,
-      parentName: parentName || "", parentContact: parentContact || "", dob: parseDob(dob)
-    } : null;
-  }).filter(Boolean);
+  const lines = txt.split("\n").map(l => l.replace(/\r$/, "")).filter(l => l.trim());
+  const isMajestri = lines.length > 0 && /FirstName/i.test(lines[0]) && /Surname/i.test(lines[0]) && /Role/i.test(lines[0]);
+
+  let parsed = [];
+  if (isMajestri) {
+    const head = splitCSV(lines[0]).map(h => h.toLowerCase());
+    const col = (name) => head.indexOf(name.toLowerCase());
+    const c = {
+      role: col("Role"), first: col("FirstName"), last: col("Surname"), dob: col("DateOfBirth"),
+      pFirst: col("PrimaryContactFirstName"), pLast: col("PrimaryContactSurname"), pMob: col("PrimaryContactMobileNumber")
+    };
+    parsed = lines.slice(1).map((line, i) => {
+      const v = splitCSV(line);
+      const get = (idx) => (idx >= 0 && idx < v.length ? v[idx] : "");
+      if ((get(c.role) || "Player").toLowerCase() !== "player") return null; // skip coach/manager rows
+      const first = get(c.first), last = get(c.last);
+      if (!first) return null;
+      return {
+        id: uid(),
+        name: last ? `${first} ${last[0]}.` : first, // first name + surname initial
+        number: i + 1, position: "MID",
+        parentName: [get(c.pFirst), get(c.pLast)].filter(Boolean).join(" "),
+        parentContact: fixMobile(get(c.pMob)),
+        dob: parseDob(get(c.dob))
+      };
+    }).filter(Boolean);
+  } else {
+    parsed = lines.map((line, i) => {
+      const parts = (line.includes("\t") ? line.split("\t") : splitCSV(line));
+      const [name, number, position, parentName, parentContact, dob] = parts.map(s => (s || "").trim());
+      const pos = POSITIONS.includes((position || "").toUpperCase()) ? position.toUpperCase() : "MID";
+      return name ? {
+        id: uid(), name, number: parseInt(number, 10) || i + 1, position: pos,
+        parentName: parentName || "", parentContact: parentContact || "", dob: parseDob(dob)
+      } : null;
+    }).filter(Boolean);
+  }
 
   const save = () => {
     if (!parsed.length) return;
@@ -1738,15 +1792,21 @@ function PlayersImportSheet({ data, persist, close }) {
   return (<>
     <SheetHead title="Paste player list" close={close} />
     <div className="note" style={{ marginBottom: 12 }}>
-      One player per line, columns separated by commas or tabs (paste straight from Excel):<br />
-      <b>Name, number, position, parent, parent mobile, birthday</b><br />
-      Position is GK/DEF/MID/FWD; birthday is dd/mm/yyyy. Only the name is required — leave anything else blank.
+      <b>Majestri:</b> open the team contact list CSV, select all, copy, and paste the lot here — it's detected automatically (players only; coach rows, emails and medical fields are skipped; mobiles get their leading 0 restored).<br /><br />
+      <b>Or a simple list</b>, one player per line: <b>Name, number, position, parent, parent mobile, birthday</b> (position GK/DEF/MID/FWD; birthday dd/mm/yyyy; only the name is required).
     </div>
     <div className="field">
       <textarea className="inp" rows={8} value={txt} onChange={e => setTxt(e.target.value)}
-        placeholder={"Spencer, 6, MID, Damien, 0400 000 000, 12/03/2018\nJack, 1, GK, Sarah, 0411 111 111, 30/07/2018"} />
+        placeholder={"Paste the Majestri CSV export here, or:\nSpencer, 6, MID, Damien, 0400 000 000, 12/03/2018"} />
     </div>
-    {parsed.length > 0 && <div className="note" style={{ marginBottom: 10 }}>Ready to add <b>{parsed.length}</b> player{parsed.length > 1 ? "s" : ""}: {parsed.map(p => p.name).join(", ")}</div>}
+    {txt.trim() && (
+      <div className="note" style={{ marginBottom: 10 }}>
+        {isMajestri && <span><b>Majestri export detected.</b> </span>}
+        {parsed.length > 0
+          ? <>Ready to add <b>{parsed.length}</b> player{parsed.length > 1 ? "s" : ""}: {parsed.map(p => p.name).join(", ")}</>
+          : "Nothing parseable yet — check the format."}
+      </div>
+    )}
     <button className="btn" onClick={save} disabled={!parsed.length}>Add {parsed.length || ""} players</button>
   </>);
 }
