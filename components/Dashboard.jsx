@@ -207,6 +207,16 @@ function monthItems(data, year, month) {
         items.push({ key: s.id + iso, dateISO: iso, time: s.time, kind: s.kind || "training", title: s.title, ref: s, occ: iso });
     });
   });
+  (data.players || []).forEach(p => {
+    if (!p.dob || p.dob.length < 10) return;
+    const iso = `${year}-${p.dob.slice(5, 10)}`;
+    const dt = new Date(iso + "T00:00:00");
+    if (isNaN(dt) || dt.getMonth() !== month) return;
+    if (!activeOn(p, iso)) return; // expired guests don't get calendar birthdays
+    const by = parseInt(p.dob.slice(0, 4), 10);
+    const age = by > 1990 ? year - by : null;
+    items.push({ key: "bday" + p.id, dateISO: iso, time: "", kind: "birthday", title: age ? `${p.name} turns ${age} 🎂` : `${p.name}'s birthday 🎂`, ref: p });
+  });
   return items.sort((a, b) => (a.dateISO + (a.time || "")).localeCompare(b.dateISO + (b.time || "")));
 }
 
@@ -270,6 +280,15 @@ function seasonICS(data) {
   (data.sessions || []).forEach(s => {
     if (s.recur === "weekly") body.push(...veventWeekly(s));
     else occurrences(s).forEach(iso => body.push(...vevent(sessionEv(s, iso))));
+  });
+  (data.players || []).forEach(p => {
+    if (!p.dob || p.dob.length < 10) return;
+    const iso = `${SEASON}-${p.dob.slice(5, 10)}`;
+    if (isNaN(new Date(iso + "T00:00:00"))) return;
+    if (!activeOn(p, iso)) return;
+    const by = parseInt(p.dob.slice(0, 4), 10);
+    const title = by > 1990 ? `🎂 ${p.name} turns ${SEASON - by}` : `🎂 ${p.name}'s birthday`;
+    body.push(...vevent({ uid: "bday" + p.id, title, dateISO: iso, allDay: true }));
   });
   return wrapICS(`${data.team.name} ${SEASON}`, body);
 }
@@ -486,7 +505,7 @@ const CSS = `
 .daycell.sel{background:var(--pitch);color:#fff;border-color:var(--pitch);}
 .daycell .dots{display:flex;gap:3px;margin-top:4px;height:6px;}
 .cdot{width:6px;height:6px;border-radius:50%;}
-.cdot.game{background:var(--pitch);} .cdot.training{background:var(--amber);} .cdot.event{background:#2563a8;}
+.cdot.game{background:var(--pitch);} .cdot.training{background:var(--amber);} .cdot.event{background:#2563a8;} .cdot.birthday{background:#d6409f;}
 .daycell.sel .cdot.game{background:var(--lime);} .daycell.sel .cdot.training{background:#ffd27a;} .daycell.sel .cdot.event{background:#9cc2f5;}
 .legend{display:flex;gap:16px;justify-content:center;margin-top:14px;font-size:11px;color:var(--muted);font-weight:600;}
 .legend span{display:flex;align-items:center;gap:6px;}
@@ -495,10 +514,10 @@ const CSS = `
 .agitem{display:flex;align-items:stretch;gap:11px;padding:12px 2px;border-bottom:1px solid var(--line);cursor:pointer;}
 .agitem:last-child{border-bottom:none;}
 .agbar{width:4px;border-radius:3px;flex-shrink:0;}
-.agbar.game{background:var(--pitch);} .agbar.training{background:var(--amber);} .agbar.event{background:#2563a8;}
+.agbar.game{background:var(--pitch);} .agbar.training{background:var(--amber);} .agbar.event{background:#2563a8;} .agbar.birthday{background:#d6409f;}
 .agtime{width:50px;font-family:'DM Mono';font-size:12px;color:var(--muted);flex-shrink:0;padding-top:1px;}
 .kpill{font-size:9px;font-weight:800;padding:2px 6px;border-radius:5px;text-transform:uppercase;letter-spacing:.04em;}
-.kpill.game{background:#fdeaec;color:var(--pitch);} .kpill.training{background:#fff1da;color:#b3760a;} .kpill.event{background:#e6f0ff;color:#2563a8;}
+.kpill.game{background:#fdeaec;color:var(--pitch);} .kpill.training{background:#fff1da;color:#b3760a;} .kpill.event{background:#e6f0ff;color:#2563a8;} .kpill.birthday{background:#fde7f3;color:#d6409f;}
 .recur-line{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);margin-top:2px;}
 .veocard{display:flex;align-items:center;gap:13px;text-decoration:none;color:#fff;margin-bottom:12px;
   background:linear-gradient(135deg,#2a0810,#120406);border:1px solid #45121d;border-radius:16px;padding:15px;}
@@ -754,6 +773,46 @@ function HomeTab({ data, stats, next, pname, setModal }) {
 }
 
 /* ---------------- CALENDAR ---------------- */
+// One-tap calendar subscription. The feed URL comes from the website's
+// /api/feedinfo endpoint; in environments without it (e.g. the chat artifact)
+// the card simply doesn't render.
+function SubscribeCard() {
+  const [feed, setFeed] = useState(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    fetch("/api/feedinfo", { cache: "no-store" })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (j?.feedUrl) setFeed(j.feedUrl); })
+      .catch(() => {});
+  }, []);
+  if (!feed) return null;
+  const webcal = feed.replace(/^https?:/, "webcal:");
+  const copy = () => { navigator.clipboard?.writeText(feed); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  return (
+    <div className="card">
+      <div className="label" style={{ marginBottom: 6 }}>Subscribe to the team calendar</div>
+      <div className="note" style={{ marginBottom: 10 }}>
+        Subscribe once and every game, training, birthday — and any schedule change — updates in your own calendar automatically. Better than importing: it stays in sync.
+      </div>
+      <div className="chips">
+        <a className="chip lnk" target="_blank" rel="noopener noreferrer"
+          href={"https://calendar.google.com/calendar/render?cid=" + encodeURIComponent(webcal)}>
+          <Calendar size={13} />Google Calendar
+        </a>
+        <a className="chip lnk" target="_blank" rel="noopener noreferrer"
+          href={"https://outlook.office.com/calendar/0/addfromweb?url=" + encodeURIComponent(feed) + "&name=" + encodeURIComponent("Team Calendar")}>
+          <Calendar size={13} />Outlook
+        </a>
+        <a className="chip lnk" href={webcal}><Calendar size={13} />Apple / other</a>
+        <button className="chip" onClick={copy}><Check size={13} />{copied ? "Copied!" : "Copy link"}</button>
+      </div>
+      <div className="note" style={{ marginTop: 8, fontSize: 11 }}>
+        Calendars refresh on their own schedule (typically a few hours). Treat the link as team-private.
+      </div>
+    </div>
+  );
+}
+
 function CalendarTab({ data, isCoach, setModal }) {
   const today = new Date();
   const inSeason = today.getFullYear() === SEASON;
@@ -780,7 +839,9 @@ function CalendarTab({ data, isCoach, setModal }) {
 
   const open = (it) => it.kind === "game"
     ? setModal({ type: "match", payload: it.ref })
-    : setModal({ type: "session", payload: it.ref, occ: it.occ });
+    : it.kind === "birthday"
+      ? setModal({ type: "playerView", payload: it.ref })
+      : setModal({ type: "session", payload: it.ref, occ: it.occ });
 
   return (
     <>
@@ -816,12 +877,15 @@ function CalendarTab({ data, isCoach, setModal }) {
           <span><span className="cdot game" />Game</span>
           <span><span className="cdot training" />Training</span>
           <span><span className="cdot event" />Event</span>
+          <span><span className="cdot birthday" />Birthday</span>
         </div>
       </div>
 
+      <SubscribeCard />
+
       <button className="btn ghost" style={{ marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
         onClick={() => downloadICS(`${data.team.name}-${SEASON}-season.ics`, seasonICS(data))}>
-        <Download size={16} />Export 2026 season to my calendar
+        <Download size={16} />One-off download (.ics) instead
       </button>
 
       <div className="agenda-title">
@@ -839,7 +903,7 @@ function CalendarTab({ data, isCoach, setModal }) {
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{it.title}</div>
                 <div className="ven" style={{ marginTop: 2 }}><MapPin size={11} />{it.ref.venue || it.ref.location || "—"}</div>
               </div>
-              <span className={"kpill " + it.kind}>{it.kind === "game" ? "Game" : it.kind === "training" ? "Train" : "Event"}</span>
+              <span className={"kpill " + it.kind}>{it.kind === "game" ? "Game" : it.kind === "training" ? "Train" : it.kind === "birthday" ? "🎂" : "Event"}</span>
               <ChevronRight size={16} color="var(--muted)" style={{ alignSelf: "center" }} />
             </div>
           ))}
@@ -895,7 +959,10 @@ function SquadTab({ data, stats, isCoach, setModal, persist }) {
   const del = (id) => persist({ ...data, players: data.players.filter(p => p.id !== id), isSample: false });
   return (
     <>
-      {isCoach && <button className="addfab" onClick={() => setModal({ type: "player", payload: null })}><Plus size={17} />Add player</button>}
+      {isCoach && <>
+        <button className="addfab" onClick={() => setModal({ type: "player", payload: null })}><Plus size={17} />Add player</button>
+        <button className="btn ghost" style={{ marginTop: -6, marginBottom: 14 }} onClick={() => setModal({ type: "playersImport" })}>Paste player list (bulk import)</button>
+      </>}
       <div className="card" style={{ padding: "6px 14px" }}>
         {players.length === 0 && <div className="empty"><div className="disp">No players yet</div></div>}
         {players.map(p => {
@@ -1114,6 +1181,7 @@ function Modal({ modal, setModal, data, persist, isCoach, setIsCoach }) {
         {modal.type === "player" && <PlayerSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "playerView" && <PlayerViewSheet {...{ data, payload: modal.payload, isCoach, close }} />}
         {modal.type === "import" && <ImportSheet {...{ data, persist, close }} />}
+        {modal.type === "playersImport" && <PlayersImportSheet {...{ data, persist, close }} />}
         {modal.type === "reset" && <ResetSheet {...{ data, persist, close }} />}
       </div>
     </div>
@@ -1555,7 +1623,10 @@ function PlayerSheet({ data, persist, payload, close }) {
   return (<>
     <SheetHead title={payload ? "Edit player" : "Add player"} close={close} />
     <div className="field"><label>Name</label><input className="inp" value={p.name} autoFocus onChange={e => setP({ ...p, name: e.target.value })} /></div>
-    <div className="field"><label>Squad number</label><input className="inp" type="number" value={p.number} onChange={e => setP({ ...p, number: e.target.value })} /></div>
+    <div className="row2">
+      <div className="field"><label>Squad number</label><input className="inp" type="number" value={p.number} onChange={e => setP({ ...p, number: e.target.value })} /></div>
+      <div className="field"><label>Birthday</label><input className="inp" type="date" value={p.dob || ""} onChange={e => setP({ ...p, dob: e.target.value })} /></div>
+    </div>
     <div className="field"><label>Position</label>
       <div className="seg">{POSITIONS.map(pos => <button key={pos} className={p.position === pos ? "sel" : ""} onClick={() => setP({ ...p, position: pos })}>{pos}</button>)}</div>
     </div>
@@ -1597,6 +1668,11 @@ function PlayerViewSheet({ data, payload, isCoach, close }) {
       <div className="stat"><div className="v">{g}</div><div className="k">Goals</div></div>
       <div className="stat"><div className="v">{a}</div><div className="k">Assists</div></div>
     </div>
+    {payload.dob && (
+      <div className="note" style={{ marginTop: 12, fontSize: 13.5 }}>
+        🎂 Birthday: {new Date(payload.dob + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "long" })}
+      </div>
+    )}
     {isCoach && (payload.parentName || payload.parentContact) && (
       <div className="card" style={{ marginTop: 14, marginBottom: 0 }}>
         <div className="label" style={{ marginBottom: 6 }}>Parent / guardian (coach view)</div>
@@ -1628,6 +1704,50 @@ function ImportSheet({ data, persist, close }) {
     </div>
     <div className="field"><textarea className="inp" rows={7} placeholder={"Round 5 vs City\nRound 6 vs Strikers\n..."} value={txt} onChange={e => setTxt(e.target.value)} /></div>
     <button className="btn" onClick={parse} disabled={!txt.trim()}>Create draft fixtures</button>
+  </>);
+}
+
+function PlayersImportSheet({ data, persist, close }) {
+  const [txt, setTxt] = useState("");
+
+  const parseDob = (s) => {
+    if (!s) return "";
+    const t = s.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+    const m = t.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})$/); // dd/mm/yyyy (AU)
+    if (m) return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+    return "";
+  };
+
+  const parsed = txt.split("\n").map(l => l.trim()).filter(Boolean).map((line, i) => {
+    const parts = (line.includes("\t") ? line.split("\t") : line.split(",")).map(s => s.trim());
+    const [name, number, position, parentName, parentContact, dob] = parts;
+    const pos = POSITIONS.includes((position || "").toUpperCase()) ? position.toUpperCase() : "MID";
+    return name ? {
+      id: uid(), name, number: parseInt(number, 10) || i + 1, position: pos,
+      parentName: parentName || "", parentContact: parentContact || "", dob: parseDob(dob)
+    } : null;
+  }).filter(Boolean);
+
+  const save = () => {
+    if (!parsed.length) return;
+    persist({ ...data, players: [...data.players, ...parsed], isSample: false });
+    close();
+  };
+
+  return (<>
+    <SheetHead title="Paste player list" close={close} />
+    <div className="note" style={{ marginBottom: 12 }}>
+      One player per line, columns separated by commas or tabs (paste straight from Excel):<br />
+      <b>Name, number, position, parent, parent mobile, birthday</b><br />
+      Position is GK/DEF/MID/FWD; birthday is dd/mm/yyyy. Only the name is required — leave anything else blank.
+    </div>
+    <div className="field">
+      <textarea className="inp" rows={8} value={txt} onChange={e => setTxt(e.target.value)}
+        placeholder={"Spencer, 6, MID, Damien, 0400 000 000, 12/03/2018\nJack, 1, GK, Sarah, 0411 111 111, 30/07/2018"} />
+    </div>
+    {parsed.length > 0 && <div className="note" style={{ marginBottom: 10 }}>Ready to add <b>{parsed.length}</b> player{parsed.length > 1 ? "s" : ""}: {parsed.map(p => p.name).join(", ")}</div>}
+    <button className="btn" onClick={save} disabled={!parsed.length}>Add {parsed.length || ""} players</button>
   </>);
 }
 
