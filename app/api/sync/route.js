@@ -51,16 +51,18 @@ async function syncTeam(team, ifStale) {
   if (!data) return { team: team.slug, skipped: "no team data yet" };
 
   const squadi = await fetchSquadi(team.squadi);
-  const { data: next, changes, created } = applySync(data, squadi);
+  const { data: next, changes, created, mutated } = applySync(data, squadi);
 
   let emailStatus = "no changes";
-  if (changes.length) {
+  if (changes.length || mutated) {
     const isInitialImport = created === changes.length && created > 3;
     const toSave = isInitialImport
       ? { ...next, fixtures: next.fixtures.map((f) => ({ ...f, schedChanges: [] })) }
       : next;
     await setData(team.slug, toSave);
-    emailStatus = isInitialImport ? "initial import — email skipped" : await emailChanges(team.name, changes);
+    emailStatus = changes.length
+      ? (isInitialImport ? "initial import — email skipped" : await emailChanges(team.name, changes))
+      : "silent update (e.g. logos) — saved, no email";
   }
   await setMeta(team.slug, { ...(await getMeta(team.slug)), lastSyncAt: Date.now() });
 
