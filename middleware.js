@@ -1,33 +1,38 @@
+import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
+import { authConfig } from "@/auth.config";
 
-// Paths reachable without the site password:
-//  - the login page + its API
-//  - the calendar feed (calendar apps can't send the cookie; it's protected by its own key)
-const PUBLIC = ["/login", "/api/login", "/api/calendar", "/api/sync"];
+const { auth } = NextAuth(authConfig);
+const AUTH_ON = !!process.env.AUTH_SECRET;
+const PUBLIC = ["/login", "/api/auth", "/api/login", "/api/calendar", "/api/sync"];
 
-export function middleware(req) {
+function legacyPasswords() {
+  if (process.env.TEAMS) {
+    try { return JSON.parse(process.env.TEAMS).map((t) => t && t.password).filter(Boolean); } catch {}
+  }
+  return process.env.SITE_PASSWORD ? [process.env.SITE_PASSWORD] : [];
+}
+
+export default auth((req) => {
   const { pathname } = req.nextUrl;
-  if (PUBLIC.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
-    return NextResponse.next();
-  }
+  if (PUBLIC.some((p) => pathname === p || pathname.startsWith(p + "/"))) return NextResponse.next();
 
-  const cookie = req.cookies.get("site_auth")?.value;
-  if (cookie && process.env.SITE_PASSWORD && cookie === process.env.SITE_PASSWORD) {
-    return NextResponse.next();
+  let ok = false;
+  if (AUTH_ON) {
+    ok = !!req.auth; // signed in via Google / Microsoft / magic-link
+  } else {
+    let cookie = req.cookies.get("site_auth")?.value || "";
+    try { cookie = decodeURIComponent(cookie); } catch {}
+    ok = !!cookie && legacyPasswords().includes(cookie);
   }
+  if (ok) return NextResponse.next();
 
   if (pathname.startsWith("/api/")) {
-    return new NextResponse(JSON.stringify({ error: "unauthorized" }), {
-      status: 401,
-      headers: { "content-type": "application/json" }
-    });
+    return new NextResponse(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "content-type": "application/json" } });
   }
   const url = req.nextUrl.clone();
   url.pathname = "/login";
   return NextResponse.redirect(url);
-}
+});
 
-// Run on everything except Next's static assets.
-export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"]
-};
+export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };

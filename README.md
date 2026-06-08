@@ -131,6 +131,71 @@ every parent then sees the filtered view.
 Note: this works on the website only — the chat-artifact sandbox can't iframe Squadi.
 ---
 
+## "Ask" assistant (Q&A over your PDFs + live game data)
+
+Signed-in parents and coaches get an **Ask** tab. Coaches load reference material
+in Settings → Team knowledge (upload a PDF — the text is extracted in the browser —
+or paste text). Questions are answered by Claude using ONLY those documents plus a
+summary of your fixtures, training, squad and focuses; it's instructed not to invent
+rules and to say when something isn't covered.
+
+Requires `ANTHROPIC_API_KEY` (server-side; never sent to the browser). Optional
+`ANTHROPIC_MODEL` overrides the model. Without a key the tab shows a friendly
+"not configured" message. Document text is capped per request so a large rulebook
+can't blow the context; keep it to a few key PDFs (scanned/image-only PDFs won't
+extract — use a text PDF or paste the text).
+
+---
+
+## Parent & coach login (Google / Microsoft / magic-link)
+
+Set `AUTH_SECRET` to switch the site from team-code mode to account login. Each
+provider activates only when its keys are present, so you can start with one.
+After signing in, a person sees a **Your teams** list built from the resolver:
+parents are matched by the emails on their child's record, coaches via a
+`coachEmails` array on the team. Picking a team drops them straight in — for a
+parent, already bound to their child for attendance (no kid-picking).
+
+**Magic-link (easiest first step):** add `AUTH_RESEND_KEY` + `AUTH_EMAIL_FROM`
+(Resend account, verified domain). Parents type their email, click the link, done.
+Requires the Upstash adapter (already wired) to store the one-time tokens.
+
+**Google:** Google Cloud → Credentials → OAuth client (Web). Redirect URI
+`https://YOUR-DOMAIN/api/auth/callback/google`. Set `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`.
+
+**Microsoft:** Entra ID → App registrations. Redirect URI
+`https://YOUR-DOMAIN/api/auth/callback/microsoft-entra-id`. Set the three
+`AUTH_MICROSOFT_ENTRA_ID_*` vars.
+
+Prerequisites: parent emails must be on the player records (the Majestri import
+captures them; or add them in the player editor), and `AUTH_URL` should be your
+site URL. Until `AUTH_SECRET` is set, nothing changes — the team-code login stays.
+This is a beta of Auth.js v5; test on a preview deploy before switching the live site.
+
+---
+
+## Running multiple teams (one site, one repo, one Redis)
+
+Define every team in the `TEAMS` env var (JSON array — see `.env.example`). The code a
+parent types at login selects their team, and everything is scoped to it: data, the
+calendar feed (each team has its own `calendarKey`, so each team gets its own subscribe
+URL), the Squadi sync (the cron/pinger syncs all teams in one call; the in-app Sync
+button syncs only your team), and change emails (subject carries the team name).
+
+Rules and notes:
+- **Passwords must be unique per team** — the code IS the team selector.
+- **Adding a team** = append one object to `TEAMS` and save (Render restarts with the
+  new env; no code change, no deploy). Grab the new team's Squadi IDs from the FQ
+  widget via DevTools, same as before.
+- **Migration:** when you first set `TEAMS`, give your existing team any slug — its
+  data auto-migrates from the old storage key on first read. Keep its password the
+  same and parents won't notice anything.
+- Isolation is enforced server-side: a team's code or calendar key can only ever reach
+  that team's data.
+- If `TEAMS` is not set, the original single-team env vars work exactly as before.
+
+---
+
 ## Automatic fixture sync from Squadi
 
 `/api/sync` polls Squadi's public fixtures endpoint for Olympic FC U8 Kangaroos White
