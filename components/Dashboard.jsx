@@ -813,12 +813,8 @@ export default function App() {
 
       <nav className="nav" style={{ padding: "8px 2px" }}>
         {[["home", Home, "Home"], ["calendar", Calendar, "Calendar"], ["fixtures", ClipboardList, "Results"],
-<<<<<<< HEAD
         ["squad", Users, "Squad"], ["duties", Apple, "Duties"], ["stats", BarChart3, "Stats"], ["ask", Sparkles, "Ask"],
         ...(isCoach ? [["settings", SettingsIcon, "Settings"]] : [])].map(([id, Ic, lbl]) => (
-=======
-        ["squad", Users, "Squad"], ["duties", Apple, "Duties"], ["stats", BarChart3, "Stats"], ["ask", Sparkles, "Ask"], ...(isCoach ? [["settings", SettingsIcon, "Settings"]] : [])].map(([id, Ic, lbl]) => (
->>>>>>> 059604b502949a7a7429fe1ebc1911f5fb27653f
           <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} style={{ fontSize: 8.5 }}>
             <Ic size={18} /><span>{lbl}</span>
           </button>
