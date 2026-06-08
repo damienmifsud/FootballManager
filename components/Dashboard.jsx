@@ -339,6 +339,23 @@ function upcomingItems(data, fromISO, days = 7) {
   return items.sort((a, b) => (a.dateISO + (a.time || "")).localeCompare(b.dateISO + (b.time || "")));
 }
 
+// The next `n` upcoming player birthdays from `fromISO` (rolls to next year once this year's has passed).
+function nextBirthdays(data, fromISO, n = 2) {
+  const out = [];
+  (data.players || []).forEach(p => {
+    if (!p.dob || p.dob.length < 10) return;
+    const md = p.dob.slice(5, 10);
+    let year = +fromISO.slice(0, 4);
+    let iso = `${year}-${md}`;
+    if (iso < fromISO) { year += 1; iso = `${year}-${md}`; }
+    if (isNaN(new Date(iso + "T00:00:00"))) return;
+    if (!activeOn(p, iso)) return; // expired guests don't get birthdays
+    const by = parseInt(p.dob.slice(0, 4), 10);
+    out.push({ p, iso, age: by > 1990 ? year - by : null });
+  });
+  return out.sort((a, b) => a.iso.localeCompare(b.iso)).slice(0, n);
+}
+
 /* ============================================================
    CALENDAR EXPORT (.ics + Google/Outlook add links)
    No backend: these hand events to the user's calendar app.
@@ -836,6 +853,7 @@ function HomeTab({ data, stats, next, pname, setModal }) {
     return c;
   }, { in: 0, out: 0, nr: 0 }) : null;
   const week = upcomingItems(data, isoLocal(new Date()), 7);
+  const bdays = nextBirthdays(data, isoLocal(new Date()), 2);
   const weekCounts = (av, iso) => data.players.filter(p => activeOn(p, iso)).reduce((c, p) => {
     const st = av?.[p.id]?.status; if (st === "in") c.in++; else if (st === "out") c.out++; else c.nr++; return c;
   }, { in: 0, out: 0, nr: 0 });
@@ -953,6 +971,21 @@ function HomeTab({ data, stats, next, pname, setModal }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {bdays.length > 0 && (
+        <div className="card">
+          <div className="label" style={{ marginBottom: 4 }}>Upcoming birthdays</div>
+          {bdays.map(({ p, iso, age }) => (
+            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 0", borderTop: "1px solid var(--line)" }}>
+              <div style={{ width: 32, height: 32, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "#fde7f3", fontSize: 16 }}>🎂</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}{age != null ? ` turns ${age}` : ""}</div>
+                <div className="note" style={{ fontSize: 11.5, marginTop: 1 }}>{fmtDate(iso)}</div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
