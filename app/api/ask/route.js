@@ -6,7 +6,31 @@ import { rulesAsText } from "@/lib/rulesData";
 export const dynamic = "force-dynamic";
 
 const AUTH_ON = !!process.env.AUTH_SECRET;
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
+
+// Model selection: if ANTHROPIC_MODEL is set, use it. Otherwise auto-discover a
+// current Sonnet from the account's available models (cached), so model-name
+// changes never break the feature and you only ever set the API key.
+let _modelCache = { id: null, at: 0 };
+async function pickModel() {
+  if (process.env.ANTHROPIC_MODEL) return process.env.ANTHROPIC_MODEL;
+  if (_modelCache.id && Date.now() - _modelCache.at < 6 * 3600 * 1000) return _modelCache.id;
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/models?limit=100", {
+      headers: { "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" }
+    });
+    if (r.ok) {
+      const j = await r.json();
+      const ids = (j.data || []).map((m) => m.id);
+      // Prefer the newest Sonnet; fall back to Haiku, then anything available.
+      const sonnets = ids.filter((id) => /sonnet/i.test(id)).sort().reverse();
+      const haikus = ids.filter((id) => /haiku/i.test(id)).sort().reverse();
+      const chosen = sonnets[0] || haikus[0] || ids[0];
+      if (chosen) { _modelCache = { id: chosen, at: Date.now() }; return chosen; }
+    }
+  } catch {}
+  // Last-resort default if discovery fails.
+  return "claude-sonnet-4-20250514";
+}
 
 async function resolveTeam(req) {
   if (AUTH_ON) {
@@ -91,6 +115,7 @@ export async function POST(req) {
     `QUESTION: ${question}`;
 
   try {
+    const model = await pickModel();
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -99,13 +124,16 @@ export async function POST(req) {
         "content-type": "application/json"
       },
       body: JSON.stringify({
-        model: MODEL,
+        model,
         max_tokens: 1000,
         system,
         messages: [...history, { role: "user", content: userContent }]
       })
     });
-    if (!r.ok) return NextResponse.json({ error: `Assistant error (${r.status})` }, { status: 502 });
+    if (!r.ok) {
+      const detail = await r.text().catch(() => "");
+      return NextResponse.json({ error: `Assistant error (${r.status})`, model, detail: detail.slice(0, 300) }, { status: 502 });
+    }
     const j = await r.json();
     const answer = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
     return NextResponse.json({ answer: answer || "I'm not sure how to answer that." });
