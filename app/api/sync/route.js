@@ -1,25 +1,23 @@
 import { NextResponse } from "next/server";
 import { getData, setData, getMeta, setMeta } from "@/lib/store";
 import { fetchSquadi, applySync } from "@/lib/squadiSync";
+import { getTeams, teamFromCookieHeader } from "@/lib/teams";
 
 export const dynamic = "force-dynamic";
 
 const STALE_MS = 15 * 60 * 1000; // sync-on-visit throttle
 
-// Auth: callable by (a) Vercel Cron (Authorization: Bearer CRON_SECRET),
-// (b) any URL pinger with ?key=CRON_SECRET, or (c) a logged-in person (site cookie).
-function authorized(req) {
+// Cron/pinger auth (syncs ALL teams) vs logged-in user (syncs THEIR team).
+function cronAuthorized(req) {
   const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
   const auth = req.headers.get("authorization") || "";
-  if (secret && auth === `Bearer ${secret}`) return true;
-  if (secret && new URL(req.url).searchParams.get("key") === secret) return true;
-  const cookie = req.headers.get("cookie") || "";
-  if (process.env.SITE_PASSWORD && cookie.includes(`site_auth=${encodeURIComponent(process.env.SITE_PASSWORD)}`)) return true;
-  if (process.env.SITE_PASSWORD && cookie.includes(`site_auth=${process.env.SITE_PASSWORD}`)) return true;
+  if (auth === `Bearer ${secret}`) return true;
+  if (new URL(req.url).searchParams.get("key") === secret) return true;
   return false;
 }
 
-async function emailChanges(changes) {
+async function emailChanges(teamName, changes) {
   const key = process.env.RESEND_API_KEY;
   const to = (process.env.NOTIFY_EMAILS || "").split(",").map((s) => s.trim()).filter(Boolean);
   if (!key || to.length === 0) return "email not configured";
@@ -29,9 +27,9 @@ async function emailChanges(changes) {
     body: JSON.stringify({
       from: process.env.NOTIFY_FROM || "Team Dashboard <onboarding@resend.dev>",
       to,
-      subject: `⚽ Fixture update — ${changes.length} change${changes.length > 1 ? "s" : ""}`,
+      subject: `⚽ ${teamName} — ${changes.length} fixture change${changes.length > 1 ? "s" : ""}`,
       text:
-        "The following fixture changes just came through from Squadi:\n\n" +
+        `Fixture changes for ${teamName} just came through from Squadi:\n\n` +
         changes.map((c) => "• " + c).join("\n") +
         "\n\nCalendars subscribed to the team feed will update automatically."
     })
@@ -39,40 +37,59 @@ async function emailChanges(changes) {
   return res.ok ? "emailed" : `email failed (${res.status})`;
 }
 
-export async function GET(req) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+async function syncTeam(team, ifStale) {
+  if (!team.squadi?.competitionId) return { team: team.slug, skipped: "no squadi config" };
+
+  if (ifStale) {
+    const meta = await getMeta(team.slug);
+    if (meta.lastSyncAt && Date.now() - meta.lastSyncAt < STALE_MS) {
+      return { team: team.slug, skipped: "recent" };
+    }
   }
-  try {
-    // Visit-triggered mode: skip entirely if a sync ran recently.
-    if (new URL(req.url).searchParams.get("ifStale")) {
-      const meta = await getMeta();
-      if (meta.lastSyncAt && Date.now() - meta.lastSyncAt < STALE_MS) {
-        return NextResponse.json({ ok: true, skipped: "recent", lastSyncAt: meta.lastSyncAt });
+
+  const data = await getData(team.slug);
+  if (!data) return { team: team.slug, skipped: "no team data yet" };
+
+  const squadi = await fetchSquadi(team.squadi);
+  const { data: next, changes, created } = applySync(data, squadi);
+
+  let emailStatus = "no changes";
+  if (changes.length) {
+    const isInitialImport = created === changes.length && created > 3;
+    const toSave = isInitialImport
+      ? { ...next, fixtures: next.fixtures.map((f) => ({ ...f, schedChanges: [] })) }
+      : next;
+    await setData(team.slug, toSave);
+    emailStatus = isInitialImport ? "initial import — email skipped" : await emailChanges(team.name, changes);
+  }
+  await setMeta(team.slug, { ...(await getMeta(team.slug)), lastSyncAt: Date.now() });
+
+  return { team: team.slug, matchesSeen: squadi.length, created, changes, emailStatus };
+}
+
+export async function GET(req) {
+  const ifStale = !!new URL(req.url).searchParams.get("ifStale");
+
+  // Cron / pinger: sync every configured team.
+  if (cronAuthorized(req)) {
+    const results = [];
+    for (const team of getTeams()) {
+      try {
+        results.push(await syncTeam(team, ifStale));
+      } catch (e) {
+        results.push({ team: team.slug, ok: false, error: String(e?.message || e) });
       }
     }
+    return NextResponse.json({ ok: true, results });
+  }
 
-    const data = await getData();
-    if (!data) return NextResponse.json({ error: "no team data yet — open the dashboard once first" }, { status: 409 });
-
-    const squadi = await fetchSquadi();
-    const { data: next, changes, created } = applySync(data, squadi);
-
-    let emailStatus = "no changes";
-    if (changes.length) {
-      // Don't email or badge the very first bulk import — only subsequent changes.
-      const isInitialImport = created === changes.length && created > 3;
-      const toSave = isInitialImport
-        ? { ...next, fixtures: next.fixtures.map((f) => ({ ...f, schedChanges: [] })) }
-        : next;
-      await setData(toSave);
-      emailStatus = isInitialImport ? "initial import — email skipped" : await emailChanges(changes);
-    }
-    await setMeta({ ...(await getMeta()), lastSyncAt: Date.now() });
-
-    return NextResponse.json({ ok: true, matchesSeen: squadi.length, created, changes, emailStatus });
+  // Logged-in user: sync just their team.
+  const team = teamFromCookieHeader(req.headers.get("cookie"));
+  if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  try {
+    const result = await syncTeam(team, ifStale);
+    return NextResponse.json({ ok: true, changes: [], ...result });
   } catch (e) {
-    // Fail safe: never write anything when the upstream looks wrong.
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 502 });
   }
 }

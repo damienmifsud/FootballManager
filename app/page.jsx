@@ -1,28 +1,39 @@
-"use client";
-import "@/lib/clientStorage"; // sets window.storage before the dashboard mounts
-import dynamic from "next/dynamic";
-import Link from "next/link";
+import { cookies } from "next/headers";
+import DashboardHost from "@/components/DashboardHost";
 
-// The dashboard touches window/localStorage, so render it client-side only.
-const Dashboard = dynamic(() => import("@/components/Dashboard"), { ssr: false });
+const AUTH_ON = !!process.env.AUTH_SECRET;
 
-export default function Page() {
-  return (
-    <>
-      {/* Site-only shortcut to the embedded Squadi league view */}
-      <Link
-        href="/league"
-        style={{
-          position: "fixed", left: 12, bottom: 96, zIndex: 60,
-          background: "rgba(24,8,12,.95)", color: "#fff", textDecoration: "none",
-          fontFamily: "system-ui,sans-serif", fontSize: 12, fontWeight: 700,
-          padding: "9px 13px", borderRadius: 999, border: "1px solid #45121d",
-          boxShadow: "0 6px 18px rgba(20,6,10,.35)"
-        }}
-      >
-        League ▸
-      </Link>
-      <Dashboard />
-    </>
-  );
+export default async function Page() {
+  // Legacy team-code mode: middleware already gated entry; just show the dashboard.
+  if (!AUTH_ON) return <DashboardHost />;
+
+  // Auth mode: resolve the signed-in email to their team(s).
+  const { auth } = await import("@/auth");
+  const { membershipsForEmail } = await import("@/lib/directory");
+  const TeamPicker = (await import("@/components/TeamPicker")).default;
+
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) {
+    // middleware should have redirected; render nothing rather than leak.
+    return null;
+  }
+
+  const { memberships } = await membershipsForEmail(email);
+  if (memberships.length === 0) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "system-ui,sans-serif", background: "linear-gradient(160deg,#C8102E,#7A0A1B)", color: "#fff", textAlign: "center" }}>
+        <div style={{ maxWidth: 360 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>No team linked to {email}</div>
+          <div style={{ fontSize: 14, opacity: .9 }}>Ask your coach to add this email to your child's record, then sign in again.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const slug = cookies().get("team_slug")?.value;
+  const current = memberships.find((m) => m.teamSlug === slug);
+  if (!current) return <TeamPicker memberships={memberships} email={email} />;
+
+  return <DashboardHost />;
 }

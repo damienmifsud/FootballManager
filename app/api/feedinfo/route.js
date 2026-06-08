@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
+import { teamFromCookieHeader } from "@/lib/teams";
 
 export const dynamic = "force-dynamic";
 
-// Returns the team calendar feed URL for logged-in users (middleware gates this
-// route with the site cookie). Parents need the key to subscribe, so exposing it
-// to people who already hold the team code is by design.
+// Returns the calendar feed URL for the logged-in user's team.
 export async function GET(req) {
-  if (!process.env.CALENDAR_KEY) {
-    return NextResponse.json({ error: "CALENDAR_KEY not configured" }, { status: 500 });
-  }
+  const team = teamFromCookieHeader(req.headers.get("cookie"));
+  if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!team.calendarKey) return NextResponse.json({ error: "no calendar key configured for this team" }, { status: 500 });
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
   const proto = req.headers.get("x-forwarded-proto") || "https";
-  const feedUrl = `${proto}://${host}/api/calendar?key=${process.env.CALENDAR_KEY}`;
-  return NextResponse.json({ feedUrl });
+  return NextResponse.json({ feedUrl: `${proto}://${host}/api/calendar?key=${team.calendarKey}` });
 }

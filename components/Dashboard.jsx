@@ -4,7 +4,8 @@ import {
   Home, CalendarDays, Users, Apple, BarChart3, ShieldCheck, Plus, Pencil,
   Trash2, X, Lock, Unlock, Trophy, MapPin, Clock, ChevronRight, Check,
   Settings as SettingsIcon, Star, Goal, Info,
-  Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, ExternalLink, Download, Target
+  Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, ExternalLink, Download, Target,
+  Send, Phone, MessageSquare, Mail, Sparkles, FileText
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LabelList
@@ -93,11 +94,15 @@ function computeStats(data) {
 }
 
 function nextFixture(data) {
+  const today = isoLocal(new Date());
   const up = data.fixtures
-    .filter(f => f.status === "upcoming")
-    .sort((a, b) => (a.dateISO + a.time).localeCompare(b.dateISO + b.time));
+    .filter(f => f.status === "upcoming" && (!f.dateISO || f.dateISO >= today))
+    .sort((a, b) => ((a.dateISO || "9999") + (a.time || "")).localeCompare((b.dateISO || "9999") + (b.time || "")));
   return up[0] || null;
 }
+
+// A game whose date has passed but has no recorded score yet.
+const isPastGame = (f) => !!(f?.dateISO && f.dateISO < isoLocal(new Date()));
 
 function fmtDate(iso) {
   if (!iso) return "";
@@ -151,6 +156,90 @@ function intlPhone(ph) {
 }
 // Schedule changes detected by the Squadi sync, shown for 14 days.
 const recentChanges = (f) => (f?.schedChanges || []).filter(c => Date.now() - (c.at || 0) < 14 * 86400000);
+
+// Per-device "who's responding" identity. On the deployed site a small shim
+// (window.identityGet/Set) persists this in a cookie; in the preview it's
+// session-only. We never store credentials — this scopes editing and stamps
+// responses, gated behind the team code parents already hold.
+function readIdentity() {
+  try { return (typeof window !== "undefined" && window.identityGet) ? window.identityGet() : null; } catch { return null; }
+}
+function saveIdentity(v) {
+  try { if (typeof window !== "undefined" && window.identitySet) window.identitySet(v); } catch {}
+}
+const fmtWhen = (ts) => {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return d.toLocaleDateString("en-AU", { weekday: "short" }) + " " + d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
+};
+
+// Extract text from a PDF in the browser via pdf.js (loaded from CDN on demand).
+// We store the extracted text (not the PDF) so the Ask feature stays small/fast.
+let _pdfjs;
+function ensurePdfjs() {
+  return new Promise((resolve, reject) => {
+    if (_pdfjs) return resolve(_pdfjs);
+    if (typeof window !== "undefined" && window.pdfjsLib) {
+      _pdfjs = window.pdfjsLib;
+      _pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      return resolve(_pdfjs);
+    }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    s.onload = () => {
+      _pdfjs = window.pdfjsLib;
+      _pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      resolve(_pdfjs);
+    };
+    s.onerror = () => reject(new Error("Could not load the PDF reader"));
+    document.head.appendChild(s);
+  });
+}
+async function pdfToText(file) {
+  const pdfjsLib = await ensurePdfjs();
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let text = "";
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const c = await page.getTextContent();
+    text += c.items.map(i => i.str).join(" ") + "\n";
+  }
+  return text.replace(/\s+\n/g, "\n").trim();
+}
+
+// Staff list, tolerant of the older flat team fields.
+function getStaff(team) {
+  if (Array.isArray(team.staff)) return team.staff;
+  return [
+    { role: "Head coach", name: team.headCoach || "", mobile: team.headCoachContact || "", email: "", photo: "" },
+    { role: "Assistant coach", name: team.assistantCoach || "", mobile: team.assistantCoachContact || "", email: "", photo: "" },
+    { role: "Manager", name: team.manager || "", mobile: team.managerContact || "", email: "", photo: "" }
+  ].filter(s => s.name);
+}
+const initials = (name) => (name || "?").split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
+
+// Read an image file and downscale it to a small square-ish JPEG data URL so a
+// few staff photos stay tiny inside the team document (~10-20KB each).
+function downscaleImage(file, max = 200, type = "image/jpeg", quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+        const c = document.createElement("canvas"); c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        try { resolve(c.toDataURL(type, quality)); } catch (e) { reject(e); }
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 const secToClock = (s) => {
   s = Math.max(0, Math.floor(s || 0));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
@@ -336,6 +425,9 @@ const CSS = `
 .head{background:linear-gradient(160deg,var(--pitch) 0%,var(--pitch-d) 100%);color:#fff;
   padding:18px 20px 22px;position:sticky;top:0;z-index:20;
   border-bottom:3px solid var(--lime);}
+.head .htop{display:flex;align-items:center;gap:12px;}
+.head .hlogo{width:46px;height:46px;object-fit:contain;flex-shrink:0;
+  filter:drop-shadow(0 2px 6px rgba(0,0,0,.35));}
 .head .kicker{font-size:11px;letter-spacing:.18em;color:var(--lime);text-transform:uppercase;font-weight:700;}
 .head .tname{font-size:30px;line-height:.95;margin:4px 0 2px;}
 .head .sub{font-size:12px;color:rgba(255,255,255,.7);font-weight:500;}
@@ -343,6 +435,9 @@ const CSS = `
   background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;
   padding:7px 11px;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;}
 .coachbtn.on{background:var(--lime);color:var(--pitch-d);border-color:var(--lime);}
+.whoami{position:absolute;top:52px;right:18px;display:flex;align-items:center;gap:5px;
+  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;
+  padding:5px 10px;border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;}
 .wrap{padding:16px 16px 8px;}
 .banner{background:#fff8e6;border:1px solid #f3dca0;color:#7a5a12;border-radius:14px;
   padding:11px 13px;font-size:12.5px;display:flex;gap:9px;align-items:flex-start;margin-bottom:14px;}
@@ -400,6 +495,19 @@ const CSS = `
 .pcard:last-child{border-bottom:none;}
 .pnum{width:42px;height:42px;border-radius:12px;background:var(--pitch);color:#fff;
   display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:20px;flex-shrink:0;}
+.pnum.photo{object-fit:cover;}
+.numbadge{position:absolute;bottom:-4px;right:-4px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;
+  background:var(--pitch);color:#fff;font-family:'Anton';font-size:11px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;}
+.crest{width:30px;height:30px;object-fit:contain;flex-shrink:0;vertical-align:middle;}
+.crest-lg{width:40px;height:40px;object-fit:contain;flex-shrink:0;}
+.askmsg{padding:11px 14px;border-radius:14px;margin-bottom:10px;font-size:14px;line-height:1.5;max-width:90%;white-space:pre-wrap;}
+.askmsg.you{background:var(--pitch);color:#fff;margin-left:auto;border-bottom-right-radius:4px;}
+.askmsg.bot{background:var(--soft);color:var(--ink);border-bottom-left-radius:4px;}
+.askmsg.bot .src{display:block;margin-top:6px;font-size:11px;color:var(--muted);}
+.askchip{display:inline-block;background:var(--soft);border:1px solid var(--line);border-radius:999px;
+  padding:7px 12px;font-size:12.5px;margin:0 6px 8px 0;cursor:pointer;color:var(--ink);}
+.kdoc{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);}
+.kdoc:last-child{border-bottom:none;}
 .pos-pill{font-size:10px;font-weight:800;padding:2px 7px;border-radius:6px;letter-spacing:.04em;}
 .pos-GK{background:#fff1da;color:#b3760a;} .pos-DEF{background:#e6f0ff;color:#2563a8;}
 .pos-MID{background:#e6f6ec;color:#1f8a4c;} .pos-FWD{background:#ffe6e6;color:#c0393d;}
@@ -567,6 +675,11 @@ const CSS = `
 .chg-new{color:var(--red);font-weight:800;}
 .remindrow{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--line);}
 .remindrow:last-child{border-bottom:none;}
+.staffrow{display:flex;gap:12px;padding:12px 2px;border-bottom:1px solid var(--line);align-items:flex-start;}
+.staffrow:last-child{border-bottom:none;}
+.savatar{width:48px;height:48px;border-radius:50%;flex-shrink:0;object-fit:cover;background:var(--pitch);
+  color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;}
+.staffrole{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--pitch);}
 `;
 
 /* ============================================================
@@ -577,6 +690,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("home");
   const [isCoach, setIsCoach] = useState(false);
+  const [viewer, setViewerState] = useState(() => readIdentity() || { kind: "guest" });
+  const setViewer = (v) => { setViewerState(v); saveIdentity(v); };
   const [modal, setModal] = useState(null); // {type, payload}
 
   // load
@@ -622,12 +737,30 @@ export default function App() {
       <style>{CSS}</style>
 
       <div className="head">
-        <div className="kicker">{data.team.division} · {data.team.ageGroup}</div>
-        <div className="tname">{data.team.name}</div>
-        <div className="sub">Coach {data.team.headCoach} · Asst {data.team.assistantCoach}</div>
+        <div className="htop">
+          {(data.team.logo || true) && (
+            <img className="hlogo" src={data.team.logo || "/logo.png"} alt=""
+              onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          )}
+          <div style={{ minWidth: 0 }}>
+            <div className="kicker">{data.team.division} · {data.team.ageGroup}</div>
+            <div className="tname">{data.team.name}</div>
+            <div className="sub">{(() => {
+              const st = getStaff(data.team);
+              const hc = st.find(s => /head/i.test(s.role))?.name || data.team.headCoach;
+              const ac = st.find(s => /assist/i.test(s.role))?.name || data.team.assistantCoach;
+              return [hc && `Coach ${hc}`, ac && `Asst ${ac}`].filter(Boolean).join(" · ");
+            })()}</div>
+          </div>
+        </div>
         <button className={"coachbtn" + (isCoach ? " on" : "")} onClick={toggleCoach}>
           {isCoach ? <Unlock size={13} /> : <Lock size={13} />}{isCoach ? "Coach" : "View"}
         </button>
+        {!isCoach && (
+          <button className="whoami" onClick={() => setModal({ type: "signin" })}>
+            {viewer.kind === "parent" ? `👤 ${viewer.label}` : "Sign in to respond"}
+          </button>
+        )}
       </div>
 
       <div className="wrap">
@@ -638,25 +771,26 @@ export default function App() {
           </div>
         )}
 
-        {tab === "home" && <HomeTab {...{ data, stats, next, pname, setModal }} />}
+        {tab === "home" && <HomeTab {...{ data, stats, next, pname, setModal, viewer }} />}
         {tab === "calendar" && <CalendarTab {...{ data, isCoach, setModal }} />}
         {tab === "fixtures" && <FixturesTab {...{ data, isCoach, pname, setModal, persist }} />}
         {tab === "squad" && <SquadTab {...{ data, stats, isCoach, setModal, persist }} />}
         {tab === "duties" && <DutiesTab {...{ data, isCoach, pname, setModal }} />}
         {tab === "stats" && <StatsTab {...{ data, stats, pname }} />}
+        {tab === "ask" && <AskTab {...{ data, viewer, isCoach }} />}
         {tab === "settings" && <SettingsTab {...{ data, isCoach, persist, setIsCoach, setModal }} />}
       </div>
 
-      <nav className="nav" style={{ padding: "8px 4px" }}>
+      <nav className="nav" style={{ padding: "8px 2px" }}>
         {[["home", Home, "Home"], ["calendar", Calendar, "Calendar"], ["fixtures", ClipboardList, "Results"],
-        ["squad", Users, "Squad"], ["duties", Apple, "Duties"], ["stats", BarChart3, "Stats"]].map(([id, Ic, lbl]) => (
-          <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} style={{ fontSize: 9 }}>
-            <Ic size={19} /><span>{lbl}</span>
+        ["squad", Users, "Squad"], ["duties", Apple, "Duties"], ["stats", BarChart3, "Stats"], ["ask", Sparkles, "Ask"]].map(([id, Ic, lbl]) => (
+          <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} style={{ fontSize: 8.5 }}>
+            <Ic size={18} /><span>{lbl}</span>
           </button>
         ))}
       </nav>
 
-      {modal && <Modal {...{ modal, setModal, data, persist, isCoach, setIsCoach }} />}
+      {modal && <Modal {...{ modal, setModal, data, persist, isCoach, setIsCoach, viewer, setViewer }} />}
     </div>
   );
 }
@@ -716,9 +850,20 @@ function HomeTab({ data, stats, next, pname, setModal }) {
 
       {next && counts && activePlayers.length > 0 && (
         <div className="card" onClick={() => setModal({ type: "match", payload: next })} style={{ cursor: "pointer" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <div className="label">Who's playing Round {next.round}?</div>
-            <ChevronRight size={15} color="var(--muted)" style={{ marginLeft: "auto" }} />
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 10 }}>
+            {next.opponentLogo && <img className="crest" src={next.opponentLogo} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ marginTop: 2 }} />}
+            <div style={{ minWidth: 0 }}>
+              <div className="label">Who's playing?</div>
+              <div style={{ fontWeight: 800, fontSize: 16, marginTop: 3 }}>
+                Round {next.round} {next.homeAway === "H" ? "vs" : "@"} {next.opponent}
+              </div>
+              <div className="note" style={{ marginTop: 2, display: "flex", flexWrap: "wrap", gap: "2px 10px" }}>
+                <span><CalendarDays size={12} style={{ verticalAlign: "-2px" }} /> {fmtDate(next.dateISO)} · {next.time}</span>
+                {next.venue && <span><MapPin size={12} style={{ verticalAlign: "-2px" }} /> {next.venue}</span>}
+                {next.strip && <span style={{ fontWeight: 800, color: next.strip === "Blue" ? "#2563a8" : "var(--pitch)" }}>👕 {next.strip} strip</span>}
+              </div>
+            </div>
+            <ChevronRight size={15} color="var(--muted)" style={{ marginLeft: "auto", flexShrink: 0, marginTop: 3 }} />
           </div>
           <div className="avsum" style={{ marginBottom: 0 }}>
             <span className="avpill in"><Check size={13} />{counts.in} in</span>
@@ -927,13 +1072,16 @@ function FixturesTab({ data, isCoach, pname, setModal, persist }) {
           return (
             <div className="fx" key={f.id} onClick={() => setModal({ type: "match", payload: f })} style={{ cursor: "pointer" }}>
               <div className="rd"><div className="r">{f.round}</div><div className="dt">{fmtDate(f.dateISO)}</div></div>
+              {f.opponentLogo && <img className="crest" src={f.opponentLogo} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
               <div className="mid">
                 <div className="opp">{f.opponent}<span className={"hatag " + f.homeAway}>{f.homeAway}</span>{hasVid && <span className="playtag"><Goal size={9} />Watch</span>}{recentChanges(f).length > 0 && <span className="updtag">Updated</span>}</div>
                 <div className="ven"><MapPin size={11} />{f.venue} · {f.time}</div>
               </div>
-              {f.status === "played" && f.us != null
+              {f.us != null
                 ? <div className="res"><div className={"score " + (won ? "w" : drew ? "d" : "l")}>{f.us}–{f.them}</div></div>
-                : <div className="res"><div className="upc">Upcoming</div></div>}
+                : isPastGame(f)
+                  ? <div className="res"><div className="upc" style={{ color: "var(--muted)" }}>Awaiting score</div></div>
+                  : <div className="res"><div className="upc">Upcoming</div></div>}
               {isCoach && (
                 <div className="editbar">
                   <button className="iconbtn" onClick={(e) => { e.stopPropagation(); setModal({ type: "fixture", payload: f }); }}><Pencil size={14} /></button>
@@ -949,6 +1097,31 @@ function FixturesTab({ data, isCoach, pname, setModal, persist }) {
 }
 
 /* ---------------- SQUAD ---------------- */
+function StaffStrip({ team }) {
+  const staff = getStaff(team).filter(s => s.name);
+  if (!staff.length) return null;
+  return (
+    <div className="card" style={{ padding: "4px 14px" }}>
+      <div className="label" style={{ margin: "10px 2px 4px" }}>Team staff</div>
+      {staff.map((s, i) => (
+        <div className="staffrow" key={i}>
+          {s.photo ? <img className="savatar" src={s.photo} alt={s.name} /> : <div className="savatar">{initials(s.name)}</div>}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="staffrole">{s.role}</div>
+            <div style={{ fontWeight: 700, fontSize: 15.5 }}>{s.name}</div>
+            <div className="chips" style={{ marginTop: 7 }}>
+              {s.mobile && <a className="washare" href={`https://wa.me/${intlPhone(s.mobile)}`} target="_blank" rel="noopener noreferrer"><Send size={13} />WhatsApp</a>}
+              {s.mobile && <a className="chip lnk" href={"tel:" + s.mobile.replace(/\s+/g, "")}><Phone size={13} />Call</a>}
+              {s.mobile && <a className="chip lnk" href={"sms:" + s.mobile.replace(/\s+/g, "")}><MessageSquare size={13} />Text</a>}
+              {s.email && <a className="chip lnk" href={"mailto:" + s.email}><Mail size={13} />Email</a>}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SquadTab({ data, stats, isCoach, setModal, persist }) {
   const sm = {};
   stats.scorers.forEach(s => { sm[s.id] = s; });
@@ -959,6 +1132,7 @@ function SquadTab({ data, stats, isCoach, setModal, persist }) {
   const del = (id) => persist({ ...data, players: data.players.filter(p => p.id !== id), isSample: false });
   return (
     <>
+      <StaffStrip team={data.team} />
       {isCoach && <>
         <button className="addfab" onClick={() => setModal({ type: "player", payload: null })}><Plus size={17} />Add player</button>
         <button className="btn ghost" style={{ marginTop: -6, marginBottom: 14 }} onClick={() => setModal({ type: "playersImport" })}>Paste player list (bulk import)</button>
@@ -970,7 +1144,12 @@ function SquadTab({ data, stats, isCoach, setModal, persist }) {
           const ended = p.guest && p.untilISO && todayISO > p.untilISO;
           return (
             <div className="pcard" key={p.id} onClick={() => setModal({ type: "playerView", payload: p })}>
-              <div className="pnum" style={p.guest ? { background: "#2563a8" } : undefined}>{p.number}</div>
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                {p.photo
+                  ? <img className="pnum photo" src={p.photo} alt={p.name} />
+                  : <div className="pnum" style={p.guest ? { background: "#2563a8" } : undefined}>{p.number}</div>}
+                {p.photo && <span className="numbadge">{p.number}</span>}
+              </div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{p.name}
                   {p.guest && <span className={"guesttag" + (ended ? " ended" : "")}>{ended ? "Guest · ended" : "Guest"}</span>}
@@ -1070,6 +1249,215 @@ function StatsTab({ data, stats, pname }) {
 }
 
 /* ---------------- SETTINGS ---------------- */
+function KnowledgeEditor({ data, persist, isCoach }) {
+  const docs = data.knowledge || [];
+  const [busy, setBusy] = useState("");
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pName, setPName] = useState(""); const [pText, setPText] = useState("");
+
+  const [urlOpen, setUrlOpen] = useState(false);
+  const [url, setUrl] = useState("");
+
+  const addUrl = async () => {
+    if (!url.trim()) return;
+    setBusy("Fetching page…");
+    try {
+      const res = await fetch("/api/fetchdoc", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: url.trim() }) });
+      const j = await res.json();
+      if (!res.ok) { setBusy(j.error || "Couldn't fetch that page."); return; }
+      saveDocs([...docs, { id: uid(), name: j.name, text: j.text, chars: j.text.length, sourceUrl: url.trim(), addedAt: Date.now() }]);
+      setUrl(""); setUrlOpen(false); setBusy("");
+    } catch { setBusy("Couldn't fetch that page (this only works on the live website)."); }
+  };
+
+  const saveDocs = (next) => persist({ ...data, knowledge: next, isSample: false });
+  const onPdf = async (file) => {
+    if (!file) return;
+    setBusy("Reading " + file.name + "…");
+    try {
+      const text = await pdfToText(file);
+      if (!text || text.length < 20) { setBusy("Couldn't read text from that PDF (it may be a scan/image)."); return; }
+      saveDocs([...docs, { id: uid(), name: file.name.replace(/\.pdf$/i, ""), text, chars: text.length, addedAt: Date.now() }]);
+      setBusy("");
+    } catch (e) { setBusy("Couldn't read that PDF: " + e.message); }
+  };
+  const addPaste = () => {
+    if (!pName.trim() || !pText.trim()) return;
+    saveDocs([...docs, { id: uid(), name: pName.trim(), text: pText.trim(), chars: pText.trim().length, addedAt: Date.now() }]);
+    setPName(""); setPText(""); setPasteOpen(false);
+  };
+  const del = (id) => saveDocs(docs.filter(d => d.id !== id));
+
+  if (!isCoach) {
+    return <div className="note">{docs.length ? `${docs.length} document${docs.length > 1 ? "s" : ""} loaded for the Ask feature.` : "No documents loaded yet."}</div>;
+  }
+
+  return (<>
+    <div className="note" style={{ marginBottom: 10 }}>Upload Football QLD or club PDFs (rules, by-laws, policies). The text is extracted and used to answer questions in the Ask tab. Keep it to a few key documents.</div>
+    <div className="kdoc" style={{ opacity: .8 }}>
+      <FileText size={16} color="#1E9E57" />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>MiniRoos playing formats <span className="guesttag" style={{ background: "#e6f6ec", color: "#1f8a4c" }}>Built-in</span></div>
+        <div className="note" style={{ fontSize: 11 }}>U6–U11 team sizes, ball/field/goal sizes, durations — always on</div>
+      </div>
+    </div>
+    {docs.map(d => (
+      <div className="kdoc" key={d.id}>
+        <FileText size={16} color="var(--pitch)" />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{d.name}</div>
+          <div className="note" style={{ fontSize: 11 }}>{Math.round((d.chars || 0) / 1000)}k characters</div>
+        </div>
+        <button className="chip" onClick={() => del(d.id)}><Trash2 size={13} /></button>
+      </div>
+    ))}
+    {busy && <div className="note" style={{ margin: "8px 0", color: "var(--pitch)" }}>{busy}</div>}
+    <div className="chips" style={{ marginTop: 12 }}>
+      <label className="chip" style={{ cursor: "pointer" }}>
+        <Plus size={13} />Upload PDF
+        <input type="file" accept="application/pdf" style={{ display: "none" }} onChange={e => onPdf(e.target.files?.[0])} />
+      </label>
+      <button className="chip" onClick={() => setPasteOpen(!pasteOpen)}><Plus size={13} />Paste text</button>
+      <button className="chip" onClick={() => setUrlOpen(!urlOpen)}><Plus size={13} />Add from web page</button>
+    </div>
+    {urlOpen && (
+      <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+        <input className="inp" placeholder="https://olympicfc.com.au/?p=12792" value={url} onChange={e => setUrl(e.target.value)} style={{ flex: 1 }} />
+        <button className="btn" style={{ width: "auto", padding: "0 16px" }} onClick={addUrl} disabled={!url.trim()}>Fetch</button>
+      </div>
+    )}
+    {pasteOpen && (
+      <div style={{ marginTop: 10 }}>
+        <input className="inp" placeholder="Document name" value={pName} onChange={e => setPName(e.target.value)} style={{ marginBottom: 8 }} />
+        <textarea className="inp" rows={4} placeholder="Paste the text…" value={pText} onChange={e => setPText(e.target.value)} />
+        <button className="btn" style={{ marginTop: 8 }} onClick={addPaste} disabled={!pName.trim() || !pText.trim()}>Add document</button>
+      </div>
+    )}
+  </>);
+}
+
+function AskTab({ data, viewer, isCoach }) {
+  const allowed = isCoach || viewer?.kind === "parent";
+  const [q, setQ] = useState("");
+  const [msgs, setMsgs] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const docs = data.knowledge || [];
+
+  const suggestions = [
+    "When and where is our next game?",
+    "What are this season's match focuses?",
+    "How long are the halves at U8?",
+    "What's the wet weather / cancellation policy?"
+  ];
+
+  const ask = async (text) => {
+    const question = (text ?? q).trim();
+    if (!question || busy) return;
+    setQ("");
+    const next = [...msgs, { role: "you", text: question }];
+    setMsgs(next);
+    setBusy(true);
+    try {
+      const res = await fetch("/api/ask", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question, history: msgs.slice(-6) })
+      });
+      const j = await res.json();
+      setMsgs([...next, { role: "bot", text: j.answer || j.error || "Sorry, I couldn't answer that right now." }]);
+    } catch {
+      setMsgs([...next, { role: "bot", text: "The Ask feature only works on the live website (it needs the team's secure connection to Claude). Try it there." }]);
+    } finally { setBusy(false); }
+  };
+
+  if (!allowed) {
+    return <div className="empty"><Sparkles size={26} color="var(--muted)" /><div className="disp" style={{ marginTop: 8 }}>Sign in to ask</div>
+      <div className="note">Tap “Sign in to respond” at the top to use the team assistant.</div></div>;
+  }
+
+  return (
+    <>
+      <div className="card">
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <Sparkles size={18} color="var(--pitch)" /><div className="label">Ask the team assistant</div>
+        </div>
+        <div className="note">Answers come from the team's documents{docs.length ? ` (${docs.length} loaded)` : " (none loaded yet — ask your coach to add club & Football QLD PDFs)"} plus our live fixtures, squad and focuses. It won't make up rules.</div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        {msgs.length === 0 && suggestions.map((s, i) => (
+          <span className="askchip" key={i} onClick={() => ask(s)}>{s}</span>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", marginBottom: 12 }}>
+        {msgs.map((m, i) => <div key={i} className={"askmsg " + m.role}>{m.text}</div>)}
+        {busy && <div className="askmsg bot">Thinking…</div>}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, position: "sticky", bottom: 8 }}>
+        <input className="inp" value={q} placeholder="Ask a question…" onChange={e => setQ(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && ask()} style={{ flex: 1 }} />
+        <button className="btn" style={{ width: "auto", padding: "0 18px" }} onClick={() => ask()} disabled={busy || !q.trim()}>
+          <Send size={16} />
+        </button>
+      </div>
+    </>
+  );
+}
+
+function StaffEditor({ t, setT, isCoach }) {
+  const staff = t.staff || getStaff(t).map(s => ({ ...s }));
+  const update = (next) => setT({ ...t, staff: next });
+  const setS = (i, patch) => update(staff.map((s, j) => j === i ? { ...s, ...patch } : s));
+  const add = () => update([...staff, { role: "", name: "", mobile: "", email: "", photo: "" }]);
+  const del = (i) => update(staff.filter((_, j) => j !== i));
+  const onPhoto = async (i, file) => { if (!file) return; try { setS(i, { photo: await downscaleImage(file) }); } catch {} };
+
+  if (!isCoach) {
+    return (<>
+      {staff.filter(s => s.name).map((s, i) => (
+        <div className="staffrow" key={i}>
+          {s.photo ? <img className="savatar" src={s.photo} alt={s.name} /> : <div className="savatar">{initials(s.name)}</div>}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="staffrole">{s.role}</div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>{s.name}</div>
+            <div className="chips" style={{ marginTop: 6 }}>
+              {s.mobile && <a className="washare" href={`https://wa.me/${intlPhone(s.mobile)}`} target="_blank" rel="noopener noreferrer"><Send size={13} />WhatsApp</a>}
+              {s.mobile && <a className="chip lnk" href={"tel:" + s.mobile.replace(/\s+/g, "")}><Phone size={13} />Call</a>}
+              {s.email && <a className="chip lnk" href={"mailto:" + s.email}><Mail size={13} />Email</a>}
+            </div>
+          </div>
+        </div>
+      ))}
+    </>);
+  }
+
+  return (<>
+    {staff.map((s, i) => (
+      <div key={i} style={{ borderTop: i ? "1px solid var(--line)" : "none", paddingTop: i ? 12 : 0, marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 8, alignItems: "center" }}>
+          {s.photo ? <img className="savatar" src={s.photo} alt="" /> : <div className="savatar">{initials(s.name || "?")}</div>}
+          <label className="chip" style={{ cursor: "pointer" }}>
+            <Plus size={13} />Photo
+            <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => onPhoto(i, e.target.files?.[0])} />
+          </label>
+          {s.photo && <button className="chip" onClick={() => setS(i, { photo: "" })}>Remove</button>}
+          <button className="chip" style={{ marginLeft: "auto" }} onClick={() => del(i)}><Trash2 size={13} /></button>
+        </div>
+        <div className="row2">
+          <div className="field"><label>Role</label><input className="inp" value={s.role} onChange={e => setS(i, { role: e.target.value })} placeholder="Head coach" /></div>
+          <div className="field"><label>Name</label><input className="inp" value={s.name} onChange={e => setS(i, { name: e.target.value })} /></div>
+        </div>
+        <div className="row2">
+          <div className="field"><label>Mobile</label><input className="inp" value={s.mobile || ""} onChange={e => setS(i, { mobile: e.target.value })} placeholder="0400 000 000" /></div>
+          <div className="field"><label>Email</label><input className="inp" value={s.email || ""} onChange={e => setS(i, { email: e.target.value })} /></div>
+        </div>
+      </div>
+    ))}
+    <button className="chip" onClick={add}><Plus size={13} />Add staff member</button>
+  </>);
+}
+
 function SettingsTab({ data, isCoach, persist, setIsCoach, setModal }) {
   const [t, setT] = useState(data.team);
   useEffect(() => setT(data.team), [data.team]);
@@ -1084,36 +1472,33 @@ function SettingsTab({ data, isCoach, persist, setIsCoach, setModal }) {
           <div className="field"><label>Age group</label><input className="inp" disabled={!isCoach} value={t.ageGroup} onChange={e => setT({ ...t, ageGroup: e.target.value })} /></div>
           <div className="field"><label>Division</label><input className="inp" disabled={!isCoach} value={t.division} onChange={e => setT({ ...t, division: e.target.value })} /></div>
         </div>
+        {isCoach && (
+          <div className="field" style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+            <label>Club logo</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {t.logo
+                ? <img src={t.logo} alt="logo" style={{ width: 48, height: 48, objectFit: "contain", background: "var(--pitch)", borderRadius: 10, padding: 4 }} />
+                : <div className="savatar" style={{ borderRadius: 10 }}>FC</div>}
+              <label className="chip" style={{ cursor: "pointer" }}>
+                <Plus size={13} />{t.logo ? "Change logo" : "Upload logo"}
+                <input type="file" accept="image/*" style={{ display: "none" }}
+                  onChange={async e => { const f = e.target.files?.[0]; if (f) { try { setT({ ...t, logo: await downscaleImage(f, 256, "image/png") }); } catch {} } }} />
+              </label>
+              {t.logo && <button className="chip" onClick={() => setT({ ...t, logo: "" })}>Remove</button>}
+            </div>
+            <div className="note" style={{ marginTop: 4 }}>Shows in the header. A transparent PNG works best on the red background.</div>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="label" style={{ marginBottom: 12 }}>Team knowledge (for Ask)</div>
+        <KnowledgeEditor data={data} persist={persist} isCoach={isCoach} />
       </div>
 
       <div className="card">
         <div className="label" style={{ marginBottom: 12 }}>Team staff</div>
-        {isCoach ? <>
-          <div className="row2">
-            <div className="field"><label>Head coach</label><input className="inp" value={t.headCoach} onChange={e => setT({ ...t, headCoach: e.target.value })} /></div>
-            <div className="field"><label>Contact</label><input className="inp" value={t.headCoachContact || ""} onChange={e => setT({ ...t, headCoachContact: e.target.value })} placeholder="0400 000 000" /></div>
-          </div>
-          <div className="row2">
-            <div className="field"><label>Assistant coach</label><input className="inp" value={t.assistantCoach} onChange={e => setT({ ...t, assistantCoach: e.target.value })} /></div>
-            <div className="field"><label>Contact</label><input className="inp" value={t.assistantCoachContact || ""} onChange={e => setT({ ...t, assistantCoachContact: e.target.value })} placeholder="0400 000 000" /></div>
-          </div>
-          <div className="row2">
-            <div className="field"><label>Manager</label><input className="inp" value={t.manager || ""} onChange={e => setT({ ...t, manager: e.target.value })} /></div>
-            <div className="field"><label>Contact</label><input className="inp" value={t.managerContact || ""} onChange={e => setT({ ...t, managerContact: e.target.value })} placeholder="0400 000 000" /></div>
-          </div>
-        </> : <>
-          {[["Head coach", t.headCoach, t.headCoachContact], ["Assistant coach", t.assistantCoach, t.assistantCoachContact], ["Manager", t.manager, t.managerContact]]
-            .filter(([, name]) => name)
-            .map(([role, name, contact]) => (
-              <div key={role} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15 }}>{name}</div>
-                  <div className="note">{role}</div>
-                </div>
-                {contact && <a href={"tel:" + contact.replace(/\s+/g, "")} style={{ color: "var(--pitch)", fontWeight: 700, fontSize: 14, textDecoration: "none" }}>{contact}</a>}
-              </div>
-            ))}
-        </>}
+        <StaffEditor t={t} setT={setT} isCoach={isCoach} />
       </div>
 
       <div className="card">
@@ -1168,18 +1553,19 @@ function SettingsTab({ data, isCoach, persist, setIsCoach, setModal }) {
 /* ============================================================
    MODALS
 ============================================================ */
-function Modal({ modal, setModal, data, persist, isCoach, setIsCoach }) {
+function Modal({ modal, setModal, data, persist, isCoach, setIsCoach, viewer, setViewer }) {
   const close = () => setModal(null);
   return (
     <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) close(); }}>
       <div className="sheet">
         {modal.type === "pin" && <PinSheet {...{ data, setIsCoach, close }} />}
+        {modal.type === "signin" && <SignInSheet {...{ data, viewer, setViewer, close }} />}
         {modal.type === "fixture" && <FixtureSheet {...{ data, persist, payload: modal.payload, close }} />}
-        {modal.type === "match" && <MatchSheet {...{ data, persist, payload: modal.payload, isCoach, close }} />}
+        {modal.type === "match" && <MatchSheet {...{ data, persist, payload: modal.payload, isCoach, viewer, setModal, close }} />}
         {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, setModal, close }} />}
         {modal.type === "sessionEdit" && <SessionEditSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "player" && <PlayerSheet {...{ data, persist, payload: modal.payload, close }} />}
-        {modal.type === "playerView" && <PlayerViewSheet {...{ data, payload: modal.payload, isCoach, close }} />}
+        {modal.type === "playerView" && <PlayerViewSheet {...{ data, persist, payload: modal.payload, isCoach, viewer, close }} />}
         {modal.type === "import" && <ImportSheet {...{ data, persist, close }} />}
         {modal.type === "playersImport" && <PlayersImportSheet {...{ data, persist, close }} />}
         {modal.type === "reset" && <ResetSheet {...{ data, persist, close }} />}
@@ -1240,6 +1626,51 @@ function PinSheet({ data, setIsCoach, close }) {
     </div>
     {err && <div className="note" style={{ color: "var(--red)", marginBottom: 8 }}>Incorrect PIN.</div>}
     <button className="btn" onClick={go}>Unlock</button>
+  </>);
+}
+
+function SignInSheet({ data, viewer, setViewer, close }) {
+  const [pinFor, setPinFor] = useState(null); // player awaiting PIN
+  const [pin, setPin] = useState(""); const [err, setErr] = useState(false);
+  const players = [...data.players].sort((a, b) => a.number - b.number);
+
+  const pick = (p) => {
+    if (p.pin) { setPinFor(p); setPin(""); setErr(false); }
+    else { setViewer({ kind: "parent", pid: p.id, label: p.name }); close(); }
+  };
+  const confirmPin = () => {
+    if (pin === pinFor.pin) { setViewer({ kind: "parent", pid: pinFor.id, label: pinFor.name }); close(); }
+    else setErr(true);
+  };
+
+  if (pinFor) return (<>
+    <SheetHead title={`Sign in as ${pinFor.name}'s parent`} close={close} />
+    <div className="field"><label>Family PIN</label>
+      <input className="inp" type="tel" value={pin} autoFocus onChange={e => { setPin(e.target.value); setErr(false); }} />
+    </div>
+    {err && <div className="note" style={{ color: "var(--red)", marginBottom: 8 }}>Incorrect PIN — check with the coach.</div>}
+    <button className="btn" onClick={confirmPin}>Sign in</button>
+    <button className="btn ghost" style={{ marginTop: 8 }} onClick={() => setPinFor(null)}>Back</button>
+  </>);
+
+  return (<>
+    <SheetHead title="Who's responding?" close={close} />
+    <div className="note" style={{ marginBottom: 12 }}>
+      Tap your child so your availability replies are recorded as you — and so you can only mark your own player. Remembered on this device.
+    </div>
+    {viewer.kind === "parent" && (
+      <button className="btn ghost" style={{ marginBottom: 12 }} onClick={() => { setViewer({ kind: "guest" }); close(); }}>
+        Sign out ({viewer.label})
+      </button>
+    )}
+    <div className="card" style={{ padding: "4px 12px" }}>
+      {players.map(p => (
+        <div key={p.id} className="avrow" onClick={() => pick(p)} style={{ cursor: "pointer" }}>
+          <div className="avname">{p.name}{p.pin && <Lock size={11} style={{ marginLeft: 6, opacity: .5 }} />}</div>
+          {viewer.pid === p.id ? <Check size={16} color="#1E9E57" /> : <ChevronRight size={15} color="var(--muted)" />}
+        </div>
+      ))}
+    </div>
   </>);
 }
 
@@ -1317,6 +1748,14 @@ function FixtureSheet({ data, persist, payload, close }) {
         </div>
       </div>
     )}
+
+    <div className="field"><label>Playing strip</label>
+      <div className="seg">
+        <button className={!f.strip ? "sel" : ""} onClick={() => setF({ ...f, strip: "" })}>Not set</button>
+        <button className={f.strip === "Red" ? "sel" : ""} onClick={() => setF({ ...f, strip: "Red" })}>Red</button>
+        <button className={f.strip === "Blue" ? "sel" : ""} onClick={() => setF({ ...f, strip: "Blue" })}>Blue</button>
+      </div>
+    </div>
 
     <div className="field" style={{ borderTop: "1px solid var(--line)", paddingTop: 14 }}>
       <label>Focus this week — training & game (optional)</label>
@@ -1409,7 +1848,7 @@ function VideoEditor({ f, setF }) {
   );
 }
 
-function MatchSheet({ data, persist, payload: f, isCoach, close }) {
+function MatchSheet({ data, persist, payload: f, isCoach, viewer, setModal, close }) {
   const [seek, setSeek] = useState(null);
   const [avail, setAvail] = useState(f.availability || {});
   const kind = videoKind(f.video);
@@ -1423,9 +1862,14 @@ function MatchSheet({ data, persist, payload: f, isCoach, close }) {
     ? `https://www.youtube.com/embed/${id}?rel=0&modestbranding=1${seek != null ? `&start=${seek}&autoplay=1` : ""}`
     : null;
 
+  const whoLabel = isCoach ? "Coach" : (viewer?.kind === "parent" ? viewer.label : null);
+  const canEdit = (pid) => isCoach || (viewer?.kind === "parent" && viewer.pid === pid);
+
   const setAv = (pid, patch) => {
     const cur = avail[pid] || {};
     const entry = { ...cur, ...patch };
+    if (entry.status == null) { /* cleared */ }
+    else { entry.by = whoLabel || "someone"; entry.at = Date.now(); }
     const next = { ...avail };
     if (entry.status == null) delete next[pid]; else next[pid] = entry;
     setAvail(next);
@@ -1447,13 +1891,25 @@ function MatchSheet({ data, persist, payload: f, isCoach, close }) {
   return (<>
     <SheetHead title={`Round ${f.round}`} close={close} />
     <div className="matchscore">
-      <div className="vs">{home ? us : them} vs {home ? them : us}</div>
-      {f.status === "played" && f.us != null
+      <div className="vs" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+        {f.opponentLogo && <img className="crest-lg" src={f.opponentLogo} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+        <span>{home ? us : them} vs {home ? them : us}</span>
+      </div>
+      {f.us != null
         ? <div className="big">{home ? f.us : f.them}–{home ? f.them : f.us}</div>
-        : <div className="big" style={{ fontSize: 22, color: "var(--amber)" }}>Upcoming</div>}
+        : isPastGame(f)
+          ? <div className="big" style={{ fontSize: 20, color: "var(--muted)" }}>Played — score not recorded</div>
+          : <div className="big" style={{ fontSize: 22, color: "var(--amber)" }}>Upcoming</div>}
       <div className="note">{fmtDate(f.dateISO)} · {f.time} · {f.venue
         ? <a href={mapsUrl(f.venue)} target="_blank" rel="noopener noreferrer" style={{ color: "var(--pitch)", fontWeight: 700, textDecoration: "underline" }}>{f.venue}</a>
         : "—"}</div>
+      {f.strip && (
+        <div style={{ marginTop: 8 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 999, padding: "5px 12px", fontSize: 12.5, fontWeight: 800, background: f.strip === "Blue" ? "#e6f0ff" : "#fdeaec", color: f.strip === "Blue" ? "#2563a8" : "var(--pitch)" }}>
+            👕 {f.strip} strip
+          </span>
+        </div>
+      )}
     </div>
 
     <FocusCard f={f} label={f.status === "played" ? "Focus that week" : "This week's focus"} />
@@ -1478,7 +1934,7 @@ function MatchSheet({ data, persist, payload: f, isCoach, close }) {
       </div>
     )}
 
-    {f.status === "upcoming" && players.length > 0 && (
+    {f.status === "upcoming" && !isPastGame(f) && players.length > 0 && (
       <div className="card">
         <div className="label" style={{ marginBottom: 10 }}>Who's playing? Tap your player</div>
         <div className="avsum">
@@ -1486,24 +1942,43 @@ function MatchSheet({ data, persist, payload: f, isCoach, close }) {
           <span className="avpill out"><X size={13} />{counts.out} out</span>
           <span className="avpill nr">{counts.nr} no reply</span>
         </div>
+        {viewer?.kind !== "parent" && !isCoach && (
+          <button className="btn" style={{ marginBottom: 12 }} onClick={() => { close(); setModal({ type: "signin" }); }}>
+            Sign in to mark your child
+          </button>
+        )}
         {players.map(p => {
           const a = avail[p.id] || {};
+          const editable = canEdit(p.id);
           return (
-            <div className="avrow" key={p.id}>
-              <div className="avname">{p.number}. {p.name}</div>
-              <button className={"avbtn" + (a.status === "in" ? " selin" : "")}
-                onClick={() => setAv(p.id, { status: a.status === "in" ? null : "in", reason: undefined })}>In</button>
-              <button className={"avbtn" + (a.status === "out" ? " selout" : "")}
-                onClick={() => setAv(p.id, { status: a.status === "out" ? null : "out", reason: a.reason || "Away" })}>Out</button>
-              {a.status === "out" && (
-                <select className="avsel" value={a.reason || "Away"} onChange={e => setAv(p.id, { status: "out", reason: e.target.value })}>
-                  {ABSENCE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
+            <div className="avrow" key={p.id} style={editable ? undefined : { opacity: .82 }}>
+              <div className="avname">
+                {p.number}. {p.name}
+                {a.by && a.status && <div className="note" style={{ fontSize: 10.5, fontWeight: 500 }}>{a.status === "in" ? "In" : "Out"} · {a.by}{a.at ? " · " + fmtWhen(a.at) : ""}</div>}
+              </div>
+              {editable ? <>
+                <button className={"avbtn" + (a.status === "in" ? " selin" : "")}
+                  onClick={() => setAv(p.id, { status: a.status === "in" ? null : "in", reason: undefined })}>In</button>
+                <button className={"avbtn" + (a.status === "out" ? " selout" : "")}
+                  onClick={() => setAv(p.id, { status: a.status === "out" ? null : "out", reason: a.reason || "Away" })}>Out</button>
+                {a.status === "out" && (
+                  <select className="avsel" value={a.reason || "Away"} onChange={e => setAv(p.id, { status: "out", reason: e.target.value })}>
+                    {ABSENCE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                )}
+              </> : (
+                <span className={"avpill " + (a.status === "in" ? "in" : a.status === "out" ? "out" : "nr")}>
+                  {a.status === "in" ? "In" : a.status === "out" ? (a.reason || "Out") : "—"}
+                </span>
               )}
             </div>
           );
         })}
-        <div className="note" style={{ marginTop: 10 }}>Tap In or Out for your child — it saves instantly and replaces the weekly poll. Tap again to clear.</div>
+        <div className="note" style={{ marginTop: 10 }}>
+          {isCoach ? "As coach you can mark anyone." : viewer?.kind === "parent"
+            ? `You're marking ${viewer.label}. Replies save instantly and are recorded with your name.`
+            : "Sign in (top right) to respond for your child."}
+        </div>
 
         {isCoach && nonResponders.length > 0 && (
           <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
@@ -1602,6 +2077,7 @@ function MatchSheet({ data, persist, payload: f, isCoach, close }) {
             ? `Result: ${f.us}–${f.them}` +
               ((f.goals || []).length ? `\nGoals: ${(f.goals || []).map(g => `${pname(g.pid)}${g.n > 1 ? " ×" + g.n : ""}`).join(", ")}` : "")
             : `${fmtDate(f.dateISO)} · ${f.time}\n📍 ${f.venue || "TBC"}`) +
+          (f.strip ? `\n👕 Strip: ${f.strip}` : "") +
           (f.focusTitle ? `\n🎯 Focus: ${f.focusTitle}` : "") +
           (f.fruit ? `\n🍊 Fruit: ${pname(f.fruit)}` : "")
         )}>
@@ -1612,10 +2088,30 @@ function MatchSheet({ data, persist, payload: f, isCoach, close }) {
 }
 
 function PlayerSheet({ data, persist, payload, close }) {
-  const [p, setP] = useState(payload || { id: uid(), name: "", number: "", position: "MID" });
+  const [p, setP] = useState(() => {
+    const base = payload || { id: uid(), name: "", number: "", position: "MID" };
+    // Migrate any legacy single-parent fields into the guardians array on open.
+    if (!base.guardians) {
+      base.guardians = (base.parentName || base.parentContact || (base.parentEmails || []).length)
+        ? [{ name: base.parentName || "", mobile: base.parentContact || "", email: (base.parentEmails || [])[0] || "" }]
+        : [];
+    }
+    return JSON.parse(JSON.stringify(base));
+  });
+  const setG = (i, patch) => setP({ ...p, guardians: p.guardians.map((g, j) => j === i ? { ...g, ...patch } : g) });
+  const addG = () => setP({ ...p, guardians: [...p.guardians, { name: "", mobile: "", email: "" }] });
+  const delG = (i) => setP({ ...p, guardians: p.guardians.filter((_, j) => j !== i) });
+
   const save = () => {
     if (!p.name) return;
-    const np = { ...p, number: +p.number || 0 };
+    const guardians = (p.guardians || []).filter(g => g.name || g.mobile || g.email);
+    // Keep legacy fields in sync for reminders, login resolution, contact display.
+    const np = {
+      ...p, number: +p.number || 0, guardians,
+      parentName: guardians[0]?.name || "",
+      parentContact: guardians[0]?.mobile || "",
+      parentEmails: [...new Set(guardians.map(g => (g.email || "").trim().toLowerCase()).filter(Boolean))]
+    };
     const exists = data.players.some(x => x.id === p.id);
     const players = exists ? data.players.map(x => x.id === p.id ? np : x) : [...data.players, np];
     persist({ ...data, players, isSample: false }); close();
@@ -1624,17 +2120,34 @@ function PlayerSheet({ data, persist, payload, close }) {
     <SheetHead title={payload ? "Edit player" : "Add player"} close={close} />
     <div className="field"><label>Name</label><input className="inp" value={p.name} autoFocus onChange={e => setP({ ...p, name: e.target.value })} /></div>
     <div className="row2">
-      <div className="field"><label>Squad number</label><input className="inp" type="number" value={p.number} onChange={e => setP({ ...p, number: e.target.value })} /></div>
+      <div className="field"><label>Jersey number</label><input className="inp" type="number" value={p.number} onChange={e => setP({ ...p, number: e.target.value })} /></div>
       <div className="field"><label>Birthday</label><input className="inp" type="date" value={p.dob || ""} onChange={e => setP({ ...p, dob: e.target.value })} /></div>
     </div>
     <div className="field"><label>Position</label>
       <div className="seg">{POSITIONS.map(pos => <button key={pos} className={p.position === pos ? "sel" : ""} onClick={() => setP({ ...p, position: pos })}>{pos}</button>)}</div>
     </div>
-    <div className="row2">
-      <div className="field"><label>Parent / guardian</label><input className="inp" value={p.parentName || ""} onChange={e => setP({ ...p, parentName: e.target.value })} /></div>
-      <div className="field"><label>Parent contact</label><input className="inp" value={p.parentContact || ""} onChange={e => setP({ ...p, parentContact: e.target.value })} placeholder="0400 000 000" /></div>
+
+    <div className="field" style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+      <label>Parents / guardians (coach only)</label>
+      {p.guardians.map((g, i) => (
+        <div key={i} style={{ background: "var(--soft)", borderRadius: 12, padding: 10, marginBottom: 8 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <input className="inp" style={{ flex: 1 }} value={g.name} placeholder={`Parent ${i + 1} name`} onChange={e => setG(i, { name: e.target.value })} />
+            <button className="chip" onClick={() => delG(i)} style={{ flexShrink: 0 }}><Trash2 size={13} /></button>
+          </div>
+          <input className="inp" style={{ marginBottom: 6 }} value={g.mobile} placeholder="Mobile e.g. 0400 000 000" onChange={e => setG(i, { mobile: e.target.value })} />
+          <input className="inp" value={g.email} placeholder="Email (used for parent login)" onChange={e => setG(i, { email: e.target.value })} />
+        </div>
+      ))}
+      <button className="chip" onClick={addG}><Plus size={13} />Add a parent / guardian</button>
+      <div className="note" style={{ marginTop: 6 }}>Record both parents so either can log in, and so coaches can WhatsApp, call or text them. Email is the parent login key.</div>
     </div>
-    <div className="note" style={{ marginTop: -6, marginBottom: 10 }}>Parent details show to coaches only.</div>
+
+    <div className="field">
+      <label>Family PIN (optional)</label>
+      <input className="inp" type="tel" value={p.pin || ""} onChange={e => setP({ ...p, pin: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="e.g. 1234 — only needed if you want sign-in protected" />
+      <div className="note" style={{ marginTop: 4 }}>If set, this family must enter it to sign in and respond as themselves. Leave blank for one-tap sign-in.</div>
+    </div>
 
     <div className="field" style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
       <label>Player type</label>
@@ -1654,34 +2167,68 @@ function PlayerSheet({ data, persist, payload, close }) {
   </>);
 }
 
-function PlayerViewSheet({ data, payload, isCoach, close }) {
+function PlayerViewSheet({ data, persist, payload, isCoach, viewer, close }) {
+  const [p, setP] = useState(payload);
   const played = data.fixtures.filter(f => f.status === "played");
   let g = 0, a = 0;
-  played.forEach(f => { g += (f.goals || []).filter(x => x.pid === payload.id).reduce((s, x) => s + x.n, 0); a += (f.assists || []).filter(x => x.pid === payload.id).reduce((s, x) => s + x.n, 0); });
+  played.forEach(f => { g += (f.goals || []).filter(x => x.pid === p.id).reduce((s, x) => s + x.n, 0); a += (f.assists || []).filter(x => x.pid === p.id).reduce((s, x) => s + x.n, 0); });
+  const guardians = p.guardians && p.guardians.length
+    ? p.guardians
+    : (p.parentName || p.parentContact) ? [{ name: p.parentName, mobile: p.parentContact, email: (p.parentEmails || [])[0] }] : [];
+  const canEditPhoto = isCoach || (viewer?.kind === "parent" && viewer.pid === p.id);
+
+  const savePhoto = async (file) => {
+    if (!file) return;
+    try {
+      const photo = await downscaleImage(file, 320);
+      const np = { ...p, photo };
+      setP(np);
+      persist({ ...data, players: data.players.map(x => x.id === p.id ? { ...x, photo } : x), isSample: false });
+    } catch {}
+  };
+
   return (<>
-    <SheetHead title={payload.name} close={close} />
+    <SheetHead title={p.name} close={close} />
     <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
-      <div className="pnum" style={{ width: 56, height: 56, fontSize: 26 }}>{payload.number}</div>
-      <div><span className={"pos-pill pos-" + payload.position}>{payload.position}</span></div>
+      <div style={{ position: "relative" }}>
+        {p.photo
+          ? <img className="pnum photo" style={{ width: 64, height: 64, borderRadius: 16 }} src={p.photo} alt={p.name} />
+          : <div className="pnum" style={{ width: 64, height: 64, fontSize: 28 }}>{p.number}</div>}
+        {p.photo && <span className="numbadge" style={{ minWidth: 22, height: 22, fontSize: 13 }}>{p.number}</span>}
+      </div>
+      <div>
+        <span className={"pos-pill pos-" + p.position}>{p.position}</span>
+        {canEditPhoto && (
+          <div style={{ marginTop: 8 }}>
+            <label className="chip" style={{ cursor: "pointer" }}>
+              <Plus size={13} />{p.photo ? "Change photo" : "Add photo"}
+              <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => savePhoto(e.target.files?.[0])} />
+            </label>
+          </div>
+        )}
+      </div>
     </div>
     <div className="statgrid" style={{ gridTemplateColumns: "1fr 1fr" }}>
       <div className="stat"><div className="v">{g}</div><div className="k">Goals</div></div>
       <div className="stat"><div className="v">{a}</div><div className="k">Assists</div></div>
     </div>
-    {payload.dob && (
+    {p.dob && (
       <div className="note" style={{ marginTop: 12, fontSize: 13.5 }}>
-        🎂 Birthday: {new Date(payload.dob + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "long" })}
+        🎂 Birthday: {new Date(p.dob + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "long" })}
       </div>
     )}
-    {isCoach && (payload.parentName || payload.parentContact) && (
-      <div className="card" style={{ marginTop: 14, marginBottom: 0 }}>
-        <div className="label" style={{ marginBottom: 6 }}>Parent / guardian (coach view)</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ flex: 1, fontWeight: 700, fontSize: 15 }}>{payload.parentName || "—"}</div>
-          {payload.parentContact && <a href={"tel:" + payload.parentContact.replace(/\s+/g, "")} style={{ color: "var(--pitch)", fontWeight: 700, fontSize: 14, textDecoration: "none" }}>{payload.parentContact}</a>}
+    {isCoach && guardians.map((gd, i) => (
+      <div className="card" key={i} style={{ marginTop: 12, marginBottom: 0 }}>
+        <div className="label" style={{ marginBottom: 8 }}>{gd.name || `Parent ${i + 1}`}</div>
+        <div className="chips">
+          {gd.mobile && <a className="washare" href={`https://wa.me/${intlPhone(gd.mobile)}`} target="_blank" rel="noopener noreferrer"><Send size={13} />WhatsApp</a>}
+          {gd.mobile && <a className="chip lnk" href={"tel:" + gd.mobile.replace(/\s+/g, "")}><Phone size={13} />Call</a>}
+          {gd.mobile && <a className="chip lnk" href={"sms:" + gd.mobile.replace(/\s+/g, "")}><MessageSquare size={13} />Text</a>}
+          {gd.email && <a className="chip lnk" href={"mailto:" + gd.email}><Mail size={13} />Email</a>}
         </div>
+        {gd.mobile && <div className="note" style={{ marginTop: 6, fontSize: 11 }}>{gd.mobile}</div>}
       </div>
-    )}
+    ))}
   </>);
 }
 
@@ -1717,8 +2264,12 @@ function PlayersImportSheet({ data, persist, close }) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
     let m = t.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})$/); // dd/mm/yyyy (AU)
     if (m) return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
-    m = t.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})$/); // "12 Mar 2018" (Majestri)
-    if (m && MONTHS[m[2].slice(0, 3).toLowerCase()]) return `${m[3]}-${MONTHS[m[2].slice(0, 3).toLowerCase()]}-${String(m[1]).padStart(2, "0")}`;
+    m = t.match(/^(\d{1,2})[\s-]([A-Za-z]{3,})[\s-](\d{2,4})$/); // "12 Mar 2018" (CSV) or "25-Oct-18" (Excel)
+    if (m && MONTHS[m[2].slice(0, 3).toLowerCase()]) {
+      let y = m[3];
+      if (y.length === 2) y = (parseInt(y, 10) <= 50 ? "20" : "19") + y; // kids' DOBs: 2-digit years are 20xx
+      return `${y}-${MONTHS[m[2].slice(0, 3).toLowerCase()]}-${String(m[1]).padStart(2, "0")}`;
+    }
     return "";
   };
   const fixMobile = (s) => {
@@ -1726,7 +2277,7 @@ function PlayersImportSheet({ data, persist, close }) {
     if (!d) return "";
     if (d.length === 9 && d[0] === "4") return "0" + d; // leading zero stripped by spreadsheet
     if (d.length === 11 && d.startsWith("61")) return "0" + d.slice(2);
-    return d.length >= 8 ? (d[0] === "0" ? d : d) : "";
+    return d.length >= 8 ? d : "";
   };
   // RFC-4180-ish CSV line splitter (handles quoted fields with commas)
   const splitCSV = (line) => {
@@ -1746,34 +2297,67 @@ function PlayersImportSheet({ data, persist, close }) {
   };
 
   const lines = txt.split("\n").map(l => l.replace(/\r$/, "")).filter(l => l.trim());
-  const isMajestri = lines.length > 0 && /FirstName/i.test(lines[0]) && /Surname/i.test(lines[0]) && /Role/i.test(lines[0]);
+  const splitRow = (line) => (line.includes("\t") ? line.split("\t").map(s => s.trim()) : splitCSV(line));
+  const rows = lines.map(splitRow);
 
+  // Majestri detection, two flavours:
+  //  (a) header row present (CSV file, or Excel copy including row 1)
+  //  (b) headerless Excel copy: wide tab rows whose first cell is Player/Coach
+  const headerIdx = rows.findIndex(r => r.some(c => /^firstname$/i.test(c)) && r.some(c => /^surname$/i.test(c)));
+  const looksPositional = headerIdx === -1 && rows.length > 0 &&
+    rows.every(r => r.length >= 14 && /^(player|coach|manager|volunteer)$/i.test(r[0] || ""));
+
+  let isMajestri = false;
   let parsed = [];
-  if (isMajestri) {
-    const head = splitCSV(lines[0]).map(h => h.toLowerCase());
+
+  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  const buildPlayer = (v, get, c, i) => {
+    if ((get(c.role) || "Player").toLowerCase() !== "player") return null; // skip coach/manager rows
+    const first = get(c.first), last = get(c.last);
+    if (!first) return null;
+    // Build up to two guardians: primary contact + emergency contact.
+    const mk = (fn, sn, em, mo) => {
+      const name = [get(fn), get(sn)].filter(Boolean).join(" ");
+      const email = EMAIL_RE.test((get(em) || "").trim()) ? get(em).trim().toLowerCase() : "";
+      const mobile = fixMobile(get(mo));
+      return (name || email || mobile) ? { name, email, mobile } : null;
+    };
+    const guardians = [mk(c.pFirst, c.pLast, c.pEmail, c.pMob), mk(c.eFirst, c.eLast, c.eEmail, c.eMob)].filter(Boolean);
+    // Catch any other emails on the row that weren't in the mapped columns.
+    const allEmails = [...new Set(v.filter(x => EMAIL_RE.test((x || "").trim())).map(x => x.trim().toLowerCase()))];
+    const parentEmails = [...new Set([...guardians.map(g => g.email).filter(Boolean), ...allEmails])];
+    return {
+      id: uid(),
+      name: last ? `${first} ${last[0]}.` : first,
+      number: i + 1, position: "MID",
+      guardians,
+      parentName: guardians[0]?.name || "",
+      parentContact: guardians[0]?.mobile || "",
+      parentEmails,
+      dob: parseDob(get(c.dob))
+    };
+  };
+
+  if (headerIdx !== -1) {
+    isMajestri = true;
+    const head = rows[headerIdx].map(h => h.toLowerCase());
     const col = (name) => head.indexOf(name.toLowerCase());
     const c = {
       role: col("Role"), first: col("FirstName"), last: col("Surname"), dob: col("DateOfBirth"),
-      pFirst: col("PrimaryContactFirstName"), pLast: col("PrimaryContactSurname"), pMob: col("PrimaryContactMobileNumber")
+      pFirst: col("PrimaryContactFirstName"), pLast: col("PrimaryContactSurname"), pEmail: col("PrimaryContactEmailAddress"), pMob: col("PrimaryContactMobileNumber"),
+      eFirst: col("EmergencyContactFirstName"), eLast: col("EmergencyContactSurname"), eEmail: col("EmergencyContactEmailAddress"), eMob: col("EmergencyContactMobileNumber")
     };
-    parsed = lines.slice(1).map((line, i) => {
-      const v = splitCSV(line);
-      const get = (idx) => (idx >= 0 && idx < v.length ? v[idx] : "");
-      if ((get(c.role) || "Player").toLowerCase() !== "player") return null; // skip coach/manager rows
-      const first = get(c.first), last = get(c.last);
-      if (!first) return null;
-      return {
-        id: uid(),
-        name: last ? `${first} ${last[0]}.` : first, // first name + surname initial
-        number: i + 1, position: "MID",
-        parentName: [get(c.pFirst), get(c.pLast)].filter(Boolean).join(" "),
-        parentContact: fixMobile(get(c.pMob)),
-        dob: parseDob(get(c.dob))
-      };
-    }).filter(Boolean);
+    parsed = rows.slice(headerIdx + 1).map((v, i) => buildPlayer(v, (x) => (x >= 0 && x < v.length ? v[x] : ""), c, i)).filter(Boolean);
+  } else if (looksPositional) {
+    isMajestri = true;
+    // Majestri column order (0-based): Role0, First1, Surname2, DOB3, Gender4, Reg5,
+    // FFA6, ATSI7, PlayingGroup8, School9, Medical10, MedicalNotes11,
+    // PrimaryFirst12, PrimarySurname13, PrimaryEmail14, PrimaryMobile15, MediaRelease17,
+    // EmergencyFirst18, EmergencySurname19, EmergencyEmail20, EmergencyMobile21
+    const c = { role: 0, first: 1, last: 2, dob: 3, pFirst: 12, pLast: 13, pEmail: 14, pMob: 15, eFirst: 18, eLast: 19, eEmail: 20, eMob: 21 };
+    parsed = rows.map((v, i) => buildPlayer(v, (x) => (x >= 0 && x < v.length ? v[x] : ""), c, i)).filter(Boolean);
   } else {
-    parsed = lines.map((line, i) => {
-      const parts = (line.includes("\t") ? line.split("\t") : splitCSV(line));
+    parsed = rows.map((parts, i) => {
       const [name, number, position, parentName, parentContact, dob] = parts.map(s => (s || "").trim());
       const pos = POSITIONS.includes((position || "").toUpperCase()) ? position.toUpperCase() : "MID";
       return name ? {
@@ -1792,7 +2376,7 @@ function PlayersImportSheet({ data, persist, close }) {
   return (<>
     <SheetHead title="Paste player list" close={close} />
     <div className="note" style={{ marginBottom: 12 }}>
-      <b>Majestri:</b> open the team contact list CSV, select all, copy, and paste the lot here — it's detected automatically (players only; coach rows, emails and medical fields are skipped; mobiles get their leading 0 restored).<br /><br />
+      <b>Majestri:</b> copy the export and paste it here — from the CSV file directly, or straight out of <b>Excel</b> (with or without the header row); it's detected automatically. Players only: coach rows, emails and medical fields are skipped; mobiles get their leading 0 restored.<br /><br />
       <b>Or a simple list</b>, one player per line: <b>Name, number, position, parent, parent mobile, birthday</b> (position GK/DEF/MID/FWD; birthday dd/mm/yyyy; only the name is required).
     </div>
     <div className="field">
