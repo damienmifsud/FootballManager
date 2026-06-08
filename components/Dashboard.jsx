@@ -5,7 +5,7 @@ import {
   Trash2, X, Lock, Unlock, Trophy, MapPin, Clock, ChevronRight, Check,
   Settings as SettingsIcon, Star, Goal, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, ExternalLink, Download, Target,
-  Send, Phone, MessageSquare, Mail, Sparkles, FileText
+  Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LabelList
@@ -305,6 +305,36 @@ function monthItems(data, year, month) {
     const by = parseInt(p.dob.slice(0, 4), 10);
     const age = by > 1990 ? year - by : null;
     items.push({ key: "bday" + p.id, dateISO: iso, time: "", kind: "birthday", title: age ? `${p.name} turns ${age} 🎂` : `${p.name}'s birthday 🎂`, ref: p });
+  });
+  return items.sort((a, b) => (a.dateISO + (a.time || "")).localeCompare(b.dateISO + (b.time || "")));
+}
+
+// Games + training/activity occurrences within the next `days` days (Home "next 7 days" strip).
+function upcomingItems(data, fromISO, days = 7) {
+  const lastISO = isoLocal(addDays(fromISO, days - 1));
+  const inRange = (iso) => iso >= fromISO && iso <= lastISO;
+  const items = [];
+  (data.fixtures || []).forEach(f => {
+    if (f.dateISO && inRange(f.dateISO))
+      items.push({ key: f.id, dateISO: f.dateISO, time: f.time, kind: "game", title: "vs " + f.opponent, ref: f });
+  });
+  const years = new Set([+fromISO.slice(0, 4), +lastISO.slice(0, 4)]);
+  (data.sessions || []).forEach(s => {
+    const seen = new Set();
+    years.forEach(y => occurrences(s, y).forEach(iso => {
+      if (inRange(iso) && !seen.has(iso)) { seen.add(iso); items.push({ key: s.id + iso, dateISO: iso, time: s.time, kind: s.kind || "training", title: s.title, ref: s, occ: iso }); }
+    }));
+  });
+  (data.players || []).forEach(p => {
+    if (!p.dob || p.dob.length < 10) return;
+    years.forEach(y => {
+      const iso = `${y}-${p.dob.slice(5, 10)}`;
+      if (isNaN(new Date(iso + "T00:00:00").getTime())) return;
+      if (!inRange(iso) || !activeOn(p, iso)) return;
+      const by = parseInt(p.dob.slice(0, 4), 10);
+      const age = by > 1990 ? y - by : null;
+      items.push({ key: "bday" + p.id + y, dateISO: iso, time: "", kind: "birthday", title: age ? `${p.name} turns ${age} 🎂` : `${p.name}'s birthday 🎂`, ref: p });
+    });
   });
   return items.sort((a, b) => (a.dateISO + (a.time || "")).localeCompare(b.dateISO + (b.time || "")));
 }
@@ -783,7 +813,12 @@ export default function App() {
 
       <nav className="nav" style={{ padding: "8px 2px" }}>
         {[["home", Home, "Home"], ["calendar", Calendar, "Calendar"], ["fixtures", ClipboardList, "Results"],
+<<<<<<< HEAD
+        ["squad", Users, "Squad"], ["duties", Apple, "Duties"], ["stats", BarChart3, "Stats"], ["ask", Sparkles, "Ask"],
+        ...(isCoach ? [["settings", SettingsIcon, "Settings"]] : [])].map(([id, Ic, lbl]) => (
+=======
         ["squad", Users, "Squad"], ["duties", Apple, "Duties"], ["stats", BarChart3, "Stats"], ["ask", Sparkles, "Ask"], ...(isCoach ? [["settings", SettingsIcon, "Settings"]] : [])].map(([id, Ic, lbl]) => (
+>>>>>>> 059604b502949a7a7429fe1ebc1911f5fb27653f
           <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} style={{ fontSize: 8.5 }}>
             <Ic size={18} /><span>{lbl}</span>
           </button>
@@ -804,6 +839,10 @@ function HomeTab({ data, stats, next, pname, setModal }) {
     if (s === "in") c.in++; else if (s === "out") c.out++; else c.nr++;
     return c;
   }, { in: 0, out: 0, nr: 0 }) : null;
+  const week = upcomingItems(data, isoLocal(new Date()), 7);
+  const weekCounts = (av, iso) => data.players.filter(p => activeOn(p, iso)).reduce((c, p) => {
+    const st = av?.[p.id]?.status; if (st === "in") c.in++; else if (st === "out") c.out++; else c.nr++; return c;
+  }, { in: 0, out: 0, nr: 0 });
   return (
     <>
       {next ? (
@@ -871,6 +910,53 @@ function HomeTab({ data, stats, next, pname, setModal }) {
             <span className="avpill nr">{counts.nr} no reply</span>
           </div>
           {counts.nr > 0 && <div className="note" style={{ marginTop: 8 }}>Tap to mark your player in or out.</div>}
+        </div>
+      )}
+
+      {week.length > 0 && (
+        <div className="card">
+          <div className="label" style={{ marginBottom: 4 }}>Next 7 days</div>
+          {week.map(it => {
+            const isGame = it.kind === "game";
+            const isBday = it.kind === "birthday";
+            const av = isGame ? it.ref.availability : (it.ref.availability && it.ref.availability[it.occ]);
+            const c = isBday ? null : weekCounts(av, it.dateISO);
+            const d = new Date(it.dateISO + "T00:00:00");
+            const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()];
+            const Ic = isGame ? Trophy : isBday ? Cake : it.kind === "event" ? Star : Dumbbell;
+            const place = isGame ? it.ref.venue : isBday ? "" : it.ref.location;
+            const title = isGame ? ((it.ref.homeAway === "H" ? "vs " : "@ ") + it.ref.opponent) : it.title;
+            const open = () => isGame ? setModal({ type: "match", payload: it.ref })
+              : isBday ? setModal({ type: "playerView", payload: it.ref })
+              : setModal({ type: "session", payload: it.ref, occ: it.occ });
+            return (
+              <div key={it.key}
+                onClick={open}
+                style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 0", borderTop: "1px solid var(--line)", cursor: "pointer" }}>
+                <div style={{ width: 36, textAlign: "center", flexShrink: 0 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>{dow}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1 }}>{d.getDate()}</div>
+                </div>
+                <div className="ic" style={{ width: 32, height: 32, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: isGame ? "#fdeaec" : isBday ? "#fde7f3" : it.kind === "event" ? "#e6f0ff" : "#fff1da", color: isGame ? "var(--pitch)" : isBday ? "#d6409f" : it.kind === "event" ? "#2563a8" : "#b3760a" }}>
+                  <Ic size={16} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
+                  {isBday ? (
+                    <div className="note" style={{ fontSize: 11.5, marginTop: 1 }}>Birthday 🎂</div>
+                  ) : (<>
+                    <div className="note" style={{ fontSize: 11.5, marginTop: 1 }}>{it.time || "Time TBC"}{place ? " · " + place : ""}</div>
+                    <div style={{ fontSize: 11, marginTop: 3, display: "flex", gap: 9, fontWeight: 700 }}>
+                      <span style={{ color: "#1f8a4c" }}>{c.in} in</span>
+                      <span style={{ color: "var(--red)" }}>{c.out} out</span>
+                      <span style={{ color: "var(--muted)" }}>{c.nr} no reply</span>
+                    </div>
+                  </>)}
+                </div>
+                <ChevronRight size={15} color="var(--muted)" style={{ flexShrink: 0 }} />
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1562,7 +1648,7 @@ function Modal({ modal, setModal, data, persist, isCoach, setIsCoach, viewer, se
         {modal.type === "signin" && <SignInSheet {...{ data, viewer, setViewer, close }} />}
         {modal.type === "fixture" && <FixtureSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "match" && <MatchSheet {...{ data, persist, payload: modal.payload, isCoach, viewer, setModal, close }} />}
-        {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, setModal, close }} />}
+        {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, setModal, close }} />}
         {modal.type === "sessionEdit" && <SessionEditSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "player" && <PlayerSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "playerView" && <PlayerViewSheet {...{ data, persist, payload: modal.payload, isCoach, viewer, close }} />}
@@ -2404,10 +2490,39 @@ function ResetSheet({ data, persist, close }) {
   </>);
 }
 
-function SessionSheet({ data, persist, payload: s, occ, isCoach, setModal, close }) {
+function SessionSheet({ data, persist, payload: s, occ, isCoach, viewer, setModal, close }) {
   const showISO = occ || s.dateISO;
   const Icon = s.kind === "event" ? Star : Dumbbell;
   const del = () => { persist({ ...data, sessions: (data.sessions || []).filter(x => x.id !== s.id), isSample: false }); close(); };
+
+  // Attendance is stored per-occurrence: s.availability[occurrenceISO][playerId] = { status, reason, by, at }
+  const past = showISO && showISO < isoLocal(new Date());
+  const whoLabel = isCoach ? "Coach" : (viewer?.kind === "parent" ? viewer.label : null);
+  const canEdit = (pid) => isCoach || (viewer?.kind === "parent" && viewer.pid === pid);
+  const dayAvail = (s.availability && s.availability[showISO]) || {};
+  const [avail, setAvail] = useState(dayAvail);
+  const setAv = (pid, patch) => {
+    const cur = avail[pid] || {};
+    const entry = { ...cur, ...patch };
+    if (entry.status != null) { entry.by = whoLabel || "someone"; entry.at = Date.now(); }
+    const next = { ...avail };
+    if (entry.status == null) delete next[pid]; else next[pid] = entry;
+    setAvail(next);
+    const sessions = (data.sessions || []).map(x => x.id === s.id
+      ? { ...x, availability: { ...(x.availability || {}), [showISO]: next } }
+      : x);
+    persist({ ...data, sessions, isSample: false });
+  };
+  const aplayers = data.players.filter(p => activeOn(p, showISO)).sort((a, b) => a.number - b.number);
+  const counts = aplayers.reduce((c, p) => {
+    const st = avail[p.id]?.status;
+    if (st === "in") c.in++; else if (st === "out") c.out++; else c.nr++;
+    return c;
+  }, { in: 0, out: 0, nr: 0 });
+  const nonResponders = aplayers.filter(p => !avail[p.id]?.status);
+  const remindText = (p) =>
+    `Hi${p.parentName ? " " + p.parentName.split(" ")[0] : ""}! Quick one — could you mark ${p.name} In or Out for ${s.title} on ${fmtDate(showISO)}${s.time ? " at " + s.time : ""} on the team page? Thanks! ⚽`;
+  const groupNudge = `📋 ${s.title} — ${fmtDate(showISO)}${s.time ? " " + s.time : ""}\nStill need In/Out from: ${nonResponders.map(p => p.name).join(", ")}\nPlease respond on the team page 🙏`;
   return (<>
     <SheetHead title={s.title} close={close} />
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
@@ -2427,6 +2542,76 @@ function SessionSheet({ data, persist, payload: s, occ, isCoach, setModal, close
     </div>
 
     {s.notes && <div className="card"><div className="label" style={{ marginBottom: 6 }}>Notes</div><div className="note" style={{ fontSize: 13.5 }}>{s.notes}</div></div>}
+
+    {aplayers.length > 0 && (
+      <div className="card">
+        <div className="label" style={{ marginBottom: 10 }}>
+          {past ? "Attendance" : (s.kind === "event" ? "Who's coming? Tap your player" : "Who's training? Tap your player")}
+        </div>
+        <div className="avsum">
+          <span className="avpill in"><Check size={13} />{counts.in} in</span>
+          <span className="avpill out"><X size={13} />{counts.out} out</span>
+          <span className="avpill nr">{counts.nr} no reply</span>
+        </div>
+        {!past && viewer?.kind !== "parent" && !isCoach && (
+          <button className="btn" style={{ marginBottom: 12 }} onClick={() => { close(); setModal({ type: "signin" }); }}>
+            Sign in to mark your child
+          </button>
+        )}
+        {aplayers.map(p => {
+          const a = avail[p.id] || {};
+          const editable = !past && canEdit(p.id);
+          return (
+            <div className="avrow" key={p.id} style={editable ? undefined : { opacity: .82 }}>
+              <div className="avname">
+                {p.number}. {p.name}
+                {a.by && a.status && <div className="note" style={{ fontSize: 10.5, fontWeight: 500 }}>{a.status === "in" ? "In" : "Out"} · {a.by}{a.at ? " · " + fmtWhen(a.at) : ""}</div>}
+              </div>
+              {editable ? <>
+                <button className={"avbtn" + (a.status === "in" ? " selin" : "")}
+                  onClick={() => setAv(p.id, { status: a.status === "in" ? null : "in", reason: undefined })}>In</button>
+                <button className={"avbtn" + (a.status === "out" ? " selout" : "")}
+                  onClick={() => setAv(p.id, { status: a.status === "out" ? null : "out", reason: a.reason || "Away" })}>Out</button>
+                {a.status === "out" && (
+                  <select className="avsel" value={a.reason || "Away"} onChange={e => setAv(p.id, { status: "out", reason: e.target.value })}>
+                    {ABSENCE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                )}
+              </> : (
+                <span className={"avpill " + (a.status === "in" ? "in" : a.status === "out" ? "out" : "nr")}>
+                  {a.status === "in" ? "In" : a.status === "out" ? (a.reason || "Out") : "—"}
+                </span>
+              )}
+            </div>
+          );
+        })}
+        <div className="note" style={{ marginTop: 10 }}>
+          {past ? "This session has passed." : isCoach ? "As coach you can mark anyone." : viewer?.kind === "parent"
+            ? `You're marking ${viewer.label}. Replies save instantly and are recorded with your name.`
+            : "Sign in (top right) to respond for your child."}
+        </div>
+        {!past && isCoach && nonResponders.length > 0 && (
+          <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+            <div className="label" style={{ marginBottom: 8 }}>Coach tools — chase non-responders</div>
+            {nonResponders.map(p => (
+              <div className="remindrow" key={p.id}>
+                <div style={{ flex: 1, fontSize: 13.5 }}>
+                  <b>{p.name}</b>{p.parentName ? <span className="note"> · {p.parentName}</span> : ""}
+                </div>
+                {p.parentContact ? (
+                  <a className="washare" style={{ padding: "5px 10px", fontSize: 11.5 }}
+                    href={`https://wa.me/${intlPhone(p.parentContact)}?text=${encodeURIComponent(remindText(p))}`}
+                    target="_blank" rel="noopener noreferrer">Remind</a>
+                ) : <span className="note" style={{ fontSize: 11 }}>no contact</span>}
+              </div>
+            ))}
+            <a className="washare" style={{ marginTop: 10 }}
+              href={"https://wa.me/?text=" + encodeURIComponent(groupNudge)}
+              target="_blank" rel="noopener noreferrer">Nudge the group</a>
+          </div>
+        )}
+      </div>
+    )}
 
     <CalAdd
       ev={sessionEv(s, showISO)}
