@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import DashboardHost from "@/components/DashboardHost";
 
 const AUTH_ON = !!process.env.AUTH_SECRET;
@@ -15,8 +16,9 @@ export default async function Page() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) {
-    // middleware should have redirected; render nothing rather than leak.
-    return null;
+    // Safety net: if middleware didn't redirect (e.g. bare "/"), do it here
+    // rather than rendering a blank page.
+    redirect("/login");
   }
 
   const { memberships } = await membershipsForEmail(email);
