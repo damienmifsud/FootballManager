@@ -940,6 +940,7 @@ function HomeTab({ data, stats, next, pname, setModal }) {
             const Ic = isGame ? Trophy : isBday ? Cake : it.kind === "event" ? Star : Dumbbell;
             const place = isGame ? it.ref.venue : isBday ? "" : it.ref.location;
             const title = isGame ? ((it.ref.homeAway === "H" ? "vs " : "@ ") + it.ref.opponent) : it.title;
+            const cancelled = isGame && it.ref.status === "cancelled";
             const open = () => isGame ? setModal({ type: "match", payload: it.ref })
               : isBday ? setModal({ type: "playerView", payload: it.ref })
               : setModal({ type: "session", payload: it.ref, occ: it.occ });
@@ -955,16 +956,18 @@ function HomeTab({ data, stats, next, pname, setModal }) {
                   <Ic size={16} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: cancelled ? "line-through" : "none", color: cancelled ? "var(--muted)" : "inherit" }}>{title}</div>
                   {isBday ? (
                     <div className="note" style={{ fontSize: 11.5, marginTop: 1 }}>Birthday 🎂</div>
                   ) : (<>
                     <div className="note" style={{ fontSize: 11.5, marginTop: 1 }}>{it.time || "Time TBC"}{place ? " · " + place : ""}</div>
-                    <div style={{ fontSize: 11, marginTop: 3, display: "flex", gap: 9, fontWeight: 700 }}>
-                      <span style={{ color: "#1f8a4c" }}>{c.in} in</span>
-                      <span style={{ color: "var(--red)" }}>{c.out} out</span>
-                      <span style={{ color: "var(--muted)" }}>{c.nr} no reply</span>
-                    </div>
+                    {cancelled
+                      ? <div style={{ fontSize: 11, marginTop: 3, fontWeight: 800, color: "var(--red)" }}>Cancelled</div>
+                      : <div style={{ fontSize: 11, marginTop: 3, display: "flex", gap: 9, fontWeight: 700 }}>
+                        <span style={{ color: "#1f8a4c" }}>{c.in} in</span>
+                        <span style={{ color: "var(--red)" }}>{c.out} out</span>
+                        <span style={{ color: "var(--muted)" }}>{c.nr} no reply</span>
+                      </div>}
                   </>)}
                 </div>
                 <ChevronRight size={15} color="var(--muted)" style={{ flexShrink: 0 }} />
@@ -1192,7 +1195,9 @@ function FixturesTab({ data, isCoach, pname, setModal, persist }) {
                 <div className="opp">{f.opponent}<span className={"hatag " + f.homeAway}>{f.homeAway}</span>{hasVid && <span className="playtag"><Goal size={9} />Watch</span>}{recentChanges(f).length > 0 && <span className="updtag">Updated</span>}</div>
                 <div className="ven"><MapPin size={11} />{f.venue} · {f.time}</div>
               </div>
-              {f.us != null
+              {f.status === "cancelled"
+                ? <div className="res"><div className="upc" style={{ color: "var(--red)", fontWeight: 800 }}>Cancelled</div></div>
+                : f.us != null
                 ? <div className="res"><div className={"score " + (won ? "w" : drew ? "d" : "l")}>{f.us}–{f.them}</div></div>
                 : isPastGame(f)
                   ? <div className="res"><div className="upc" style={{ color: "var(--muted)" }}>Awaiting score</div></div>
@@ -1821,7 +1826,7 @@ function FixtureSheet({ data, persist, payload, close }) {
       <div className="seg">{["H", "A"].map(h => <button key={h} className={f.homeAway === h ? "sel" : ""} onClick={() => setF({ ...f, homeAway: h })}>{h === "H" ? "Home" : "Away"}</button>)}</div>
     </div>
     <div className="field"><label>Status</label>
-      <div className="seg">{["upcoming", "played"].map(s => <button key={s} className={f.status === s ? "sel" : ""} onClick={() => setF({ ...f, status: s })}>{s === "upcoming" ? "Upcoming" : "Played"}</button>)}</div>
+      <div className="seg">{["upcoming", "played", "cancelled"].map(s => <button key={s} className={f.status === s ? "sel" : ""} onClick={() => setF({ ...f, status: s, ...(s === "cancelled" ? { us: null, them: null } : {}) })}>{s === "upcoming" ? "Upcoming" : s === "played" ? "Played" : "Cancelled"}</button>)}</div>
     </div>
 
     {f.status === "played" && (
@@ -2010,7 +2015,9 @@ function MatchSheet({ data, persist, payload: f, isCoach, viewer, setModal, clos
         {f.opponentLogo && <img className="crest-lg" src={f.opponentLogo} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
         <span>{home ? us : them} vs {home ? them : us}</span>
       </div>
-      {f.us != null
+      {f.status === "cancelled"
+        ? <div className="big" style={{ fontSize: 22, color: "var(--red)" }}>Cancelled</div>
+        : f.us != null
         ? <div className="big">{home ? f.us : f.them}–{home ? f.them : f.us}</div>
         : isPastGame(f)
           ? <div className="big" style={{ fontSize: 20, color: "var(--muted)" }}>Played — score not recorded</div>
