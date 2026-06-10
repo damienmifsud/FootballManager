@@ -35,5 +35,5 @@ export default async function Page() {
   const current = memberships.find((m) => m.teamSlug === slug);
   if (!current) return <TeamPicker memberships={memberships} email={email} />;
 
-  return <DashboardHost />;
+  return <DashboardHost canSwitch={memberships.length > 1} />;
 }
