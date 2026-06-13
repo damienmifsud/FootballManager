@@ -87,4 +87,20 @@ export async function GET(req) {
   if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { memberships } = await membershipsForEmail(email);
-  if
+  if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const wanted = req.cookies.get("team_slug")?.value;
+  const chosen = memberships.find((m) => m.teamSlug === wanted) || memberships[0];
+  const team = teamBySlug(chosen.teamSlug);
+  if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  if (!(await isCoachForTeam(email, team.slug))) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  try {
+    const result = await syncTeam(team, ifStale);
+    return NextResponse.json({ ok: true, changes: [], ...result });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 502 });
+  }
+}
