@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { getData, setData, getMeta, setMeta } from "@/lib/store";
 import { fetchSquadi, applySync } from "@/lib/squadiSync";
-import { getTeams, teamFromCookieHeader } from "@/lib/teams";
+import { getTeams, teamBySlug } from "@/lib/teams";
+import { auth } from "@/auth";
+import { membershipsForEmail, isCoachForTeam } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
-
 const STALE_MS = 15 * 60 * 1000; // sync-on-visit throttle
 
-// Cron/pinger auth (syncs ALL teams) vs logged-in user (syncs THEIR team).
+// Cron/pinger auth (syncs ALL teams) vs logged-in coach (syncs THEIR team).
 function cronAuthorized(req) {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
@@ -39,20 +40,16 @@ async function emailChanges(teamName, changes) {
 
 async function syncTeam(team, ifStale) {
   if (!team.squadi?.competitionId) return { team: team.slug, skipped: "no squadi config" };
-
   if (ifStale) {
     const meta = await getMeta(team.slug);
     if (meta.lastSyncAt && Date.now() - meta.lastSyncAt < STALE_MS) {
       return { team: team.slug, skipped: "recent" };
     }
   }
-
   const data = await getData(team.slug);
   if (!data) return { team: team.slug, skipped: "no team data yet" };
-
   const squadi = await fetchSquadi(team.squadi);
   const { data: next, changes, created, mutated } = applySync(data, squadi);
-
   let emailStatus = "no changes";
   if (changes.length || mutated) {
     const isInitialImport = created === changes.length && created > 3;
@@ -65,7 +62,6 @@ async function syncTeam(team, ifStale) {
       : "silent update (e.g. logos) — saved, no email";
   }
   await setMeta(team.slug, { ...(await getMeta(team.slug)), lastSyncAt: Date.now() });
-
   return { team: team.slug, matchesSeen: squadi.length, created, changes, emailStatus };
 }
 
@@ -85,13 +81,10 @@ export async function GET(req) {
     return NextResponse.json({ ok: true, results });
   }
 
-  // Logged-in user: sync just their team.
-  const team = teamFromCookieHeader(req.headers.get("cookie"));
-  if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  try {
-    const result = await syncTeam(team, ifStale);
-    return NextResponse.json({ ok: true, changes: [], ...result });
-  } catch (e) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 502 });
-  }
-}
+  // Logged-in coach: sync just their team. Parents can't trigger a sync.
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const { memberships } = await membershipsForEmail(email);
+  if
