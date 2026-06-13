@@ -1985,16 +1985,28 @@ function MatchSheet({ data, persist, payload: f, isCoach, viewer, setModal, clos
   const whoLabel = isCoach ? "Coach" : (viewer?.kind === "parent" ? viewer.label : null);
   const canEdit = (pid) => isCoach || (viewer?.kind === "parent" && viewer.pid === pid);
 
-  const setAv = (pid, patch) => {
+const setAv = async (pid, patch) => {
     const cur = avail[pid] || {};
-    const entry = { ...cur, ...patch };
-    if (entry.status == null) { /* cleared */ }
-    else { entry.by = whoLabel || "someone"; entry.at = Date.now(); }
-    const next = { ...avail };
-    if (entry.status == null) delete next[pid]; else next[pid] = entry;
-    setAvail(next);
-    const fixtures = data.fixtures.map(x => x.id === f.id ? { ...x, availability: next } : x);
-    persist({ ...data, fixtures, isSample: false });
+    const merged = { ...cur, ...patch };
+    const status = merged.status ?? null;
+    const reason = status === "out" ? (merged.reason || "Away") : undefined;
+    const optimistic = status == null
+      ? null
+      : { status, ...(reason ? { reason } : {}), by: whoLabel || "you", at: Date.now() };
+    const nextAvail = { ...avail };
+    if (optimistic == null) delete nextAvail[pid]; else nextAvail[pid] = optimistic;
+    setAvail(nextAvail);
+    try {
+      const res = await fetch("/api/rsvp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "game", id: f.id, playerId: pid, status, reason })
+      });
+      if (!res.ok) throw new Error("rsvp " + res.status);
+    } catch (e) {
+      setAvail(avail);
+      console.error("Could not save availability:", e);
+    }
   };
 
   const players = data.players.filter(p => activeOn(p, f.dateISO)).sort((a, b) => a.number - b.number);
@@ -2537,17 +2549,28 @@ function SessionSheet({ data, persist, payload: s, occ, isCoach, viewer, setModa
   const canEdit = (pid) => isCoach || (viewer?.kind === "parent" && viewer.pid === pid);
   const dayAvail = (s.availability && s.availability[showISO]) || {};
   const [avail, setAvail] = useState(dayAvail);
-  const setAv = (pid, patch) => {
+const setAv = async (pid, patch) => {
     const cur = avail[pid] || {};
-    const entry = { ...cur, ...patch };
-    if (entry.status != null) { entry.by = whoLabel || "someone"; entry.at = Date.now(); }
-    const next = { ...avail };
-    if (entry.status == null) delete next[pid]; else next[pid] = entry;
-    setAvail(next);
-    const sessions = (data.sessions || []).map(x => x.id === s.id
-      ? { ...x, availability: { ...(x.availability || {}), [showISO]: next } }
-      : x);
-    persist({ ...data, sessions, isSample: false });
+    const merged = { ...cur, ...patch };
+    const status = merged.status ?? null;
+    const reason = status === "out" ? (merged.reason || "Away") : undefined;
+    const optimistic = status == null
+      ? null
+      : { status, ...(reason ? { reason } : {}), by: whoLabel || "you", at: Date.now() };
+    const nextAvail = { ...avail };
+    if (optimistic == null) delete nextAvail[pid]; else nextAvail[pid] = optimistic;
+    setAvail(nextAvail);
+    try {
+      const res = await fetch("/api/rsvp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "session", id: s.id, occ: showISO, playerId: pid, status, reason })
+      });
+      if (!res.ok) throw new Error("rsvp " + res.status);
+    } catch (e) {
+      setAvail(avail);
+      console.error("Could not save availability:", e);
+    }
   };
   const aplayers = data.players.filter(p => activeOn(p, showISO)).sort((a, b) => a.number - b.number);
   const counts = aplayers.reduce((c, p) => {
