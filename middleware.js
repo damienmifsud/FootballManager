@@ -1,33 +1,27 @@
 import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import { authConfig } from "@/auth.config";
+import { decideAccess, legacyPasswords } from "@/lib/access";
 
 const { auth } = NextAuth(authConfig);
 const AUTH_ON = !!process.env.AUTH_SECRET;
-const PUBLIC = ["/login", "/api/auth", "/api/login", "/api/calendar", "/api/sync"];
-
-function legacyPasswords() {
-  if (process.env.TEAMS) {
-    try { return JSON.parse(process.env.TEAMS).map((t) => t && t.password).filter(Boolean); } catch {}
-  }
-  return process.env.SITE_PASSWORD ? [process.env.SITE_PASSWORD] : [];
-}
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
-  if (PUBLIC.some((p) => pathname === p || pathname.startsWith(p + "/"))) return NextResponse.next();
 
-  let ok = false;
-  if (AUTH_ON) {
-    ok = !!req.auth; // signed in via Google / Microsoft / magic-link
-  } else {
-    let cookie = req.cookies.get("site_auth")?.value || "";
-    try { cookie = decodeURIComponent(cookie); } catch {}
-    ok = !!cookie && legacyPasswords().includes(cookie);
-  }
-  if (ok) return NextResponse.next();
+  let cookie = req.cookies.get("site_auth")?.value || "";
+  try { cookie = decodeURIComponent(cookie); } catch {}
 
-  if (pathname.startsWith("/api/")) {
+  const action = decideAccess({
+    pathname,
+    authOn: AUTH_ON,
+    authed: !!req.auth, // signed in via Google / Microsoft / magic-link
+    cookie,
+    passwords: legacyPasswords()
+  });
+
+  if (action === "allow") return NextResponse.next();
+  if (action === "unauthorized") {
     return new NextResponse(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "content-type": "application/json" } });
   }
   const url = req.nextUrl.clone();
