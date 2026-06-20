@@ -93,3 +93,50 @@ describe("App — coach-mode PIN gate", () => {
     expect(screen.queryByText("Settings")).toBeNull();
   });
 });
+
+describe("App — RSVP toggle (match modal)", () => {
+  it("marks a player 'in', updating the count and POSTing to /api/rsvp", async () => {
+    // RSVP succeeds so the optimistic update sticks (a failed POST reverts it).
+    fetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await waitForLoaded();
+    fireEvent.click(screen.getByRole("button", { name: /View/ })); // coach can mark anyone
+
+    // Open the match modal from the Home "Who's playing?" card.
+    fireEvent.click(screen.getByText("Who's playing?"));
+    const inBtn = await screen.findByRole("button", { name: "In" });
+    fireEvent.click(inBtn);
+
+    // Optimistic count update in the modal, and the RSVP POST.
+    expect(await screen.findByText("1 in")).toBeTruthy();
+    await waitFor(() => {
+      const call = fetch.mock.calls.find(c => String(c[0]).includes("/api/rsvp"));
+      expect(call).toBeTruthy();
+      expect(JSON.parse(call[1].body)).toMatchObject({ kind: "game", id: "f1", playerId: "p1", status: "in" });
+    });
+  });
+});
+
+describe("App — coach edit-save (fixture)", () => {
+  it("persists a new fixture via window.storage and clears the sample flag", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await waitForLoaded();
+    fireEvent.click(screen.getByRole("button", { name: /View/ })); // coach mode
+
+    fireEvent.click(screen.getByText("Results"));          // Fixtures tab
+    fireEvent.click(await screen.findByText("Add fixture")); // open the editor
+    // Drive the segmented controls (robustly addressable by button text).
+    fireEvent.click(await screen.findByRole("button", { name: "Away" }));
+    fireEvent.click(screen.getByRole("button", { name: "Played" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save fixture" }));
+
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    const saved = JSON.parse(storage.set.mock.calls.at(-1)[1]);
+    expect(saved.isSample).toBe(false);
+    const added = saved.fixtures.find(x => x.status === "played");
+    expect(added).toBeTruthy();
+    expect(added.homeAway).toBe("A");
+  });
+});
