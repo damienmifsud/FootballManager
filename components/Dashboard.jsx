@@ -551,6 +551,8 @@ export default function App() {
   const [viewer, setViewerState] = useState(() => readIdentity() || { kind: "guest" });
   const setViewer = (v) => { setViewerState(v); saveIdentity(v); };
   const [modal, setModal] = useState(null); // {type, payload}
+  // Server-side identity/role (account mode). null until known / in legacy mode.
+  const [me, setMe] = useState(null);
 
   // load
   useEffect(() => {
@@ -565,6 +567,12 @@ export default function App() {
         try { await window.storage.set(KEY, JSON.stringify(s), true); } catch {}
       } finally { setLoading(false); }
     })();
+    // In account mode the server knows who we are; use the real role instead
+    // of the client-side PIN toggle (which the server would refuse anyway).
+    fetch("/api/me", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.mode === "account") setMe(j); })
+      .catch(() => {});
   }, []);
 
   const persist = useCallback(async (next) => {
@@ -599,8 +607,13 @@ export default function App() {
     );
   }
 
+  // Account mode: the server-resolved role decides who can even see the coach
+  // toggle (parents, viewers and club admins are read-only; the server blocks
+  // their writes regardless). The coach PIN is a legacy-mode device.
+  const canCoach = !me || me.role === "coach";
   const toggleCoach = () => {
     if (isCoach) { setIsCoach(false); return; }
+    if (me) { if (me.role === "coach") setIsCoach(true); return; } // verified server-side, no PIN
     if (data.team.coachPin) setModal({ type: "pin" });
     else setIsCoach(true);
   };
@@ -626,10 +639,12 @@ export default function App() {
             })()}</div>
           </div>
         </div>
-        <button className={"coachbtn" + (isCoach ? " on" : "")} onClick={toggleCoach}>
-          {isCoach ? <Unlock size={13} /> : <Lock size={13} />}{isCoach ? "Coach" : "View"}
-        </button>
-        {!isCoach && (
+        {canCoach && (
+          <button className={"coachbtn" + (isCoach ? " on" : "")} onClick={toggleCoach}>
+            {isCoach ? <Unlock size={13} /> : <Lock size={13} />}{isCoach ? "Coach" : "View"}
+          </button>
+        )}
+        {!isCoach && me?.role !== "viewer" && (
           <button className="whoami" onClick={() => setModal({ type: "signin" })}>
             {viewer.kind === "parent" ? `👤 ${viewer.label}` : "Sign in to respond"}
           </button>

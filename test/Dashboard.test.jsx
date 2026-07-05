@@ -94,6 +94,45 @@ describe("App — coach-mode PIN gate", () => {
   });
 });
 
+describe("App — account-mode roles (/api/me)", () => {
+  const meFetch = (me) => {
+    fetch.mockImplementation((url) => {
+      if (String(url).includes("/api/me")) return Promise.resolve({ ok: true, json: async () => me });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+  };
+
+  it("hides the coach toggle entirely for a parent", async () => {
+    meFetch({ mode: "account", email: "mum@a.com", admin: false, teamSlug: "a", role: "parent", memberships: [] });
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await screen.findByText(/Div 1 · U8/);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /View/ })).toBeNull());
+    expect(screen.queryByText("Settings")).toBeNull();
+  });
+
+  it("hides the coach toggle and the respond button for a view-only club admin", async () => {
+    meFetch({ mode: "account", email: "td@club.com", admin: false, teamSlug: "a", role: "viewer", memberships: [] });
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await screen.findByText(/Div 1 · U8/);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /View/ })).toBeNull());
+    expect(screen.queryByText(/Sign in to respond/)).toBeNull();
+  });
+
+  it("lets a server-verified coach enter coach mode without the PIN", async () => {
+    meFetch({ mode: "account", email: "coach@a.com", admin: false, teamSlug: "a", role: "coach", memberships: [] });
+    // A coachPin is set, but the server-verified role skips the PIN sheet.
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ team: { name: "Test FC", division: "Div 1", ageGroup: "U8", coachPin: "1234" } })) });
+    render(<App />);
+    const viewBtn = await screen.findByRole("button", { name: /View/ });
+    // Wait for /api/me to land before toggling.
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    fireEvent.click(viewBtn);
+    expect(await screen.findByText("Settings")).toBeTruthy();
+  });
+});
+
 describe("App — RSVP toggle (match modal)", () => {
   it("marks a player 'in', updating the count and POSTing to /api/rsvp", async () => {
     // RSVP succeeds so the optimistic update sticks (a failed POST reverts it).
