@@ -5,7 +5,7 @@ import {
   Trash2, X, Lock, Unlock, Trophy, MapPin, Clock, ChevronRight, Check,
   Settings as SettingsIcon, Star, Goal, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, ExternalLink, Download, Target,
-  Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake
+  Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LabelList
@@ -19,6 +19,9 @@ import {
   nextBirthdays
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
+import { parsePlayerImport } from "@/lib/majestri";
+import { teamFeatures } from "@/lib/teamSetup";
+import { downscaleImage } from "@/lib/clientImage";
 
 /* ============================================================
    STORAGE
@@ -141,27 +144,7 @@ function getStaff(team) {
   ].filter(s => s.name);
 }
 
-// Read an image file and downscale it to a small square-ish JPEG data URL so a
-// few staff photos stay tiny inside the team document (~10-20KB each).
-function downscaleImage(file, max = 200, type = "image/jpeg", quality = 0.72) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, max / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-        const c = document.createElement("canvas"); c.width = w; c.height = h;
-        c.getContext("2d").drawImage(img, 0, 0, w, h);
-        try { resolve(c.toDataURL(type, quality)); } catch (e) { reject(e); }
-      };
-      img.onerror = reject;
-      img.src = reader.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
+// downscaleImage moved to lib/clientImage.js (shared with the /admin wizard).
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]; // JS getDay order
 const FULLDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -764,22 +747,28 @@ function HomeTab({ data, stats, next, pname, setModal }) {
         <div className="card"><div className="empty"><div className="disp">No upcoming match</div><div className="note">Add fixtures in the Fixtures tab.</div></div></div>
       )}
 
-      {next && (
-        <div className="duties">
-          <div className="duty fruit">
-            <div className="ic"><Apple size={18} /></div>
-            <div className="label">Fruit duty</div>
-            <div className="who">{pname(next.fruit)}</div>
-            <div className="rnd">Round {next.round}</div>
+      {next && (() => {
+        // Duty tiles honour the team's feature flags (wizard/Settings).
+        const feats = teamFeatures(data.team);
+        const tiles = [
+          feats.fruitDuty && { cls: "fruit", Icon: Apple, label: "Fruit duty", who: pname(next.fruit) },
+          feats.gkDuty && { cls: "gk", Icon: ShieldCheck, label: "In goal", who: pname(next.gk) },
+          feats.jerseyDuty && { cls: "fruit", Icon: Shirt, label: "Jerseys", who: pname(next.jersey) }
+        ].filter(Boolean);
+        if (!tiles.length) return null;
+        return (
+          <div className="duties">
+            {tiles.map(({ cls, Icon, label, who }) => (
+              <div className={"duty " + cls} key={label}>
+                <div className="ic"><Icon size={18} /></div>
+                <div className="label">{label}</div>
+                <div className="who">{who}</div>
+                <div className="rnd">Round {next.round}</div>
+              </div>
+            ))}
           </div>
-          <div className="duty gk">
-            <div className="ic"><ShieldCheck size={18} /></div>
-            <div className="label">In goal</div>
-            <div className="who">{pname(next.gk)}</div>
-            <div className="rnd">Round {next.round}</div>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {next && counts && activePlayers.length > 0 && (
         <div className="card" onClick={() => setModal({ type: "match", payload: next })} style={{ cursor: "pointer" }}>
@@ -872,7 +861,7 @@ function HomeTab({ data, stats, next, pname, setModal }) {
         </div>
       )}
 
-      {next && <FocusCard f={next} />}
+      {next && teamFeatures(data.team).focus && <FocusCard f={next} />}
 
       <div className="card">
         <div className="label" style={{ marginBottom: 12 }}>Season so far</div>
@@ -1208,32 +1197,37 @@ function SquadTab({ data, stats, isCoach, setModal, persist }) {
 /* ---------------- DUTIES ---------------- */
 function DutiesTab({ data, isCoach, pname, setModal }) {
   const fixtures = [...data.fixtures].sort((a, b) => a.round - b.round);
+  const feats = teamFeatures(data.team);
+  const sections = [
+    feats.fruitDuty && { key: "fruit", label: "Fruit duty", Icon: Apple, color: "var(--amber)" },
+    feats.gkDuty && { key: "gk", label: "Goalkeeper", Icon: ShieldCheck, color: "var(--pitch)" },
+    feats.jerseyDuty && { key: "jersey", label: "Jersey washing", Icon: Shirt, color: "var(--pitch)" }
+  ].filter(Boolean);
+  if (!sections.length) {
+    return (
+      <div className="card"><div className="empty"><div className="disp">Duties are turned off</div><div className="note">Fruit, jersey and goalkeeper duty can be switched on for this team from the club admin page.</div></div></div>
+    );
+  }
   return (
     <>
       <div className="card">
         <div className="label" style={{ marginBottom: 4 }}>Roster</div>
-        <div className="note">Fruit and goalkeeper duty by round. {isCoach ? "Tap a round to assign." : "Tap into Coach mode to edit."}</div>
+        <div className="note">{sections.map(s => s.label).join(", ")} by round. {isCoach ? "Tap a round to assign." : "Tap into Coach mode to edit."}</div>
       </div>
-      <div className="section-title"><Apple size={16} color="var(--amber)" /><div className="disp">Fruit duty</div></div>
-      <div className="card" style={{ padding: "6px 14px" }}>
-        {fixtures.map(f => (
-          <div className="dutyrow" key={f.id} onClick={() => isCoach && setModal({ type: "fixture", payload: f })} style={{ cursor: isCoach ? "pointer" : "default" }}>
-            <div className="rbadge">{f.round}</div>
-            <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{pname(f.fruit)}</div><div className="note">{fmtDate(f.dateISO)} · vs {f.opponent}</div></div>
-            {isCoach && <ChevronRight size={16} color="var(--muted)" />}
+      {sections.map(({ key, label, Icon, color }) => (
+        <div key={key}>
+          <div className="section-title"><Icon size={16} color={color} /><div className="disp">{label}</div></div>
+          <div className="card" style={{ padding: "6px 14px" }}>
+            {fixtures.map(f => (
+              <div className="dutyrow" key={f.id} onClick={() => isCoach && setModal({ type: "fixture", payload: f })} style={{ cursor: isCoach ? "pointer" : "default" }}>
+                <div className="rbadge">{f.round}</div>
+                <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{pname(f[key])}</div><div className="note">{fmtDate(f.dateISO)} · vs {f.opponent}</div></div>
+                {isCoach && <ChevronRight size={16} color="var(--muted)" />}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="section-title"><ShieldCheck size={16} color="var(--pitch)" /><div className="disp">Goalkeeper</div></div>
-      <div className="card" style={{ padding: "6px 14px" }}>
-        {fixtures.map(f => (
-          <div className="dutyrow" key={f.id} onClick={() => isCoach && setModal({ type: "fixture", payload: f })} style={{ cursor: isCoach ? "pointer" : "default" }}>
-            <div className="rbadge">{f.round}</div>
-            <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{pname(f.gk)}</div><div className="note">{fmtDate(f.dateISO)} · vs {f.opponent}</div></div>
-            {isCoach && <ChevronRight size={16} color="var(--muted)" />}
-          </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </>
   );
 }
@@ -1744,18 +1738,26 @@ function FixtureSheet({ data, persist, payload, close }) {
       </div>
     )}
 
-    <div className="row2">
-      <div className="field"><label>Fruit duty</label>
-        <select className="inp" value={f.fruit} onChange={e => setF({ ...f, fruit: e.target.value })}>
-          <option value="">— none —</option>{players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-      </div>
-      <div className="field"><label>Goalkeeper</label>
-        <select className="inp" value={f.gk} onChange={e => setF({ ...f, gk: e.target.value })}>
-          <option value="">— none —</option>{players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-      </div>
-    </div>
+    {(() => {
+      const feats = teamFeatures(data.team);
+      const duties = [
+        feats.fruitDuty && ["fruit", "Fruit duty"],
+        feats.gkDuty && ["gk", "Goalkeeper"],
+        feats.jerseyDuty && ["jersey", "Jerseys"]
+      ].filter(Boolean);
+      if (!duties.length) return null;
+      return (
+        <div className="row2" style={duties.length === 3 ? { gridTemplateColumns: "1fr 1fr 1fr" } : undefined}>
+          {duties.map(([key, label]) => (
+            <div className="field" key={key}><label>{label}</label>
+              <select className="inp" value={f[key] || ""} onChange={e => setF({ ...f, [key]: e.target.value })}>
+                <option value="">— none —</option>{players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      );
+    })()}
 
     {f.status === "played" && players.length > 0 && (
       <div className="field"><label>Goals & assists</label>
@@ -1785,6 +1787,7 @@ function FixtureSheet({ data, persist, payload, close }) {
       </div>
     </div>
 
+    {teamFeatures(data.team).focus && (
     <div className="field" style={{ borderTop: "1px solid var(--line)", paddingTop: 14 }}>
       <label>Focus this week — training & game (optional)</label>
       <select className="inp" style={{ marginBottom: 8 }}
@@ -1809,6 +1812,7 @@ function FixtureSheet({ data, persist, payload, close }) {
           onChange={e => setF({ ...f, focusPoints: e.target.value })} />
       </>}
     </div>
+    )}
 
     <div className="field"><label>Notes (optional)</label><textarea className="inp" rows={2} value={f.notes} onChange={e => setF({ ...f, notes: e.target.value })} /></div>
 
@@ -1966,7 +1970,7 @@ const setAv = async (pid, patch) => {
       );
     })()}
 
-    <FocusCard f={f} label={f.status === "played" ? "Focus that week" : "This week's focus"} />
+    {teamFeatures(data.team).focus && <FocusCard f={f} label={f.status === "played" ? "Focus that week" : "This week's focus"} />}
 
     {recentChanges(f).length > 0 && (
       <div className="chgcard">
@@ -2310,116 +2314,9 @@ function ImportSheet({ data, persist, close }) {
 
 function PlayersImportSheet({ data, persist, close }) {
   const [txt, setTxt] = useState("");
-
-  const MONTHS = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
-  const parseDob = (s) => {
-    if (!s) return "";
-    const t = String(s).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
-    let m = t.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})$/); // dd/mm/yyyy (AU)
-    if (m) return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
-    m = t.match(/^(\d{1,2})[\s-]([A-Za-z]{3,})[\s-](\d{2,4})$/); // "12 Mar 2018" (CSV) or "25-Oct-18" (Excel)
-    if (m && MONTHS[m[2].slice(0, 3).toLowerCase()]) {
-      let y = m[3];
-      if (y.length === 2) y = (parseInt(y, 10) <= 50 ? "20" : "19") + y; // kids' DOBs: 2-digit years are 20xx
-      return `${y}-${MONTHS[m[2].slice(0, 3).toLowerCase()]}-${String(m[1]).padStart(2, "0")}`;
-    }
-    return "";
-  };
-  const fixMobile = (s) => {
-    const d = String(s || "").replace(/\D/g, "");
-    if (!d) return "";
-    if (d.length === 9 && d[0] === "4") return "0" + d; // leading zero stripped by spreadsheet
-    if (d.length === 11 && d.startsWith("61")) return "0" + d.slice(2);
-    return d.length >= 8 ? d : "";
-  };
-  // RFC-4180-ish CSV line splitter (handles quoted fields with commas)
-  const splitCSV = (line) => {
-    const out = []; let cur = "", inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (inQ) {
-        if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-        else if (ch === '"') inQ = false;
-        else cur += ch;
-      } else if (ch === '"') inQ = true;
-      else if (ch === ",") { out.push(cur); cur = ""; }
-      else cur += ch;
-    }
-    out.push(cur);
-    return out.map(s => s.trim());
-  };
-
-  const lines = txt.split("\n").map(l => l.replace(/\r$/, "")).filter(l => l.trim());
-  const splitRow = (line) => (line.includes("\t") ? line.split("\t").map(s => s.trim()) : splitCSV(line));
-  const rows = lines.map(splitRow);
-
-  // Majestri detection, two flavours:
-  //  (a) header row present (CSV file, or Excel copy including row 1)
-  //  (b) headerless Excel copy: wide tab rows whose first cell is Player/Coach
-  const headerIdx = rows.findIndex(r => r.some(c => /^firstname$/i.test(c)) && r.some(c => /^surname$/i.test(c)));
-  const looksPositional = headerIdx === -1 && rows.length > 0 &&
-    rows.every(r => r.length >= 14 && /^(player|coach|manager|volunteer)$/i.test(r[0] || ""));
-
-  let isMajestri = false;
-  let parsed = [];
-
-  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-  const buildPlayer = (v, get, c, i) => {
-    if ((get(c.role) || "Player").toLowerCase() !== "player") return null; // skip coach/manager rows
-    const first = get(c.first), last = get(c.last);
-    if (!first) return null;
-    // Build up to two guardians: primary contact + emergency contact.
-    const mk = (fn, sn, em, mo) => {
-      const name = [get(fn), get(sn)].filter(Boolean).join(" ");
-      const email = EMAIL_RE.test((get(em) || "").trim()) ? get(em).trim().toLowerCase() : "";
-      const mobile = fixMobile(get(mo));
-      return (name || email || mobile) ? { name, email, mobile } : null;
-    };
-    const guardians = [mk(c.pFirst, c.pLast, c.pEmail, c.pMob), mk(c.eFirst, c.eLast, c.eEmail, c.eMob)].filter(Boolean);
-    // Catch any other emails on the row that weren't in the mapped columns.
-    const allEmails = [...new Set(v.filter(x => EMAIL_RE.test((x || "").trim())).map(x => x.trim().toLowerCase()))];
-    const parentEmails = [...new Set([...guardians.map(g => g.email).filter(Boolean), ...allEmails])];
-    return {
-      id: uid(),
-      name: last ? `${first} ${last[0]}.` : first,
-      number: i + 1, position: "MID",
-      guardians,
-      parentName: guardians[0]?.name || "",
-      parentContact: guardians[0]?.mobile || "",
-      parentEmails,
-      dob: parseDob(get(c.dob))
-    };
-  };
-
-  if (headerIdx !== -1) {
-    isMajestri = true;
-    const head = rows[headerIdx].map(h => h.toLowerCase());
-    const col = (name) => head.indexOf(name.toLowerCase());
-    const c = {
-      role: col("Role"), first: col("FirstName"), last: col("Surname"), dob: col("DateOfBirth"),
-      pFirst: col("PrimaryContactFirstName"), pLast: col("PrimaryContactSurname"), pEmail: col("PrimaryContactEmailAddress"), pMob: col("PrimaryContactMobileNumber"),
-      eFirst: col("EmergencyContactFirstName"), eLast: col("EmergencyContactSurname"), eEmail: col("EmergencyContactEmailAddress"), eMob: col("EmergencyContactMobileNumber")
-    };
-    parsed = rows.slice(headerIdx + 1).map((v, i) => buildPlayer(v, (x) => (x >= 0 && x < v.length ? v[x] : ""), c, i)).filter(Boolean);
-  } else if (looksPositional) {
-    isMajestri = true;
-    // Majestri column order (0-based): Role0, First1, Surname2, DOB3, Gender4, Reg5,
-    // FFA6, ATSI7, PlayingGroup8, School9, Medical10, MedicalNotes11,
-    // PrimaryFirst12, PrimarySurname13, PrimaryEmail14, PrimaryMobile15, MediaRelease17,
-    // EmergencyFirst18, EmergencySurname19, EmergencyEmail20, EmergencyMobile21
-    const c = { role: 0, first: 1, last: 2, dob: 3, pFirst: 12, pLast: 13, pEmail: 14, pMob: 15, eFirst: 18, eLast: 19, eEmail: 20, eMob: 21 };
-    parsed = rows.map((v, i) => buildPlayer(v, (x) => (x >= 0 && x < v.length ? v[x] : ""), c, i)).filter(Boolean);
-  } else {
-    parsed = rows.map((parts, i) => {
-      const [name, number, position, parentName, parentContact, dob] = parts.map(s => (s || "").trim());
-      const pos = POSITIONS.includes((position || "").toUpperCase()) ? position.toUpperCase() : "MID";
-      return name ? {
-        id: uid(), name, number: parseInt(number, 10) || i + 1, position: pos,
-        parentName: parentName || "", parentContact: parentContact || "", dob: parseDob(dob)
-      } : null;
-    }).filter(Boolean);
-  }
+  // Parsing (Majestri CSV / Excel copy / simple list) lives in lib/majestri.js,
+  // shared with the /admin team wizard's import step.
+  const { isMajestri, players: parsed } = useMemo(() => parsePlayerImport(txt), [txt]);
 
   const save = () => {
     if (!parsed.length) return;

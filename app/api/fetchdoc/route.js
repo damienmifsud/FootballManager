@@ -11,7 +11,7 @@ async function authorized(req) {
     const session = await auth();
     return !!session?.user?.email;
   }
-  return !!teamFromCookieHeader(req.headers.get("cookie"));
+  return !!(await teamFromCookieHeader(req.headers.get("cookie")));
 }
 
 // Very small HTML→text: drop scripts/styles/nav noise, strip tags, tidy whitespace.

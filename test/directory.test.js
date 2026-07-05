@@ -4,8 +4,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // team data + the club access doc from the store, so we mock the store and
 // (re)import the module per test after setting the relevant env. getTeams is
 // the real implementation, driven by TEAMS.
-const { getData, getClubAccess } = vi.hoisted(() => ({ getData: vi.fn(), getClubAccess: vi.fn() }));
-vi.mock("@/lib/store", () => ({ getData, getClubAccess }));
+const { getData, getClubAccess, getStoredTeams } = vi.hoisted(() => ({ getData: vi.fn(), getClubAccess: vi.fn(), getStoredTeams: vi.fn() }));
+vi.mock("@/lib/store", () => ({ getData, getClubAccess, getStoredTeams }));
 
 const KEYS = ["TEAMS", "ADMIN_EMAILS", "CLUB_ADMIN_EMAILS"];
 let saved;
@@ -15,6 +15,7 @@ beforeEach(() => {
   getData.mockReset();
   getClubAccess.mockReset();
   getClubAccess.mockResolvedValue({});
+  getStoredTeams.mockResolvedValue([]);
 });
 afterEach(() => {
   for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }

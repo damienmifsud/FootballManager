@@ -14,7 +14,7 @@ const AUTH_ON = !!process.env.AUTH_SECRET;
 //   memberships so a forged cookie can't reach a team they're not in.
 // - Legacy team-code mode: the site_auth cookie maps to exactly one team.
 async function resolveTeam(req) {
-  if (!AUTH_ON) return teamFromCookieHeader(req.headers.get("cookie"));
+  if (!AUTH_ON) return await teamFromCookieHeader(req.headers.get("cookie"));
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return null;
@@ -22,7 +22,7 @@ async function resolveTeam(req) {
   if (!memberships.length) return null;
   const wanted = req.cookies.get("team_slug")?.value;
   const chosen = memberships.find((m) => m.teamSlug === wanted) || memberships[0];
-  return teamBySlug(chosen.teamSlug);
+  return await teamBySlug(chosen.teamSlug);
 }
 
 // READ: any member of the team (account mode) or anyone with the team code

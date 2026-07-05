@@ -109,6 +109,26 @@ describe("store — Redis backend", () => {
   });
 });
 
+describe("store — wizard teams doc", () => {
+  it("redis: defaults to [] and round-trips under club:teams", async () => {
+    useRedis();
+    const { getStoredTeams, setStoredTeams } = await loadStore();
+    expect(await getStoredTeams()).toEqual([]);
+    const teams = [{ slug: "b", name: "Team B", password: "code-b" }];
+    await setStoredTeams(teams);
+    expect(redisStore.get("club:teams")).toEqual(teams);
+    expect(await getStoredTeams()).toEqual(teams);
+  });
+
+  it("file backend: persists to .data/club.teams.json", async () => {
+    const { getStoredTeams, setStoredTeams } = await loadStore();
+    expect(await getStoredTeams()).toEqual([]);
+    await setStoredTeams([{ slug: "b", name: "B", password: "p" }]);
+    const p = path.join(process.cwd(), ".data", "club.teams.json");
+    expect(JSON.parse(fsFiles.get(p))).toEqual([{ slug: "b", name: "B", password: "p" }]);
+  });
+});
+
 describe("store — club access doc", () => {
   it("redis: defaults to {} and round-trips the doc under club:access", async () => {
     useRedis();

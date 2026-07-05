@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 //   https://YOUR-DOMAIN/api/calendar?key=TEAM_CALENDAR_KEY
 export async function GET(req) {
   const key = new URL(req.url).searchParams.get("key");
-  const team = teamByCalendarKey(key);
+  const team = await teamByCalendarKey(key);
   if (!team) return new Response("Forbidden", { status: 403 });
 
   const data = await getData(team.slug);
