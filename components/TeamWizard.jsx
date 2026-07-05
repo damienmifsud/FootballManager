@@ -5,6 +5,7 @@
 // (editing an env-defined team takes it over into the store).
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { parsePlayerImport } from "@/lib/majestri";
+import { DEFAULT_FEATURES, FEATURE_LABELS } from "@/lib/teamSetup";
 
 const C = { red: "#C8102E", ink: "#1d1417", muted: "#7a6f72", line: "#eee", soft: "#f6f2f3", ok: "#1E9E57" };
 const card = { background: "#fff", borderRadius: 16, padding: 18, marginBottom: 16, boxShadow: "0 10px 26px rgba(40,0,8,.18)", color: C.ink };
@@ -27,7 +28,15 @@ function friendlyCode() {
 }
 const slugify = (name) => String(name || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 
-const BLANK = { name: "", ageGroup: "U8", password: "", coachEmails: "", squadi: { competitionId: "", divisionId: "", teamId: "" }, importText: "" };
+const WEEKDAYS = [["1", "Mon"], ["2", "Tue"], ["3", "Wed"], ["4", "Thu"], ["5", "Fri"], ["6", "Sat"], ["0", "Sun"]];
+const BLANK = {
+  name: "", ageGroup: "U8", password: "", coachEmails: "",
+  division: "", whatsapp: "",
+  squadi: { competitionId: "", divisionId: "", teamId: "" },
+  importText: "",
+  training: [], // { weekday, time, endTime, location }
+  features: { ...DEFAULT_FEATURES }
+};
 
 export default function TeamWizard() {
   const [teams, setTeams] = useState(null);
@@ -53,14 +62,34 @@ export default function TeamWizard() {
   };
   const feedUrl = (t) => `${window.location.origin}/api/calendar?key=${t.calendarKey}`;
 
-  const openCreate = () => { setCreated(null); setEditSlug(null); setForm({ ...BLANK, password: friendlyCode() }); };
+  const openCreate = () => { setCreated(null); setEditSlug(null); setForm({ ...BLANK, features: { ...DEFAULT_FEATURES }, training: [], password: friendlyCode() }); };
   const openEdit = (t) => {
     setCreated(null); setEditSlug(t.slug);
     setForm({
       name: t.name, ageGroup: t.ageGroup || "U8", password: t.password,
       coachEmails: (t.coachEmails || []).join(", "),
-      squadi: { competitionId: t.squadi?.competitionId || "", divisionId: t.squadi?.divisionId || "", teamId: t.squadi?.teamId || "" }
+      division: t.division || "", whatsapp: t.whatsapp || "",
+      squadi: { competitionId: t.squadi?.competitionId || "", divisionId: t.squadi?.divisionId || "", teamId: t.squadi?.teamId || "" },
+      importText: "", training: [],
+      features: { ...DEFAULT_FEATURES, ...(t.features || {}) }
     });
+  };
+
+  // As super admin you're a coach on every team — jump straight into one.
+  const openDashboard = (t) => {
+    document.cookie = `team_slug=${encodeURIComponent(t.slug)}; path=/; max-age=${60 * 60 * 24 * 180}; samesite=lax`;
+    window.location.href = "/";
+  };
+  const rotateKey = async (slug) => {
+    if (!window.confirm("Rotate the calendar key? Every existing calendar subscription stops updating until people re-subscribe with the new link.")) return;
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch("/api/teams", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug, rotateCalendarKey: true }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "rotate failed");
+      await load();
+    } catch (e) { setErr(String(e.message || e)); }
+    setBusy(false);
   };
 
   // Live parse of the Majestri paste / CSV upload (create flow only).
@@ -83,7 +112,9 @@ export default function TeamWizard() {
     const payload = {
       name: form.name, ageGroup: form.ageGroup, password: form.password.trim(),
       coachEmails: form.coachEmails, ...(squadi ? { squadi } : {}),
+      division: form.division, whatsapp: form.whatsapp, features: form.features,
       ...(!editSlug && imported.players.length ? { players: imported.players } : {}),
+      ...(!editSlug && form.training.length ? { training: form.training.map((t) => ({ ...t, weekday: Number(t.weekday) })) } : {}),
       ...(editSlug ? { slug: editSlug } : {})
     };
     try {
@@ -95,7 +126,7 @@ export default function TeamWizard() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "save failed");
       await load();
-      if (!editSlug) setCreated({ ...j.team, playersImported: j.playersImported || 0 });
+      if (!editSlug) setCreated({ ...j.team, playersImported: j.playersImported || 0, trainingSeeded: j.trainingSeeded || 0 });
       setForm(null); setEditSlug(null);
     } catch (e) { setErr(String(e.message || e)); }
     setBusy(false);
@@ -131,6 +162,7 @@ export default function TeamWizard() {
           </div>
           <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
             {created.playersImported > 0 && <b>{created.playersImported} player{created.playersImported > 1 ? "s" : ""} imported with parent details. </b>}
+            {created.trainingSeeded > 0 && <b>{created.trainingSeeded} weekly training session{created.trainingSeeded > 1 ? "s" : ""} added to the calendar. </b>}
             Share the code with the team. Parents log in with it at {typeof window !== "undefined" ? window.location.origin : ""} — the calendar subscribe link is on their Home tab.
           </div>
           <button style={{ ...ghost, marginTop: 10, padding: "5px 10px", fontSize: 12 }} onClick={() => setCreated(null)}>Done</button>
@@ -148,6 +180,7 @@ export default function TeamWizard() {
                 {t.ageGroup && <span style={{ ...chip, background: C.soft, color: C.muted }}>{t.ageGroup}</span>}
                 {srcChip(t)}
                 <span style={{ flex: 1 }} />
+                <button style={{ ...btn, padding: "4px 9px", fontSize: 11.5 }} onClick={() => openDashboard(t)}>Open ▸</button>
                 <button style={{ ...ghost, padding: "4px 9px", fontSize: 11.5 }} onClick={() => openEdit(t)}>Edit</button>
                 {t.source === "stored" && (
                   <button disabled={busy} style={{ ...ghost, padding: "4px 9px", fontSize: 11.5 }} onClick={() => remove(t.slug)}>Remove</button>
@@ -185,6 +218,12 @@ export default function TeamWizard() {
           <input style={inp} placeholder="Olympic FC U9 Wallabies Blue" value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} autoFocus />
           {!editSlug && form.name && <div style={hint}>slug (permanent): <b>{slugify(form.name) || "—"}</b></div>}
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+            <input style={{ ...inp, flex: "1 1 180px" }} placeholder="Division label (e.g. Kangaroos K1 Central Hub)" value={form.division}
+              onChange={(e) => setForm((f) => ({ ...f, division: e.target.value }))} />
+            <input style={{ ...inp, flex: "1 1 180px" }} placeholder="WhatsApp group link (optional)" value={form.whatsapp}
+              onChange={(e) => setForm((f) => ({ ...f, whatsapp: e.target.value }))} />
+          </div>
 
           <span style={fieldLb}>2 · Age group</span>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -203,6 +242,11 @@ export default function TeamWizard() {
             <button style={ghost} onClick={() => setForm((f) => ({ ...f, password: friendlyCode() }))}>↻ New</button>
           </div>
           <div style={hint}>Must be unique across teams — the code picks the team at login. The calendar key is generated automatically.</div>
+          {editSlug && (
+            <button disabled={busy} style={{ ...ghost, marginTop: 8, padding: "6px 11px", fontSize: 12 }} onClick={() => rotateKey(editSlug)}>
+              ↻ Rotate calendar key (if the subscribe link leaked)
+            </button>
+          )}
 
           <span style={fieldLb}>4 · Coach / manager emails (optional — for account login)</span>
           <input style={inp} placeholder="coach@example.com, manager@example.com" value={form.coachEmails}
@@ -254,8 +298,49 @@ export default function TeamWizard() {
                   )}
                 </div>
               )}
+
+              <span style={fieldLb}>7 · Weekly training schedule (optional)</span>
+              <div style={hint}>
+                These become recurring sessions on the team calendar — and flow into every parent's
+                subscribed calendar automatically, exactly like Squadi-synced games.
+              </div>
+              {form.training.map((row, i) => (
+                <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+                  <select style={{ ...inp, width: "auto" }} value={row.weekday}
+                    onChange={(e) => setForm((f) => ({ ...f, training: f.training.map((r, k) => k === i ? { ...r, weekday: e.target.value } : r) }))}>
+                    {WEEKDAYS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                  <input type="time" style={{ ...inp, width: "auto" }} value={row.time}
+                    onChange={(e) => setForm((f) => ({ ...f, training: f.training.map((r, k) => k === i ? { ...r, time: e.target.value } : r) }))} />
+                  <span style={{ fontSize: 12, color: C.muted }}>to</span>
+                  <input type="time" style={{ ...inp, width: "auto" }} value={row.endTime}
+                    onChange={(e) => setForm((f) => ({ ...f, training: f.training.map((r, k) => k === i ? { ...r, endTime: e.target.value } : r) }))} />
+                  <input style={{ ...inp, flex: "1 1 120px" }} placeholder="Location" value={row.location}
+                    onChange={(e) => setForm((f) => ({ ...f, training: f.training.map((r, k) => k === i ? { ...r, location: e.target.value } : r) }))} />
+                  <button style={{ background: "none", border: "none", color: C.red, fontWeight: 700, cursor: "pointer" }}
+                    onClick={() => setForm((f) => ({ ...f, training: f.training.filter((_, k) => k !== i) }))}>✕</button>
+                </div>
+              ))}
+              <button style={{ ...ghost, marginTop: 8, padding: "6px 11px", fontSize: 12 }}
+                onClick={() => setForm((f) => ({ ...f, training: [...f.training, { weekday: "2", time: "17:00", endTime: "18:00", location: "" }] }))}>
+                ＋ Add training day
+              </button>
             </>
           )}
+
+          <span style={fieldLb}>{editSlug ? "Features" : "8 · Features"} — what this team uses</span>
+          <div style={hint}>Turn off anything that isn't relevant — the dashboard hides it for everyone on this team.</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+            {Object.keys(DEFAULT_FEATURES).map((k) => {
+              const on = !!form.features[k];
+              return (
+                <button key={k} onClick={() => setForm((f) => ({ ...f, features: { ...f.features, [k]: !on } }))}
+                  style={{ ...chip, cursor: "pointer", padding: "7px 12px", border: "1px solid " + (on ? C.ok : C.line), background: on ? "rgba(30,158,87,.10)" : "#fff", color: on ? C.ok : C.muted }}>
+                  {on ? "✓ " : ""}{FEATURE_LABELS[k]}
+                </button>
+              );
+            })}
+          </div>
 
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
             <button disabled={busy || !form.name.trim() || form.password.trim().length < 4} style={btn} onClick={submit}>

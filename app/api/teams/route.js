@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { isAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
+import { sanitizeFeatures, sanitizeTrainingSessions, DEFAULT_FEATURES } from "@/lib/teamSetup";
 
 export const dynamic = "force-dynamic";
 
@@ -59,19 +60,26 @@ async function clash(field, value, exceptSlug) {
   return (await getTeams()).some((t) => t.slug !== exceptSlug && t[field] === value);
 }
 
-// GET: every team, flagged by source, including codes/keys (admin-only view).
+// GET: every team, flagged by source, including codes/keys (admin-only view)
+// plus the doc-held fields the wizard can edit (division, WhatsApp, features).
 export async function GET() {
   const gate = await requireAdmin();
   if (gate.error) return NextResponse.json({ error: gate.error }, { status: gate.status });
   clearTeamsCache(); // admin view should never be stale
   const teams = await getTeams();
-  return NextResponse.json({
-    teams: teams.map((t) => ({
+  const enriched = await Promise.all(teams.map(async (t) => {
+    const doc = await getData(t.slug).catch(() => null);
+    return {
       slug: t.slug, name: t.name, password: t.password, calendarKey: t.calendarKey || "",
       ageGroup: t.ageGroup || "", coachEmails: t.coachEmails || [], squadi: t.squadi || null,
-      source: t.stored ? "stored" : (t.legacy ? "legacy" : "env")
-    }))
-  });
+      source: t.stored ? "stored" : (t.legacy ? "legacy" : "env"),
+      division: doc?.team?.division || "",
+      whatsapp: doc?.team?.whatsapp || "",
+      features: { ...DEFAULT_FEATURES, ...(doc?.team?.features || {}) },
+      hasData: !!doc
+    };
+  }));
+  return NextResponse.json({ teams: enriched });
 }
 
 // POST: create a team. Auto-derives slug from the name and generates the
@@ -104,20 +112,30 @@ export async function POST(req) {
   await setStoredTeams([...stored, team]);
   clearTeamsCache();
 
-  // Starter document (only if this slug has never held data), including any
-  // imported roster from the wizard's Majestri step — players, parents'
-  // names/emails/mobiles — so parent login and RSVPs work from day one.
+  // Starter document (only if this slug has never held data): the imported
+  // Majestri roster (players + parents' names/emails/mobiles, so parent login
+  // and RSVPs work from day one), the weekly training schedule (flows into
+  // the calendar tab and every subscribed calendar via the ICS feed, just
+  // like Squadi-synced games), and the team's feature flags.
   const players = sanitizePlayers(body.players);
+  const sessions = sanitizeTrainingSessions(body.training);
   let seeded = 0;
   if (!(await getData(slug))) {
     await setData(slug, {
-      team: { name: team.name, ageGroup: team.ageGroup || "", division: "", coachPin: "", matchFormat: defaultFormatForAgeGroup(team.ageGroup) },
-      players, fixtures: [], sessions: []
+      team: {
+        name: team.name, ageGroup: team.ageGroup || "",
+        division: String(body.division || "").trim().slice(0, 80),
+        whatsapp: String(body.whatsapp || "").trim().slice(0, 200),
+        coachPin: "",
+        matchFormat: defaultFormatForAgeGroup(team.ageGroup),
+        features: sanitizeFeatures(body.features)
+      },
+      players, fixtures: [], sessions
     });
     seeded = players.length;
   }
 
-  return NextResponse.json({ ok: true, team, playersImported: seeded });
+  return NextResponse.json({ ok: true, team, playersImported: seeded, trainingSeeded: sessions.length });
 }
 
 // PATCH: edit a team. Stored teams edit in place; editing an env-defined team
@@ -147,13 +165,32 @@ export async function PATCH(req) {
   const { stored: _s, legacy: _l, ...base } = current;
   const next = sanitizeTeam(body, { ...base, slug });
   if (!next.name || !next.password) return NextResponse.json({ error: "name and team code can't be empty" }, { status: 400 });
+  // Rotate the calendar feed credential (e.g. after a leaked subscribe URL):
+  // every existing subscription goes dead until re-subscribed with the new link.
+  if (body.rotateCalendarKey === true) next.calendarKey = crypto.randomBytes(16).toString("hex");
 
   const stored = (await getStoredTeams()) || [];
   const i = stored.findIndex((t) => t && t.slug === slug);
   const list = i === -1 ? [...stored, next] : stored.map((t, k) => (k === i ? next : t));
   await setStoredTeams(list);
   clearTeamsCache();
-  return NextResponse.json({ ok: true, team: next, tookOver: i === -1 && !current.stored });
+
+  // Doc-held fields (shown throughout the dashboard) update in place too.
+  let docUpdated = false;
+  if (body.division != null || body.whatsapp != null || body.features != null || body.name != null) {
+    const doc = await getData(slug);
+    if (doc) {
+      const teamDoc = { ...(doc.team || {}) };
+      if (body.name != null) teamDoc.name = next.name;
+      if (body.division != null) teamDoc.division = String(body.division).trim().slice(0, 80);
+      if (body.whatsapp != null) teamDoc.whatsapp = String(body.whatsapp).trim().slice(0, 200);
+      if (body.features != null) teamDoc.features = sanitizeFeatures(body.features);
+      await setData(slug, { ...doc, team: teamDoc });
+      docUpdated = true;
+    }
+  }
+
+  return NextResponse.json({ ok: true, team: next, tookOver: i === -1 && !current.stored, docUpdated });
 }
 
 // DELETE: remove a wizard-created team's registration. The team's data

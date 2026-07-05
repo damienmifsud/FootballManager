@@ -157,6 +157,32 @@ describe("App — RSVP toggle (match modal)", () => {
   });
 });
 
+describe("App — per-team feature flags (duties)", () => {
+  it("shows fruit + goalkeeper tiles by default, with jersey duty off", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await screen.findByRole("button", { name: /View/ });
+    expect(screen.getByText("Fruit duty")).toBeTruthy();
+    expect(screen.getByText("In goal")).toBeTruthy();
+    expect(screen.queryByText("Jerseys")).toBeNull();
+  });
+
+  it("honours the flags: jersey on, fruit and goalkeeper off", async () => {
+    const data = makeData();
+    data.team.features = { fruitDuty: false, gkDuty: false, jerseyDuty: true };
+    storage.get.mockResolvedValue({ value: JSON.stringify(data) });
+    render(<App />);
+    await screen.findByRole("button", { name: /View/ });
+    expect(screen.getByText("Jerseys")).toBeTruthy();
+    expect(screen.queryByText("Fruit duty")).toBeNull();
+    expect(screen.queryByText("In goal")).toBeNull();
+    // Duties tab shows only the jersey section.
+    fireEvent.click(screen.getByText("Duties"));
+    expect(await screen.findByText("Jersey washing")).toBeTruthy();
+    expect(screen.queryByText("Goalkeeper")).toBeNull();
+  });
+});
+
 describe("App — Squadi-style results rows", () => {
   const withFixtures = (fixtures) => makeData({ fixtures });
 

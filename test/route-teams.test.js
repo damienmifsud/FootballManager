@@ -93,6 +93,26 @@ describe("POST — create", () => {
     expect(doc.players[0].id).toBeTruthy();
   });
 
+  it("seeds the training schedule, features, division and WhatsApp into the starter doc", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: {
+      name: "Wiz D", ageGroup: "U8", password: "swift-roo-33",
+      division: "Kangaroos K1 Central Hub", whatsapp: "https://chat.whatsapp.com/xyz",
+      features: { jerseyDuty: true, focus: false },
+      training: [{ weekday: 2, time: "17:00", endTime: "18:00", location: "Perry Park" }, { weekday: 9, time: "17:00" }]
+    } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).trainingSeeded).toBe(1); // invalid row dropped
+    const [, doc] = setData.mock.calls[0];
+    expect(doc.team).toMatchObject({
+      division: "Kangaroos K1 Central Hub",
+      whatsapp: "https://chat.whatsapp.com/xyz",
+      features: { fruitDuty: true, jerseyDuty: true, gkDuty: true, focus: false }
+    });
+    expect(doc.sessions).toHaveLength(1);
+    expect(doc.sessions[0]).toMatchObject({ recur: "weekly", weekday: 2, time: "17:00", endTime: "18:00", location: "Perry Park", kind: "training" });
+  });
+
   it("does not overwrite existing data when re-adding a known slug", async () => {
     getData.mockResolvedValue({ team: { name: "Old" }, players: [{ id: "p1" }] });
     const { POST } = await asAdmin();
@@ -135,6 +155,29 @@ describe("PATCH — edit", () => {
     const savedList = setStoredTeams.mock.calls[0][0];
     // Env fields carried over, patch applied, stored copy now wins on slug.
     expect(savedList[0]).toMatchObject({ slug: "env-a", name: "Env A", password: "code-a", coachEmails: ["extra@a.com"] });
+  });
+
+  it("updates the doc-held fields (features/division) on an existing team document", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b", calendarKey: "key-b" }]);
+    getData.mockResolvedValue({ team: { name: "Wiz B", coachPin: "9" }, players: [{ id: "p1" }], fixtures: [] });
+    const { PATCH } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "wiz-b", division: "K2 South", features: { gkDuty: false } } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).docUpdated).toBe(true);
+    const [, doc] = setData.mock.calls[0];
+    // Existing doc content preserved; only the team fields updated.
+    expect(doc.players).toEqual([{ id: "p1" }]);
+    expect(doc.team).toMatchObject({ coachPin: "9", division: "K2 South", features: expect.objectContaining({ gkDuty: false, fruitDuty: true }) });
+  });
+
+  it("rotates the calendar key on request", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b", calendarKey: "key-b" }]);
+    const { PATCH } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "wiz-b", rotateCalendarKey: true } }));
+    expect(res.status).toBe(200);
+    const savedList = setStoredTeams.mock.calls[0][0];
+    expect(savedList[0].calendarKey).toMatch(/^[0-9a-f]{32}$/);
+    expect(savedList[0].calendarKey).not.toBe("key-b");
   });
 
   it("404s unknown slugs and 409s a code used by another team", async () => {

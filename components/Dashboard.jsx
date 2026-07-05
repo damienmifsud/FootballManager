@@ -5,7 +5,7 @@ import {
   Trash2, X, Lock, Unlock, Trophy, MapPin, Clock, ChevronRight, Check,
   Settings as SettingsIcon, Star, Goal, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, ExternalLink, Download, Target,
-  Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake
+  Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LabelList
@@ -20,6 +20,7 @@ import {
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport } from "@/lib/majestri";
+import { teamFeatures } from "@/lib/teamSetup";
 
 /* ============================================================
    STORAGE
@@ -765,22 +766,28 @@ function HomeTab({ data, stats, next, pname, setModal }) {
         <div className="card"><div className="empty"><div className="disp">No upcoming match</div><div className="note">Add fixtures in the Fixtures tab.</div></div></div>
       )}
 
-      {next && (
-        <div className="duties">
-          <div className="duty fruit">
-            <div className="ic"><Apple size={18} /></div>
-            <div className="label">Fruit duty</div>
-            <div className="who">{pname(next.fruit)}</div>
-            <div className="rnd">Round {next.round}</div>
+      {next && (() => {
+        // Duty tiles honour the team's feature flags (wizard/Settings).
+        const feats = teamFeatures(data.team);
+        const tiles = [
+          feats.fruitDuty && { cls: "fruit", Icon: Apple, label: "Fruit duty", who: pname(next.fruit) },
+          feats.gkDuty && { cls: "gk", Icon: ShieldCheck, label: "In goal", who: pname(next.gk) },
+          feats.jerseyDuty && { cls: "fruit", Icon: Shirt, label: "Jerseys", who: pname(next.jersey) }
+        ].filter(Boolean);
+        if (!tiles.length) return null;
+        return (
+          <div className="duties">
+            {tiles.map(({ cls, Icon, label, who }) => (
+              <div className={"duty " + cls} key={label}>
+                <div className="ic"><Icon size={18} /></div>
+                <div className="label">{label}</div>
+                <div className="who">{who}</div>
+                <div className="rnd">Round {next.round}</div>
+              </div>
+            ))}
           </div>
-          <div className="duty gk">
-            <div className="ic"><ShieldCheck size={18} /></div>
-            <div className="label">In goal</div>
-            <div className="who">{pname(next.gk)}</div>
-            <div className="rnd">Round {next.round}</div>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {next && counts && activePlayers.length > 0 && (
         <div className="card" onClick={() => setModal({ type: "match", payload: next })} style={{ cursor: "pointer" }}>
@@ -873,7 +880,7 @@ function HomeTab({ data, stats, next, pname, setModal }) {
         </div>
       )}
 
-      {next && <FocusCard f={next} />}
+      {next && teamFeatures(data.team).focus && <FocusCard f={next} />}
 
       <div className="card">
         <div className="label" style={{ marginBottom: 12 }}>Season so far</div>
@@ -1209,32 +1216,37 @@ function SquadTab({ data, stats, isCoach, setModal, persist }) {
 /* ---------------- DUTIES ---------------- */
 function DutiesTab({ data, isCoach, pname, setModal }) {
   const fixtures = [...data.fixtures].sort((a, b) => a.round - b.round);
+  const feats = teamFeatures(data.team);
+  const sections = [
+    feats.fruitDuty && { key: "fruit", label: "Fruit duty", Icon: Apple, color: "var(--amber)" },
+    feats.gkDuty && { key: "gk", label: "Goalkeeper", Icon: ShieldCheck, color: "var(--pitch)" },
+    feats.jerseyDuty && { key: "jersey", label: "Jersey washing", Icon: Shirt, color: "var(--pitch)" }
+  ].filter(Boolean);
+  if (!sections.length) {
+    return (
+      <div className="card"><div className="empty"><div className="disp">Duties are turned off</div><div className="note">Fruit, jersey and goalkeeper duty can be switched on for this team from the club admin page.</div></div></div>
+    );
+  }
   return (
     <>
       <div className="card">
         <div className="label" style={{ marginBottom: 4 }}>Roster</div>
-        <div className="note">Fruit and goalkeeper duty by round. {isCoach ? "Tap a round to assign." : "Tap into Coach mode to edit."}</div>
+        <div className="note">{sections.map(s => s.label).join(", ")} by round. {isCoach ? "Tap a round to assign." : "Tap into Coach mode to edit."}</div>
       </div>
-      <div className="section-title"><Apple size={16} color="var(--amber)" /><div className="disp">Fruit duty</div></div>
-      <div className="card" style={{ padding: "6px 14px" }}>
-        {fixtures.map(f => (
-          <div className="dutyrow" key={f.id} onClick={() => isCoach && setModal({ type: "fixture", payload: f })} style={{ cursor: isCoach ? "pointer" : "default" }}>
-            <div className="rbadge">{f.round}</div>
-            <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{pname(f.fruit)}</div><div className="note">{fmtDate(f.dateISO)} · vs {f.opponent}</div></div>
-            {isCoach && <ChevronRight size={16} color="var(--muted)" />}
+      {sections.map(({ key, label, Icon, color }) => (
+        <div key={key}>
+          <div className="section-title"><Icon size={16} color={color} /><div className="disp">{label}</div></div>
+          <div className="card" style={{ padding: "6px 14px" }}>
+            {fixtures.map(f => (
+              <div className="dutyrow" key={f.id} onClick={() => isCoach && setModal({ type: "fixture", payload: f })} style={{ cursor: isCoach ? "pointer" : "default" }}>
+                <div className="rbadge">{f.round}</div>
+                <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{pname(f[key])}</div><div className="note">{fmtDate(f.dateISO)} · vs {f.opponent}</div></div>
+                {isCoach && <ChevronRight size={16} color="var(--muted)" />}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="section-title"><ShieldCheck size={16} color="var(--pitch)" /><div className="disp">Goalkeeper</div></div>
-      <div className="card" style={{ padding: "6px 14px" }}>
-        {fixtures.map(f => (
-          <div className="dutyrow" key={f.id} onClick={() => isCoach && setModal({ type: "fixture", payload: f })} style={{ cursor: isCoach ? "pointer" : "default" }}>
-            <div className="rbadge">{f.round}</div>
-            <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{pname(f.gk)}</div><div className="note">{fmtDate(f.dateISO)} · vs {f.opponent}</div></div>
-            {isCoach && <ChevronRight size={16} color="var(--muted)" />}
-          </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </>
   );
 }
@@ -1745,18 +1757,26 @@ function FixtureSheet({ data, persist, payload, close }) {
       </div>
     )}
 
-    <div className="row2">
-      <div className="field"><label>Fruit duty</label>
-        <select className="inp" value={f.fruit} onChange={e => setF({ ...f, fruit: e.target.value })}>
-          <option value="">— none —</option>{players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-      </div>
-      <div className="field"><label>Goalkeeper</label>
-        <select className="inp" value={f.gk} onChange={e => setF({ ...f, gk: e.target.value })}>
-          <option value="">— none —</option>{players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-      </div>
-    </div>
+    {(() => {
+      const feats = teamFeatures(data.team);
+      const duties = [
+        feats.fruitDuty && ["fruit", "Fruit duty"],
+        feats.gkDuty && ["gk", "Goalkeeper"],
+        feats.jerseyDuty && ["jersey", "Jerseys"]
+      ].filter(Boolean);
+      if (!duties.length) return null;
+      return (
+        <div className="row2" style={duties.length === 3 ? { gridTemplateColumns: "1fr 1fr 1fr" } : undefined}>
+          {duties.map(([key, label]) => (
+            <div className="field" key={key}><label>{label}</label>
+              <select className="inp" value={f[key] || ""} onChange={e => setF({ ...f, [key]: e.target.value })}>
+                <option value="">— none —</option>{players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      );
+    })()}
 
     {f.status === "played" && players.length > 0 && (
       <div className="field"><label>Goals & assists</label>
@@ -1786,6 +1806,7 @@ function FixtureSheet({ data, persist, payload, close }) {
       </div>
     </div>
 
+    {teamFeatures(data.team).focus && (
     <div className="field" style={{ borderTop: "1px solid var(--line)", paddingTop: 14 }}>
       <label>Focus this week — training & game (optional)</label>
       <select className="inp" style={{ marginBottom: 8 }}
@@ -1810,6 +1831,7 @@ function FixtureSheet({ data, persist, payload, close }) {
           onChange={e => setF({ ...f, focusPoints: e.target.value })} />
       </>}
     </div>
+    )}
 
     <div className="field"><label>Notes (optional)</label><textarea className="inp" rows={2} value={f.notes} onChange={e => setF({ ...f, notes: e.target.value })} /></div>
 
@@ -1967,7 +1989,7 @@ const setAv = async (pid, patch) => {
       );
     })()}
 
-    <FocusCard f={f} label={f.status === "played" ? "Focus that week" : "This week's focus"} />
+    {teamFeatures(data.team).focus && <FocusCard f={f} label={f.status === "played" ? "Focus that week" : "This week's focus"} />}
 
     {recentChanges(f).length > 0 && (
       <div className="chgcard">
