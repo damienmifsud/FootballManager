@@ -13,7 +13,7 @@ const AUTH_ON = !!process.env.AUTH_SECRET;
 // enforces every write regardless of what the client renders.
 export async function GET(req) {
   if (!AUTH_ON) {
-    const team = teamFromCookieHeader(req.headers.get("cookie"));
+    const team = await teamFromCookieHeader(req.headers.get("cookie"));
     if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     return NextResponse.json({ mode: "code", teamSlug: team.slug, teamName: team.name });
   }

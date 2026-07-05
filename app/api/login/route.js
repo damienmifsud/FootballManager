@@ -9,7 +9,7 @@ export async function POST(req) {
     return NextResponse.json({ error: "bad request" }, { status: 400 });
   }
 
-  const team = teamByPassword(password);
+  const team = await teamByPassword(password);
   if (!team) {
     return NextResponse.json({ error: "wrong password" }, { status: 401 });
   }

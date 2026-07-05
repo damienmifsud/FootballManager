@@ -29,7 +29,7 @@ export async function GET() {
   const access = (await getClubAccess()) || {};
   const envClubAdmins = (process.env.CLUB_ADMIN_EMAILS || "").split(",").map(norm).filter(Boolean);
   return NextResponse.json({
-    teams: getTeams().map((t) => ({ slug: t.slug, name: t.name, coachEmails: t.coachEmails || [] })),
+    teams: (await getTeams()).map((t) => ({ slug: t.slug, name: t.name, coachEmails: t.coachEmails || [] })),
     clubAdmins: (access.clubAdmins || []).map(norm),
     envClubAdmins, // configured in the env; shown but not editable here
     overrides: access.overrides || {},
@@ -56,7 +56,7 @@ export async function POST(req) {
   if (action === "setOverride") {
     const teamSlug = body?.teamSlug;
     const role = body?.role ?? null;
-    if (!getTeams().some((t) => t.slug === teamSlug)) return NextResponse.json({ error: "no such team" }, { status: 400 });
+    if (!(await getTeams()).some((t) => t.slug === teamSlug)) return NextResponse.json({ error: "no such team" }, { status: 400 });
     if (role !== null && !OVERRIDE_ROLES.includes(role)) return NextResponse.json({ error: "bad role" }, { status: 400 });
     if (isAdminEmail(email)) return NextResponse.json({ error: "the super admin can't be overridden" }, { status: 400 });
     const mine = { ...(next.overrides[email] || {}) };

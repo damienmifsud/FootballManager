@@ -4,6 +4,7 @@
 // in lib/directory.js applies whatever is saved here on every request.
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import TeamWizard from "@/components/TeamWizard";
 
 const C = { red: "#C8102E", ink: "#1d1417", muted: "#7a6f72", line: "#eee", soft: "#f6f2f3" };
 const card = { background: "#fff", borderRadius: 16, padding: 18, marginBottom: 16, boxShadow: "0 10px 26px rgba(40,0,8,.18)", color: C.ink };
@@ -120,15 +121,7 @@ export default function AccessManager({ adminEmail }) {
               </div>
             </div>
 
-            <div style={card}>
-              <div style={label}>Teams & default coaches (from the TEAMS env)</div>
-              {state.teams.map((t) => (
-                <div key={t.slug} style={{ padding: "7px 0", borderBottom: "1px solid " + C.line, fontSize: 14 }}>
-                  <span style={{ fontWeight: 700 }}>{t.name}</span>
-                  <span style={{ color: C.muted, fontSize: 13 }}> · {t.coachEmails.length ? "coaches: " + t.coachEmails.join(", ") : "no coach emails configured"}</span>
-                </div>
-              ))}
-            </div>
+            <TeamWizard />
 
             <div style={card}>
               <div style={label}>League — Squadi fixtures & sync</div>
