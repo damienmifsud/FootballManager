@@ -5,11 +5,10 @@ import { fakeRequest } from "./helpers/fakeRequest";
 // It only exists in account mode. isAdminEmail/OVERRIDE_ROLES come from the
 // real directory module (driven by ADMIN_EMAILS), teams from the real teams
 // module (driven by TEAMS); the store and session are mocked.
-const { auth, getClubAccess, setClubAccess, getData } = vi.hoisted(() => ({
-  auth: vi.fn(), getClubAccess: vi.fn(), setClubAccess: vi.fn(), getData: vi.fn()
+const { auth, getClubAccess, setClubAccess, getData, getStoredTeams } = vi.hoisted(() => ({  auth: vi.fn(), getClubAccess: vi.fn(), setClubAccess: vi.fn(), getData: vi.fn(), getStoredTeams: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
-vi.mock("@/lib/store", () => ({ getClubAccess, setClubAccess, getData }));
+vi.mock("@/lib/store", () => ({ getClubAccess, setClubAccess, getData, getStoredTeams }));
 
 const KEYS = ["AUTH_SECRET", "ADMIN_EMAILS", "CLUB_ADMIN_EMAILS", "TEAMS"];
 let saved;
@@ -23,6 +22,7 @@ beforeEach(() => {
   ]);
   getClubAccess.mockResolvedValue({});
   setClubAccess.mockResolvedValue();
+  getStoredTeams.mockResolvedValue([]);
 });
 afterEach(() => {
   for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }

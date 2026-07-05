@@ -43,9 +43,9 @@ async function resolveTeam(req) {
     if (!memberships.length) return null;
     const m = req.cookies.get("team_slug")?.value;
     const chosen = memberships.find((x) => x.teamSlug === m) || memberships[0];
-    return teamBySlug(chosen.teamSlug);
+    return await teamBySlug(chosen.teamSlug);
   }
-  return teamFromCookieHeader(req.headers.get("cookie"));
+  return await teamFromCookieHeader(req.headers.get("cookie"));
 }
 
 function gameSummary(data) {

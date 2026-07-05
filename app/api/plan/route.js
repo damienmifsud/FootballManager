@@ -36,13 +36,13 @@ export async function POST(req) {
     if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     const wanted = req.cookies.get("team_slug")?.value;
     const chosen = memberships.find((m) => m.teamSlug === wanted) || memberships[0];
-    team = teamBySlug(chosen.teamSlug);
+    team = await teamBySlug(chosen.teamSlug);
     if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     if (!(await isCoachForTeam(email, team.slug))) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
   } else {
-    team = teamFromCookieHeader(req.headers.get("cookie"));
+    team = await teamFromCookieHeader(req.headers.get("cookie"));
     if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

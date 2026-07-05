@@ -5,7 +5,7 @@ import {
   Trash2, X, Lock, Unlock, Trophy, MapPin, Clock, ChevronRight, Check,
   Settings as SettingsIcon, Star, Goal, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, ExternalLink, Download, Target,
-  Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake
+  Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LabelList
@@ -19,6 +19,9 @@ import {
   nextBirthdays
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
+import { parsePlayerImport } from "@/lib/majestri";
+import { teamFeatures } from "@/lib/teamSetup";
+import { downscaleImage } from "@/lib/clientImage";
 
 /* ============================================================
    STORAGE
@@ -141,27 +144,7 @@ function getStaff(team) {
   ].filter(s => s.name);
 }
 
-// Read an image file and downscale it to a small square-ish JPEG data URL so a
-// few staff photos stay tiny inside the team document (~10-20KB each).
-function downscaleImage(file, max = 200, type = "image/jpeg", quality = 0.72) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, max / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-        const c = document.createElement("canvas"); c.width = w; c.height = h;
-        c.getContext("2d").drawImage(img, 0, 0, w, h);
-        try { resolve(c.toDataURL(type, quality)); } catch (e) { reject(e); }
-      };
-      img.onerror = reject;
-      img.src = reader.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
+// downscaleImage moved to lib/clientImage.js (shared with the /admin wizard).
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]; // JS getDay order
 const FULLDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -538,6 +521,34 @@ const CSS = `
 .savatar{width:48px;height:48px;border-radius:50%;flex-shrink:0;object-fit:cover;background:var(--pitch);
   color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;}
 .staffrole{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--pitch);}
+/* Squadi-style results rows (home · score · away) */
+.sqrow{padding:13px 4px;border-bottom:1px solid var(--line);cursor:pointer;}
+.sqrow:last-child{border-bottom:none;}
+.sqmatch{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;}
+.sqteam{display:flex;align-items:center;gap:9px;min-width:0;}
+.sqteam.away{flex-direction:row-reverse;text-align:right;}
+.sqcrest{width:34px;height:34px;border-radius:9px;flex:0 0 34px;object-fit:contain;background:#fff;}
+.sqcrest-ph{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:var(--muted);background:var(--soft);}
+.sqname{flex:1;min-width:0;font-weight:700;font-size:14.5px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.squs .sqname{color:var(--pitch);}
+.squs .sqcrest{box-shadow:0 0 0 2px #fff,0 0 0 4px rgba(200,16,46,.25);}
+.sqscore{font-family:'Anton';font-size:23px;line-height:1;padding:4px 10px;border-radius:9px;white-space:nowrap;min-width:58px;text-align:center;}
+.sqscore.win{color:var(--win);background:rgba(30,158,87,.10);}
+.sqscore.loss{color:var(--red);background:rgba(229,72,77,.09);}
+.sqscore.draw{color:var(--muted);background:rgba(107,90,93,.10);}
+.sqscore.state{font-family:'DM Sans',sans-serif;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:6px 9px;}
+.sqscore.up{color:var(--amber);background:rgba(246,166,35,.12);}
+.sqscore.canc{color:var(--red);background:rgba(229,72,77,.10);}
+.sqscore.none{color:var(--muted);background:var(--soft);}
+.sqmeta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;}
+.sqwhen{flex:1;min-width:0;font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sqwhen b{color:#56535a;font-weight:700;}
+.sqtags{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
+.sqtag{font-size:9.5px;font-weight:800;letter-spacing:.04em;padding:3px 7px;border-radius:999px;white-space:nowrap;text-transform:uppercase;}
+.sqtag.ha{background:#f0ebed;color:#6b6770;}
+.sqtag.watch{background:rgba(200,16,46,.10);color:var(--pitch);}
+.sqtag.upd{background:var(--red);color:#fff;}
+.sqrow.canc .sqname,.sqrow.canc .sqcrest{opacity:.5;}
 `;
 
 /* ============================================================
@@ -736,22 +747,28 @@ function HomeTab({ data, stats, next, pname, setModal }) {
         <div className="card"><div className="empty"><div className="disp">No upcoming match</div><div className="note">Add fixtures in the Fixtures tab.</div></div></div>
       )}
 
-      {next && (
-        <div className="duties">
-          <div className="duty fruit">
-            <div className="ic"><Apple size={18} /></div>
-            <div className="label">Fruit duty</div>
-            <div className="who">{pname(next.fruit)}</div>
-            <div className="rnd">Round {next.round}</div>
+      {next && (() => {
+        // Duty tiles honour the team's feature flags (wizard/Settings).
+        const feats = teamFeatures(data.team);
+        const tiles = [
+          feats.fruitDuty && { cls: "fruit", Icon: Apple, label: "Fruit duty", who: pname(next.fruit) },
+          feats.gkDuty && { cls: "gk", Icon: ShieldCheck, label: "In goal", who: pname(next.gk) },
+          feats.jerseyDuty && { cls: "fruit", Icon: Shirt, label: "Jerseys", who: pname(next.jersey) }
+        ].filter(Boolean);
+        if (!tiles.length) return null;
+        return (
+          <div className="duties">
+            {tiles.map(({ cls, Icon, label, who }) => (
+              <div className={"duty " + cls} key={label}>
+                <div className="ic"><Icon size={18} /></div>
+                <div className="label">{label}</div>
+                <div className="who">{who}</div>
+                <div className="rnd">Round {next.round}</div>
+              </div>
+            ))}
           </div>
-          <div className="duty gk">
-            <div className="ic"><ShieldCheck size={18} /></div>
-            <div className="label">In goal</div>
-            <div className="who">{pname(next.gk)}</div>
-            <div className="rnd">Round {next.round}</div>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {next && counts && activePlayers.length > 0 && (
         <div className="card" onClick={() => setModal({ type: "match", payload: next })} style={{ cursor: "pointer" }}>
@@ -844,7 +861,7 @@ function HomeTab({ data, stats, next, pname, setModal }) {
         </div>
       )}
 
-      {next && <FocusCard f={next} />}
+      {next && teamFeatures(data.team).focus && <FocusCard f={next} />}
 
       <div className="card">
         <div className="label" style={{ marginBottom: 12 }}>Season so far</div>
@@ -1031,35 +1048,63 @@ function CalendarTab({ data, isCoach, setModal }) {
 function FixturesTab({ data, isCoach, pname, setModal, persist }) {
   const fixtures = [...data.fixtures].sort((a, b) => a.round - b.round);
   const del = (id) => persist({ ...data, fixtures: data.fixtures.filter(f => f.id !== id), isSample: false });
+  const usName = data.team.name;
+  const usLogo = data.team.logo || "/logo.png";
+
+  // Crest as image when we have one, else a soft tile with the team's initials.
+  const crest = (logo, name) => logo
+    ? <img className="sqcrest" src={logo} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+    : <span className="sqcrest sqcrest-ph">{initials(name)}</span>;
+
   return (
     <>
       {isCoach && <button className="addfab" onClick={() => setModal({ type: "fixture", payload: null })}><Plus size={17} />Add fixture</button>}
-      <div className="card" style={{ padding: "6px 14px" }}>
+      <div className="card" style={{ padding: "2px 12px" }}>
         {fixtures.length === 0 && <div className="empty"><div className="disp">No fixtures yet</div></div>}
         {fixtures.map(f => {
+          const home = f.homeAway === "H";
           const won = f.us > f.them, drew = f.us === f.them;
           const hasVid = !!videoKind(f.video);
+          const updated = recentChanges(f).length > 0;
+          const cancelled = f.status === "cancelled";
+          // Home team sits left, away right — flip when Olympic is away.
+          const homeName = home ? usName : f.opponent;
+          const awayName = home ? f.opponent : usName;
+          const homeLogo = home ? usLogo : (f.opponentLogo || "");
+          const awayLogo = home ? (f.opponentLogo || "") : usLogo;
+          const hs = home ? f.us : f.them;
+          const as = home ? f.them : f.us;
           return (
-            <div className="fx" key={f.id} onClick={() => setModal({ type: "match", payload: f })} style={{ cursor: "pointer" }}>
-              <div className="rd"><div className="r">{f.round}</div><div className="dt">{fmtDate(f.dateISO)}</div></div>
-              {f.opponentLogo && <img className="crest" src={f.opponentLogo} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
-              <div className="mid">
-                <div className="opp">{f.opponent}<span className={"hatag " + f.homeAway}>{f.homeAway}</span>{hasVid && <span className="playtag"><Goal size={9} />Watch</span>}{recentChanges(f).length > 0 && <span className="updtag">Updated</span>}</div>
-                <div className="ven"><MapPin size={11} />{f.venue} · {f.time}</div>
-              </div>
-              {f.status === "cancelled"
-                ? <div className="res"><div className="upc" style={{ color: "var(--red)", fontWeight: 800 }}>Cancelled</div></div>
-                : f.us != null
-                ? <div className="res"><div className={"score " + (won ? "w" : drew ? "d" : "l")}>{f.us}–{f.them}</div></div>
-                : isPastGame(f)
-                  ? <div className="res"><div className="upc" style={{ color: "var(--muted)" }}>Awaiting score</div></div>
-                  : <div className="res"><div className="upc">Upcoming</div></div>}
-              {isCoach && (
-                <div className="editbar">
-                  <button className="iconbtn" onClick={(e) => { e.stopPropagation(); setModal({ type: "fixture", payload: f }); }}><Pencil size={14} /></button>
-                  <button className="iconbtn" onClick={(e) => { e.stopPropagation(); del(f.id); }}><Trash2 size={14} /></button>
+            <div className={"sqrow" + (cancelled ? " canc" : "")} key={f.id} onClick={() => setModal({ type: "match", payload: f })}>
+              <div className="sqmatch">
+                <div className={"sqteam" + (home ? " squs" : "")}>
+                  {crest(homeLogo, homeName)}
+                  <span className="sqname">{homeName}</span>
                 </div>
-              )}
+                {cancelled
+                  ? <div className="sqscore state canc">Canc</div>
+                  : f.us != null
+                  ? <div className={"sqscore " + (won ? "win" : drew ? "draw" : "loss")}>{hs}–{as}</div>
+                  : isPastGame(f)
+                    ? <div className="sqscore state none">No score</div>
+                    : <div className="sqscore state up">Upcoming</div>}
+                <div className={"sqteam away" + (!home ? " squs" : "")}>
+                  {crest(awayLogo, awayName)}
+                  <span className="sqname">{awayName}</span>
+                </div>
+              </div>
+              <div className="sqmeta">
+                <span className="sqwhen"><b>Round {f.round}</b> · {fmtDate(f.dateISO)}{f.time ? " · " + f.time : ""}</span>
+                <div className="sqtags">
+                  {hasVid && <span className="sqtag watch">▶ Watch</span>}
+                  {updated && <span className="sqtag upd">Updated</span>}
+                  <span className="sqtag ha">{home ? "Home" : "Away"}</span>
+                  {isCoach && (<>
+                    <button className="iconbtn" style={{ width: 28, height: 28 }} onClick={(e) => { e.stopPropagation(); setModal({ type: "fixture", payload: f }); }}><Pencil size={13} /></button>
+                    <button className="iconbtn" style={{ width: 28, height: 28 }} onClick={(e) => { e.stopPropagation(); del(f.id); }}><Trash2 size={13} /></button>
+                  </>)}
+                </div>
+              </div>
             </div>
           );
         })}
@@ -1152,32 +1197,37 @@ function SquadTab({ data, stats, isCoach, setModal, persist }) {
 /* ---------------- DUTIES ---------------- */
 function DutiesTab({ data, isCoach, pname, setModal }) {
   const fixtures = [...data.fixtures].sort((a, b) => a.round - b.round);
+  const feats = teamFeatures(data.team);
+  const sections = [
+    feats.fruitDuty && { key: "fruit", label: "Fruit duty", Icon: Apple, color: "var(--amber)" },
+    feats.gkDuty && { key: "gk", label: "Goalkeeper", Icon: ShieldCheck, color: "var(--pitch)" },
+    feats.jerseyDuty && { key: "jersey", label: "Jersey washing", Icon: Shirt, color: "var(--pitch)" }
+  ].filter(Boolean);
+  if (!sections.length) {
+    return (
+      <div className="card"><div className="empty"><div className="disp">Duties are turned off</div><div className="note">Fruit, jersey and goalkeeper duty can be switched on for this team from the club admin page.</div></div></div>
+    );
+  }
   return (
     <>
       <div className="card">
         <div className="label" style={{ marginBottom: 4 }}>Roster</div>
-        <div className="note">Fruit and goalkeeper duty by round. {isCoach ? "Tap a round to assign." : "Tap into Coach mode to edit."}</div>
+        <div className="note">{sections.map(s => s.label).join(", ")} by round. {isCoach ? "Tap a round to assign." : "Tap into Coach mode to edit."}</div>
       </div>
-      <div className="section-title"><Apple size={16} color="var(--amber)" /><div className="disp">Fruit duty</div></div>
-      <div className="card" style={{ padding: "6px 14px" }}>
-        {fixtures.map(f => (
-          <div className="dutyrow" key={f.id} onClick={() => isCoach && setModal({ type: "fixture", payload: f })} style={{ cursor: isCoach ? "pointer" : "default" }}>
-            <div className="rbadge">{f.round}</div>
-            <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{pname(f.fruit)}</div><div className="note">{fmtDate(f.dateISO)} · vs {f.opponent}</div></div>
-            {isCoach && <ChevronRight size={16} color="var(--muted)" />}
+      {sections.map(({ key, label, Icon, color }) => (
+        <div key={key}>
+          <div className="section-title"><Icon size={16} color={color} /><div className="disp">{label}</div></div>
+          <div className="card" style={{ padding: "6px 14px" }}>
+            {fixtures.map(f => (
+              <div className="dutyrow" key={f.id} onClick={() => isCoach && setModal({ type: "fixture", payload: f })} style={{ cursor: isCoach ? "pointer" : "default" }}>
+                <div className="rbadge">{f.round}</div>
+                <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{pname(f[key])}</div><div className="note">{fmtDate(f.dateISO)} · vs {f.opponent}</div></div>
+                {isCoach && <ChevronRight size={16} color="var(--muted)" />}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="section-title"><ShieldCheck size={16} color="var(--pitch)" /><div className="disp">Goalkeeper</div></div>
-      <div className="card" style={{ padding: "6px 14px" }}>
-        {fixtures.map(f => (
-          <div className="dutyrow" key={f.id} onClick={() => isCoach && setModal({ type: "fixture", payload: f })} style={{ cursor: isCoach ? "pointer" : "default" }}>
-            <div className="rbadge">{f.round}</div>
-            <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{pname(f.gk)}</div><div className="note">{fmtDate(f.dateISO)} · vs {f.opponent}</div></div>
-            {isCoach && <ChevronRight size={16} color="var(--muted)" />}
-          </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </>
   );
 }
@@ -1688,18 +1738,26 @@ function FixtureSheet({ data, persist, payload, close }) {
       </div>
     )}
 
-    <div className="row2">
-      <div className="field"><label>Fruit duty</label>
-        <select className="inp" value={f.fruit} onChange={e => setF({ ...f, fruit: e.target.value })}>
-          <option value="">— none —</option>{players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-      </div>
-      <div className="field"><label>Goalkeeper</label>
-        <select className="inp" value={f.gk} onChange={e => setF({ ...f, gk: e.target.value })}>
-          <option value="">— none —</option>{players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-      </div>
-    </div>
+    {(() => {
+      const feats = teamFeatures(data.team);
+      const duties = [
+        feats.fruitDuty && ["fruit", "Fruit duty"],
+        feats.gkDuty && ["gk", "Goalkeeper"],
+        feats.jerseyDuty && ["jersey", "Jerseys"]
+      ].filter(Boolean);
+      if (!duties.length) return null;
+      return (
+        <div className="row2" style={duties.length === 3 ? { gridTemplateColumns: "1fr 1fr 1fr" } : undefined}>
+          {duties.map(([key, label]) => (
+            <div className="field" key={key}><label>{label}</label>
+              <select className="inp" value={f[key] || ""} onChange={e => setF({ ...f, [key]: e.target.value })}>
+                <option value="">— none —</option>{players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      );
+    })()}
 
     {f.status === "played" && players.length > 0 && (
       <div className="field"><label>Goals & assists</label>
@@ -1729,6 +1787,7 @@ function FixtureSheet({ data, persist, payload, close }) {
       </div>
     </div>
 
+    {teamFeatures(data.team).focus && (
     <div className="field" style={{ borderTop: "1px solid var(--line)", paddingTop: 14 }}>
       <label>Focus this week — training & game (optional)</label>
       <select className="inp" style={{ marginBottom: 8 }}
@@ -1753,6 +1812,7 @@ function FixtureSheet({ data, persist, payload, close }) {
           onChange={e => setF({ ...f, focusPoints: e.target.value })} />
       </>}
     </div>
+    )}
 
     <div className="field"><label>Notes (optional)</label><textarea className="inp" rows={2} value={f.notes} onChange={e => setF({ ...f, notes: e.target.value })} /></div>
 
@@ -1910,7 +1970,7 @@ const setAv = async (pid, patch) => {
       );
     })()}
 
-    <FocusCard f={f} label={f.status === "played" ? "Focus that week" : "This week's focus"} />
+    {teamFeatures(data.team).focus && <FocusCard f={f} label={f.status === "played" ? "Focus that week" : "This week's focus"} />}
 
     {recentChanges(f).length > 0 && (
       <div className="chgcard">
@@ -2254,116 +2314,9 @@ function ImportSheet({ data, persist, close }) {
 
 function PlayersImportSheet({ data, persist, close }) {
   const [txt, setTxt] = useState("");
-
-  const MONTHS = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
-  const parseDob = (s) => {
-    if (!s) return "";
-    const t = String(s).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
-    let m = t.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})$/); // dd/mm/yyyy (AU)
-    if (m) return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
-    m = t.match(/^(\d{1,2})[\s-]([A-Za-z]{3,})[\s-](\d{2,4})$/); // "12 Mar 2018" (CSV) or "25-Oct-18" (Excel)
-    if (m && MONTHS[m[2].slice(0, 3).toLowerCase()]) {
-      let y = m[3];
-      if (y.length === 2) y = (parseInt(y, 10) <= 50 ? "20" : "19") + y; // kids' DOBs: 2-digit years are 20xx
-      return `${y}-${MONTHS[m[2].slice(0, 3).toLowerCase()]}-${String(m[1]).padStart(2, "0")}`;
-    }
-    return "";
-  };
-  const fixMobile = (s) => {
-    const d = String(s || "").replace(/\D/g, "");
-    if (!d) return "";
-    if (d.length === 9 && d[0] === "4") return "0" + d; // leading zero stripped by spreadsheet
-    if (d.length === 11 && d.startsWith("61")) return "0" + d.slice(2);
-    return d.length >= 8 ? d : "";
-  };
-  // RFC-4180-ish CSV line splitter (handles quoted fields with commas)
-  const splitCSV = (line) => {
-    const out = []; let cur = "", inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (inQ) {
-        if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-        else if (ch === '"') inQ = false;
-        else cur += ch;
-      } else if (ch === '"') inQ = true;
-      else if (ch === ",") { out.push(cur); cur = ""; }
-      else cur += ch;
-    }
-    out.push(cur);
-    return out.map(s => s.trim());
-  };
-
-  const lines = txt.split("\n").map(l => l.replace(/\r$/, "")).filter(l => l.trim());
-  const splitRow = (line) => (line.includes("\t") ? line.split("\t").map(s => s.trim()) : splitCSV(line));
-  const rows = lines.map(splitRow);
-
-  // Majestri detection, two flavours:
-  //  (a) header row present (CSV file, or Excel copy including row 1)
-  //  (b) headerless Excel copy: wide tab rows whose first cell is Player/Coach
-  const headerIdx = rows.findIndex(r => r.some(c => /^firstname$/i.test(c)) && r.some(c => /^surname$/i.test(c)));
-  const looksPositional = headerIdx === -1 && rows.length > 0 &&
-    rows.every(r => r.length >= 14 && /^(player|coach|manager|volunteer)$/i.test(r[0] || ""));
-
-  let isMajestri = false;
-  let parsed = [];
-
-  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-  const buildPlayer = (v, get, c, i) => {
-    if ((get(c.role) || "Player").toLowerCase() !== "player") return null; // skip coach/manager rows
-    const first = get(c.first), last = get(c.last);
-    if (!first) return null;
-    // Build up to two guardians: primary contact + emergency contact.
-    const mk = (fn, sn, em, mo) => {
-      const name = [get(fn), get(sn)].filter(Boolean).join(" ");
-      const email = EMAIL_RE.test((get(em) || "").trim()) ? get(em).trim().toLowerCase() : "";
-      const mobile = fixMobile(get(mo));
-      return (name || email || mobile) ? { name, email, mobile } : null;
-    };
-    const guardians = [mk(c.pFirst, c.pLast, c.pEmail, c.pMob), mk(c.eFirst, c.eLast, c.eEmail, c.eMob)].filter(Boolean);
-    // Catch any other emails on the row that weren't in the mapped columns.
-    const allEmails = [...new Set(v.filter(x => EMAIL_RE.test((x || "").trim())).map(x => x.trim().toLowerCase()))];
-    const parentEmails = [...new Set([...guardians.map(g => g.email).filter(Boolean), ...allEmails])];
-    return {
-      id: uid(),
-      name: last ? `${first} ${last[0]}.` : first,
-      number: i + 1, position: "MID",
-      guardians,
-      parentName: guardians[0]?.name || "",
-      parentContact: guardians[0]?.mobile || "",
-      parentEmails,
-      dob: parseDob(get(c.dob))
-    };
-  };
-
-  if (headerIdx !== -1) {
-    isMajestri = true;
-    const head = rows[headerIdx].map(h => h.toLowerCase());
-    const col = (name) => head.indexOf(name.toLowerCase());
-    const c = {
-      role: col("Role"), first: col("FirstName"), last: col("Surname"), dob: col("DateOfBirth"),
-      pFirst: col("PrimaryContactFirstName"), pLast: col("PrimaryContactSurname"), pEmail: col("PrimaryContactEmailAddress"), pMob: col("PrimaryContactMobileNumber"),
-      eFirst: col("EmergencyContactFirstName"), eLast: col("EmergencyContactSurname"), eEmail: col("EmergencyContactEmailAddress"), eMob: col("EmergencyContactMobileNumber")
-    };
-    parsed = rows.slice(headerIdx + 1).map((v, i) => buildPlayer(v, (x) => (x >= 0 && x < v.length ? v[x] : ""), c, i)).filter(Boolean);
-  } else if (looksPositional) {
-    isMajestri = true;
-    // Majestri column order (0-based): Role0, First1, Surname2, DOB3, Gender4, Reg5,
-    // FFA6, ATSI7, PlayingGroup8, School9, Medical10, MedicalNotes11,
-    // PrimaryFirst12, PrimarySurname13, PrimaryEmail14, PrimaryMobile15, MediaRelease17,
-    // EmergencyFirst18, EmergencySurname19, EmergencyEmail20, EmergencyMobile21
-    const c = { role: 0, first: 1, last: 2, dob: 3, pFirst: 12, pLast: 13, pEmail: 14, pMob: 15, eFirst: 18, eLast: 19, eEmail: 20, eMob: 21 };
-    parsed = rows.map((v, i) => buildPlayer(v, (x) => (x >= 0 && x < v.length ? v[x] : ""), c, i)).filter(Boolean);
-  } else {
-    parsed = rows.map((parts, i) => {
-      const [name, number, position, parentName, parentContact, dob] = parts.map(s => (s || "").trim());
-      const pos = POSITIONS.includes((position || "").toUpperCase()) ? position.toUpperCase() : "MID";
-      return name ? {
-        id: uid(), name, number: parseInt(number, 10) || i + 1, position: pos,
-        parentName: parentName || "", parentContact: parentContact || "", dob: parseDob(dob)
-      } : null;
-    }).filter(Boolean);
-  }
+  // Parsing (Majestri CSV / Excel copy / simple list) lives in lib/majestri.js,
+  // shared with the /admin team wizard's import step.
+  const { isMajestri, players: parsed } = useMemo(() => parsePlayerImport(txt), [txt]);
 
   const save = () => {
     if (!parsed.length) return;
