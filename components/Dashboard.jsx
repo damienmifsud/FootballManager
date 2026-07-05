@@ -21,6 +21,7 @@ import {
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport } from "@/lib/majestri";
 import { teamFeatures } from "@/lib/teamSetup";
+import { downscaleImage } from "@/lib/clientImage";
 
 /* ============================================================
    STORAGE
@@ -143,27 +144,7 @@ function getStaff(team) {
   ].filter(s => s.name);
 }
 
-// Read an image file and downscale it to a small square-ish JPEG data URL so a
-// few staff photos stay tiny inside the team document (~10-20KB each).
-function downscaleImage(file, max = 200, type = "image/jpeg", quality = 0.72) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, max / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-        const c = document.createElement("canvas"); c.width = w; c.height = h;
-        c.getContext("2d").drawImage(img, 0, 0, w, h);
-        try { resolve(c.toDataURL(type, quality)); } catch (e) { reject(e); }
-      };
-      img.onerror = reject;
-      img.src = reader.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
+// downscaleImage moved to lib/clientImage.js (shared with the /admin wizard).
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]; // JS getDay order
 const FULLDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_FEATURES, teamFeatures, sanitizeFeatures, sanitizeTrainingSessions } from "@/lib/teamSetup";
+import { DEFAULT_FEATURES, teamFeatures, sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo } from "@/lib/teamSetup";
 
 describe("teamFeatures", () => {
   it("falls back to the pre-flag behaviour: fruit/gk/focus on, jersey off", () => {
@@ -23,6 +23,30 @@ describe("sanitizeFeatures", () => {
   it("returns defaults for junk input", () => {
     expect(sanitizeFeatures(null)).toEqual(DEFAULT_FEATURES);
     expect(sanitizeFeatures("junk")).toEqual(DEFAULT_FEATURES);
+  });
+});
+
+describe("sanitizeStaff", () => {
+  it("keeps named rows with cleaned mobiles/emails, drops the rest", () => {
+    const out = sanitizeStaff([
+      { role: "Head coach", name: " Byron ", mobile: "0400 111 222", email: "Byron@Club.com" },
+      { role: "Manager", name: "", mobile: "0400" },
+      { name: "NoRole", email: "not-an-email" },
+      null
+    ]);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toEqual({ role: "Head coach", name: "Byron", mobile: "0400111222", email: "byron@club.com", photo: "" });
+    expect(out[1]).toMatchObject({ role: "Coach", name: "NoRole", email: "" });
+    expect(sanitizeStaff("junk")).toEqual([]);
+  });
+});
+
+describe("sanitizeLogo", () => {
+  it("accepts only reasonably-sized image data URLs", () => {
+    expect(sanitizeLogo("data:image/png;base64,AAA")).toBe("data:image/png;base64,AAA");
+    expect(sanitizeLogo("https://evil.example/logo.png")).toBe("");
+    expect(sanitizeLogo("data:text/html;base64,AAA")).toBe("");
+    expect(sanitizeLogo("data:image/png;base64," + "A".repeat(400000))).toBe("");
   });
 });
 

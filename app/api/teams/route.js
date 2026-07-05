@@ -6,7 +6,7 @@ import { auth } from "@/auth";
 import { isAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
-import { sanitizeFeatures, sanitizeTrainingSessions, DEFAULT_FEATURES } from "@/lib/teamSetup";
+import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES } from "@/lib/teamSetup";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +76,9 @@ export async function GET() {
       division: doc?.team?.division || "",
       whatsapp: doc?.team?.whatsapp || "",
       features: { ...DEFAULT_FEATURES, ...(doc?.team?.features || {}) },
+      staff: Array.isArray(doc?.team?.staff) ? doc.team.staff.map(({ role, name, mobile, email }) => ({ role, name, mobile, email })) : [],
+      coachPin: doc?.team?.coachPin || "",
+      hasLogo: !!doc?.team?.logo, // the data URL itself is too heavy for the list
       hasData: !!doc
     };
   }));
@@ -126,7 +129,9 @@ export async function POST(req) {
         name: team.name, ageGroup: team.ageGroup || "",
         division: String(body.division || "").trim().slice(0, 80),
         whatsapp: String(body.whatsapp || "").trim().slice(0, 200),
-        coachPin: "",
+        coachPin: String(body.coachPin || "").trim().slice(0, 12),
+        logo: sanitizeLogo(body.logo),
+        staff: sanitizeStaff(body.staff),
         matchFormat: defaultFormatForAgeGroup(team.ageGroup),
         features: sanitizeFeatures(body.features)
       },
@@ -177,7 +182,8 @@ export async function PATCH(req) {
 
   // Doc-held fields (shown throughout the dashboard) update in place too.
   let docUpdated = false;
-  if (body.division != null || body.whatsapp != null || body.features != null || body.name != null) {
+  if (body.division != null || body.whatsapp != null || body.features != null || body.name != null ||
+      body.logo != null || body.staff != null || body.coachPin != null) {
     const doc = await getData(slug);
     if (doc) {
       const teamDoc = { ...(doc.team || {}) };
@@ -185,6 +191,15 @@ export async function PATCH(req) {
       if (body.division != null) teamDoc.division = String(body.division).trim().slice(0, 80);
       if (body.whatsapp != null) teamDoc.whatsapp = String(body.whatsapp).trim().slice(0, 200);
       if (body.features != null) teamDoc.features = sanitizeFeatures(body.features);
+      if (body.logo != null) { const l = sanitizeLogo(body.logo); if (l) teamDoc.logo = l; }
+      if (body.staff != null) {
+        // Preserve photos added in the dashboard for staff kept by name.
+        const prev = Array.isArray(teamDoc.staff) ? teamDoc.staff : [];
+        teamDoc.staff = sanitizeStaff(body.staff).map((s) => ({
+          ...s, photo: prev.find((p) => p.name === s.name)?.photo || ""
+        }));
+      }
+      if (body.coachPin != null) teamDoc.coachPin = String(body.coachPin).trim().slice(0, 12);
       await setData(slug, { ...doc, team: teamDoc });
       docUpdated = true;
     }

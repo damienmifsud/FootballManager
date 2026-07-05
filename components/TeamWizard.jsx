@@ -5,7 +5,8 @@
 // (editing an env-defined team takes it over into the store).
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { parsePlayerImport } from "@/lib/majestri";
-import { DEFAULT_FEATURES, FEATURE_LABELS } from "@/lib/teamSetup";
+import { DEFAULT_FEATURES, FEATURE_LABELS, STAFF_ROLES } from "@/lib/teamSetup";
+import { downscaleImage } from "@/lib/clientImage";
 
 const C = { red: "#C8102E", ink: "#1d1417", muted: "#7a6f72", line: "#eee", soft: "#f6f2f3", ok: "#1E9E57" };
 const card = { background: "#fff", borderRadius: 16, padding: 18, marginBottom: 16, boxShadow: "0 10px 26px rgba(40,0,8,.18)", color: C.ink };
@@ -35,7 +36,9 @@ const BLANK = {
   squadi: { competitionId: "", divisionId: "", teamId: "" },
   importText: "",
   training: [], // { weekday, time, endTime, location }
-  features: { ...DEFAULT_FEATURES }
+  features: { ...DEFAULT_FEATURES },
+  logo: "", hasLogo: false, coachPin: "",
+  staff: STAFF_ROLES.map((role) => ({ role, name: "", mobile: "" }))
 };
 
 export default function TeamWizard() {
@@ -71,7 +74,12 @@ export default function TeamWizard() {
       division: t.division || "", whatsapp: t.whatsapp || "",
       squadi: { competitionId: t.squadi?.competitionId || "", divisionId: t.squadi?.divisionId || "", teamId: t.squadi?.teamId || "" },
       importText: "", training: [],
-      features: { ...DEFAULT_FEATURES, ...(t.features || {}) }
+      features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
+      logo: "", hasLogo: !!t.hasLogo, coachPin: t.coachPin || "",
+      staff: STAFF_ROLES.map((role) => {
+        const s = (t.staff || []).find((x) => x.role === role) || {};
+        return { role, name: s.name || "", mobile: s.mobile || "" };
+      })
     });
   };
 
@@ -97,6 +105,16 @@ export default function TeamWizard() {
     () => (form && !editSlug && form.importText.trim() ? parsePlayerImport(form.importText) : { isMajestri: false, players: [] }),
     [form, editSlug]
   );
+  const onLogoFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const logo = await downscaleImage(file, 256, "image/png"); // same treatment as the dashboard's Settings
+      setForm((f) => ({ ...f, logo, hasLogo: true }));
+    } catch { setErr("Couldn't read that image — try a PNG or JPG."); }
+    e.target.value = "";
+  };
+
   const onCsvFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -113,6 +131,9 @@ export default function TeamWizard() {
       name: form.name, ageGroup: form.ageGroup, password: form.password.trim(),
       coachEmails: form.coachEmails, ...(squadi ? { squadi } : {}),
       division: form.division, whatsapp: form.whatsapp, features: form.features,
+      staff: form.staff.filter((s) => s.name.trim()),
+      coachPin: form.coachPin,
+      ...(form.logo ? { logo: form.logo } : {}), // only when a new file was chosen
       ...(!editSlug && imported.players.length ? { players: imported.players } : {}),
       ...(!editSlug && form.training.length ? { training: form.training.map((t) => ({ ...t, weekday: Number(t.weekday) })) } : {}),
       ...(editSlug ? { slug: editSlug } : {})
@@ -340,6 +361,35 @@ export default function TeamWizard() {
                 </button>
               );
             })}
+          </div>
+
+          <span style={fieldLb}>{editSlug ? "Team identity" : "9 · Team identity"} — logo, staff & coach PIN (all optional)</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {form.logo
+              ? <img src={form.logo} alt="" style={{ width: 44, height: 44, objectFit: "contain", borderRadius: 10, background: C.soft }} />
+              : form.hasLogo
+              ? <span style={{ ...chip, background: "rgba(30,158,87,.10)", color: C.ok }}>logo set ✓</span>
+              : null}
+            <label style={{ ...ghost, display: "inline-block", cursor: "pointer" }}>
+              {form.logo || form.hasLogo ? "Replace logo…" : "Upload logo…"}
+              <input type="file" accept="image/*" style={{ display: "none" }} onChange={onLogoFile} />
+            </label>
+            <span style={{ fontSize: 11.5, color: C.muted }}>shown on the header, login and calendar</span>
+          </div>
+          {form.staff.map((s, i) => (
+            <div key={s.role} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+              <span style={{ width: 110, fontSize: 12, fontWeight: 700, color: C.muted }}>{s.role}</span>
+              <input style={{ ...inp, flex: "2 1 140px" }} placeholder="Name" value={s.name}
+                onChange={(e) => setForm((f) => ({ ...f, staff: f.staff.map((r, k) => k === i ? { ...r, name: e.target.value } : r) }))} />
+              <input style={{ ...inp, flex: "1 1 120px" }} placeholder="Mobile (optional)" inputMode="tel" value={s.mobile}
+                onChange={(e) => setForm((f) => ({ ...f, staff: f.staff.map((r, k) => k === i ? { ...r, mobile: e.target.value } : r) }))} />
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+            <span style={{ width: 110, fontSize: 12, fontWeight: 700, color: C.muted }}>Coach PIN</span>
+            <input style={{ ...inp, width: 120 }} inputMode="numeric" placeholder="e.g. 2468" value={form.coachPin}
+              onChange={(e) => setForm((f) => ({ ...f, coachPin: e.target.value }))} />
+            <span style={{ fontSize: 11.5, color: C.muted }}>in team-code mode, hides the edit controls behind this PIN</span>
           </div>
 
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>

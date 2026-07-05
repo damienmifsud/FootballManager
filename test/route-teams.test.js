@@ -113,6 +113,19 @@ describe("POST — create", () => {
     expect(doc.sessions[0]).toMatchObject({ recur: "weekly", weekday: 2, time: "17:00", endTime: "18:00", location: "Perry Park", kind: "training" });
   });
 
+  it("seeds logo, staff and coach PIN into the starter doc", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: {
+      name: "Wiz E", password: "brave-boot-19",
+      logo: "data:image/png;base64,AAA", coachPin: "2468",
+      staff: [{ role: "Head coach", name: "Byron", mobile: "0400 111 222" }, { role: "Manager", name: "" }]
+    } }));
+    expect(res.status).toBe(200);
+    const [, doc] = setData.mock.calls[0];
+    expect(doc.team).toMatchObject({ logo: "data:image/png;base64,AAA", coachPin: "2468" });
+    expect(doc.team.staff).toEqual([{ role: "Head coach", name: "Byron", mobile: "0400111222", email: "", photo: "" }]);
+  });
+
   it("does not overwrite existing data when re-adding a known slug", async () => {
     getData.mockResolvedValue({ team: { name: "Old" }, players: [{ id: "p1" }] });
     const { POST } = await asAdmin();
@@ -168,6 +181,21 @@ describe("PATCH — edit", () => {
     // Existing doc content preserved; only the team fields updated.
     expect(doc.players).toEqual([{ id: "p1" }]);
     expect(doc.team).toMatchObject({ coachPin: "9", division: "K2 South", features: expect.objectContaining({ gkDuty: false, fruitDuty: true }) });
+  });
+
+  it("updates identity fields on the doc, preserving dashboard-added staff photos", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b" }]);
+    getData.mockResolvedValue({
+      team: { name: "Wiz B", logo: "data:image/png;base64,OLD", staff: [{ role: "Head coach", name: "Byron", mobile: "", email: "", photo: "data:image/jpeg;base64,PIC" }] },
+      players: []
+    });
+    const { PATCH } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "wiz-b", coachPin: "1357", staff: [{ role: "Head coach", name: "Byron", mobile: "0400111222" }] } }));
+    expect(res.status).toBe(200);
+    const [, doc] = setData.mock.calls[0];
+    expect(doc.team.coachPin).toBe("1357");
+    expect(doc.team.logo).toBe("data:image/png;base64,OLD"); // untouched — no new logo sent
+    expect(doc.team.staff[0]).toMatchObject({ name: "Byron", mobile: "0400111222", photo: "data:image/jpeg;base64,PIC" });
   });
 
   it("rotates the calendar key on request", async () => {
