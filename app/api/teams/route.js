@@ -5,6 +5,7 @@ import { getTeams, clearTeamsCache } from "@/lib/teams";
 import { auth } from "@/auth";
 import { isAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
+import { sanitizePlayers } from "@/lib/majestri";
 
 export const dynamic = "force-dynamic";
 
@@ -103,15 +104,20 @@ export async function POST(req) {
   await setStoredTeams([...stored, team]);
   clearTeamsCache();
 
-  // Starter document (only if this slug has never held data).
+  // Starter document (only if this slug has never held data), including any
+  // imported roster from the wizard's Majestri step — players, parents'
+  // names/emails/mobiles — so parent login and RSVPs work from day one.
+  const players = sanitizePlayers(body.players);
+  let seeded = 0;
   if (!(await getData(slug))) {
     await setData(slug, {
       team: { name: team.name, ageGroup: team.ageGroup || "", division: "", coachPin: "", matchFormat: defaultFormatForAgeGroup(team.ageGroup) },
-      players: [], fixtures: [], sessions: []
+      players, fixtures: [], sessions: []
     });
+    seeded = players.length;
   }
 
-  return NextResponse.json({ ok: true, team });
+  return NextResponse.json({ ok: true, team, playersImported: seeded });
 }
 
 // PATCH: edit a team. Stored teams edit in place; editing an env-defined team

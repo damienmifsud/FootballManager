@@ -78,6 +78,21 @@ describe("POST — create", () => {
     expect(doc.players).toEqual([]);
   });
 
+  it("seeds an imported Majestri roster (sanitized) into the starter doc", async () => {
+    const { POST } = await asAdmin();
+    const players = [
+      { name: "Spencer M.", number: 1, position: "MID", dob: "2018-03-12", parentName: "Damien Mifsud", parentContact: "0400123456", parentEmails: ["damien@dam.fund"], guardians: [{ name: "Damien Mifsud", email: "damien@dam.fund", mobile: "0400123456" }] },
+      { name: "", parentEmails: ["junk"] } // dropped by the sanitizer
+    ];
+    const res = await POST(fakeRequest({ body: { name: "Wiz C", ageGroup: "U8", password: "gold-roo-77", players } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).playersImported).toBe(1);
+    const [, doc] = setData.mock.calls[0];
+    expect(doc.players).toHaveLength(1);
+    expect(doc.players[0]).toMatchObject({ name: "Spencer M.", parentEmails: ["damien@dam.fund"], parentName: "Damien Mifsud" });
+    expect(doc.players[0].id).toBeTruthy();
+  });
+
   it("does not overwrite existing data when re-adding a known slug", async () => {
     getData.mockResolvedValue({ team: { name: "Old" }, players: [{ id: "p1" }] });
     const { POST } = await asAdmin();

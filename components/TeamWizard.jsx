@@ -3,7 +3,8 @@
 // /api/teams — no TEAMS env editing, no restarts. Also lists every team with
 // its code + calendar feed, and can edit or remove wizard-created teams
 // (editing an env-defined team takes it over into the store).
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { parsePlayerImport } from "@/lib/majestri";
 
 const C = { red: "#C8102E", ink: "#1d1417", muted: "#7a6f72", line: "#eee", soft: "#f6f2f3", ok: "#1E9E57" };
 const card = { background: "#fff", borderRadius: 16, padding: 18, marginBottom: 16, boxShadow: "0 10px 26px rgba(40,0,8,.18)", color: C.ink };
@@ -26,7 +27,7 @@ function friendlyCode() {
 }
 const slugify = (name) => String(name || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 
-const BLANK = { name: "", ageGroup: "U8", password: "", coachEmails: "", squadi: { competitionId: "", divisionId: "", teamId: "" } };
+const BLANK = { name: "", ageGroup: "U8", password: "", coachEmails: "", squadi: { competitionId: "", divisionId: "", teamId: "" }, importText: "" };
 
 export default function TeamWizard() {
   const [teams, setTeams] = useState(null);
@@ -62,12 +63,27 @@ export default function TeamWizard() {
     });
   };
 
+  // Live parse of the Majestri paste / CSV upload (create flow only).
+  const imported = useMemo(
+    () => (form && !editSlug && form.importText.trim() ? parsePlayerImport(form.importText) : { isMajestri: false, players: [] }),
+    [form, editSlug]
+  );
+  const onCsvFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setForm((f) => ({ ...f, importText: String(reader.result || "") }));
+    reader.readAsText(file);
+    e.target.value = ""; // allow re-selecting the same file
+  };
+
   const submit = async () => {
     setBusy(true); setErr("");
     const squadi = (form.squadi.competitionId || form.squadi.divisionId || form.squadi.teamId) ? form.squadi : null;
     const payload = {
       name: form.name, ageGroup: form.ageGroup, password: form.password.trim(),
       coachEmails: form.coachEmails, ...(squadi ? { squadi } : {}),
+      ...(!editSlug && imported.players.length ? { players: imported.players } : {}),
       ...(editSlug ? { slug: editSlug } : {})
     };
     try {
@@ -79,7 +95,7 @@ export default function TeamWizard() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "save failed");
       await load();
-      if (!editSlug) setCreated(j.team);
+      if (!editSlug) setCreated({ ...j.team, playersImported: j.playersImported || 0 });
       setForm(null); setEditSlug(null);
     } catch (e) { setErr(String(e.message || e)); }
     setBusy(false);
@@ -114,6 +130,7 @@ export default function TeamWizard() {
             <button style={{ ...ghost, padding: "3px 9px", fontSize: 11 }} onClick={() => copy(created.password, "newcode")}>{copied === "newcode" ? "Copied!" : "Copy"}</button>
           </div>
           <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
+            {created.playersImported > 0 && <b>{created.playersImported} player{created.playersImported > 1 ? "s" : ""} imported with parent details. </b>}
             Share the code with the team. Parents log in with it at {typeof window !== "undefined" ? window.location.origin : ""} — the calendar subscribe link is on their Home tab.
           </div>
           <button style={{ ...ghost, marginTop: 10, padding: "5px 10px", fontSize: 12 }} onClick={() => setCreated(null)}>Done</button>
@@ -201,6 +218,44 @@ export default function TeamWizard() {
               onChange={(e) => setForm((f) => ({ ...f, squadi: { ...f.squadi, teamId: e.target.value } }))} />
           </div>
           <div style={hint}>From the FQ widget via DevTools (see the README) — leave blank to add later with Edit.</div>
+
+          {!editSlug && (
+            <>
+              <span style={fieldLb}>6 · Players & parents — Majestri import (optional)</span>
+              <div style={hint}>
+                Upload the Majestri CSV export, or paste it (from the file or straight out of Excel).
+                Player rows only — parents' names, emails and mobiles come across, which is what
+                powers parent login and RSVPs. A simple list works too:
+                <i> Name, number, position, parent, mobile, dd/mm/yyyy</i>.
+              </div>
+              <div style={{ margin: "8px 0 6px" }}>
+                <label style={{ ...ghost, display: "inline-block", cursor: "pointer" }}>
+                  Upload CSV…
+                  <input type="file" accept=".csv,text/csv,text/plain" style={{ display: "none" }} onChange={onCsvFile} />
+                </label>
+              </div>
+              <textarea
+                style={{ ...inp, minHeight: 96, fontFamily: "ui-monospace,monospace", fontSize: 12 }}
+                placeholder={"…or paste the export here\nSpencer, 6, MID, Damien, 0400 000 000, 12/03/2018"}
+                value={form.importText}
+                onChange={(e) => setForm((f) => ({ ...f, importText: e.target.value }))}
+              />
+              {form.importText.trim() && (
+                <div style={{ ...hint, marginTop: 6 }}>
+                  {imported.isMajestri && <b style={{ color: C.ok }}>Majestri export detected. </b>}
+                  {imported.players.length > 0 ? (
+                    <>
+                      <b style={{ color: C.ok }}>{imported.players.length} player{imported.players.length > 1 ? "s" : ""} ready:</b>{" "}
+                      {imported.players.slice(0, 8).map((p) => p.name).join(", ")}{imported.players.length > 8 ? "…" : ""}
+                      {" · "}{imported.players.filter((p) => (p.parentEmails || []).length).length} with parent emails
+                    </>
+                  ) : (
+                    <span style={{ color: C.red, fontWeight: 700 }}>Nothing parseable yet — check the format.</span>
+                  )}
+                </div>
+              )}
+            </>
+          )}
 
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
             <button disabled={busy || !form.name.trim() || form.password.trim().length < 4} style={btn} onClick={submit}>
