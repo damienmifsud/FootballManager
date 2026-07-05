@@ -109,6 +109,27 @@ describe("store — Redis backend", () => {
   });
 });
 
+describe("store — club access doc", () => {
+  it("redis: defaults to {} and round-trips the doc under club:access", async () => {
+    useRedis();
+    const { getClubAccess, setClubAccess } = await loadStore();
+    expect(await getClubAccess()).toEqual({});
+    const doc = { clubAdmins: ["td@club.com"], overrides: { "x@y.com": { a: "viewer" } } };
+    await setClubAccess(doc);
+    expect(redisStore.get("club:access")).toEqual(doc);
+    expect(await getClubAccess()).toEqual(doc);
+  });
+
+  it("file backend: defaults to {} and persists to .data/club.access.json", async () => {
+    const { getClubAccess, setClubAccess } = await loadStore();
+    expect(await getClubAccess()).toEqual({});
+    await setClubAccess({ clubAdmins: ["td@club.com"] });
+    const p = path.join(process.cwd(), ".data", "club.access.json");
+    expect(JSON.parse(fsFiles.get(p))).toEqual({ clubAdmins: ["td@club.com"] });
+    expect(await getClubAccess()).toEqual({ clubAdmins: ["td@club.com"] });
+  });
+});
+
 describe("store — file backend (dev, no Upstash)", () => {
   it("reads and writes a per-team JSON file", async () => {
     const { getData, setData } = await loadStore();
