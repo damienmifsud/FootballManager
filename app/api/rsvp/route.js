@@ -1,25 +1,34 @@
 import { NextResponse } from "next/server";
 import { getData, setData } from "@/lib/store";
-import { teamBySlug } from "@/lib/teams";
+import { teamBySlug, teamFromCookieHeader } from "@/lib/teams";
 import { auth } from "@/auth";
 import { membershipsForEmail, isCoachForTeam } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
 
-// Narrow RSVP endpoint. A parent can set in/out only for their own child;
-// a coach can set anyone. Writes just one player's availability entry for one
-// game or session — no whole-object overwrite, so concurrent parents can't
-// clobber each other and nobody can smuggle in config/score changes.
+const AUTH_ON = !!process.env.AUTH_SECRET;
+
+// Narrow RSVP endpoint. In account mode a parent can set in/out only for
+// their own child and a coach can set anyone. In legacy team-code mode
+// everyone with the code is trusted (the original access model: one shared
+// code, no roles), and the per-device whoami cookie attributes the response.
+// Writes just one player's availability entry for one game or session — no
+// whole-object overwrite, so concurrent parents can't clobber each other and
+// nobody can smuggle in config/score changes.
 //
 // Body: { kind: "game" | "session", id, occ?, playerId, status, reason? }
 //  - kind "game":    id = fixture id
 //  - kind "session": id = session id, occ = occurrence ISO date (yyyy-mm-dd)
 //  - status: "in" | "out" | null  (null clears the response)
-export async function POST(req) {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+// Legacy mode: the per-device whoami_<slug> cookie says who is responding.
+function whoamiFromCookies(req, slug) {
+  const raw = req.cookies.get(`whoami_${slug}`)?.value;
+  if (!raw) return null;
+  try { return JSON.parse(decodeURIComponent(raw)); } catch { return null; }
+}
+
+export async function POST(req) {
   let body;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "bad json" }, { status: 400 }); }
   const { kind, id, occ, playerId, status, reason } = body || {};
@@ -34,14 +43,23 @@ export async function POST(req) {
     return NextResponse.json({ error: "missing occurrence" }, { status: 400 });
   }
 
-  // Which team is this caller acting on? Use their selected team_slug,
-  // validated against their memberships (a forged cookie can't reach a team
-  // they're not in).
-  const { memberships } = await membershipsForEmail(email);
-  if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const wanted = req.cookies.get("team_slug")?.value;
-  const chosen = memberships.find((m) => m.teamSlug === wanted) || memberships[0];
-  const team = teamBySlug(chosen.teamSlug);
+  // Which team is this caller acting on? Account mode validates the team_slug
+  // cookie against the session's memberships (a forged cookie can't reach a
+  // team they're not in); legacy mode maps the team code to its one team.
+  let team = null;
+  let email = null;
+  if (AUTH_ON) {
+    const session = await auth();
+    email = session?.user?.email;
+    if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const { memberships } = await membershipsForEmail(email);
+    if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const wanted = req.cookies.get("team_slug")?.value;
+    const chosen = memberships.find((m) => m.teamSlug === wanted) || memberships[0];
+    team = teamBySlug(chosen.teamSlug);
+  } else {
+    team = teamFromCookieHeader(req.headers.get("cookie"));
+  }
   if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const data = await getData(team.slug);
@@ -50,16 +68,24 @@ export async function POST(req) {
   const player = (data.players || []).find((p) => p.id === playerId);
   if (!player) return NextResponse.json({ error: "no such player" }, { status: 404 });
 
-  // Permission: coach can mark anyone; a parent only their own child.
-  const coach = await isCoachForTeam(email, team.slug);
-  const norm = (e) => (e || "").trim().toLowerCase();
-  const isOwnChild = (player.parentEmails || []).map(norm).includes(norm(email));
-  if (!coach && !isOwnChild) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  // Permission + attribution.
+  let label;
+  if (AUTH_ON) {
+    const coach = await isCoachForTeam(email, team.slug);
+    const norm = (e) => (e || "").trim().toLowerCase();
+    const isOwnChild = (player.parentEmails || []).map(norm).includes(norm(email));
+    if (!coach && !isOwnChild) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+    label = coach ? "Coach" : (player.name || "Parent");
+  } else {
+    // Anyone with the code may write; attribute from the device identity:
+    // this child's parent, or otherwise the coach.
+    const who = whoamiFromCookies(req, team.slug);
+    label = who?.kind === "parent" && who.pid === playerId ? (player.name || "Parent") : "Coach";
   }
 
   // Build the single entry. Stamp who/when for coach tools + display.
-  const label = coach ? "Coach" : (player.name || "Parent");
   const entry = status == null
     ? null
     : { status, ...(status === "out" ? { reason: reason || "Away" } : {}), by: label, at: Date.now() };

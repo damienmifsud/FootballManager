@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { getData, setData, getMeta, setMeta } from "@/lib/store";
 import { fetchSquadi, applySync } from "@/lib/squadiSync";
-import { getTeams, teamBySlug } from "@/lib/teams";
+import { getTeams, teamBySlug, teamFromCookieHeader } from "@/lib/teams";
 import { auth } from "@/auth";
 import { membershipsForEmail, isCoachForTeam } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
+const AUTH_ON = !!process.env.AUTH_SECRET;
 const STALE_MS = 15 * 60 * 1000; // sync-on-visit throttle
 
 // Cron/pinger auth (syncs ALL teams) vs logged-in coach (syncs THEIR team).
@@ -81,20 +82,29 @@ export async function GET(req) {
     return NextResponse.json({ ok: true, results });
   }
 
-  // Logged-in coach: sync just their team. Parents can't trigger a sync.
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Signed-in caller: sync just their team. Account mode restricts this to
+  // coaches (parents can't trigger a sync); legacy team-code mode trusts
+  // anyone holding the code — that's what drives the throttled sync-on-visit
+  // and the /league "Sync now" button on team-code sites.
+  let team = null;
+  if (AUTH_ON) {
+    const session = await auth();
+    const email = session?.user?.email;
+    if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const { memberships } = await membershipsForEmail(email);
-  if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const wanted = req.cookies.get("team_slug")?.value;
-  const chosen = memberships.find((m) => m.teamSlug === wanted) || memberships[0];
-  const team = teamBySlug(chosen.teamSlug);
-  if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const { memberships } = await membershipsForEmail(email);
+    if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const wanted = req.cookies.get("team_slug")?.value;
+    const chosen = memberships.find((m) => m.teamSlug === wanted) || memberships[0];
+    team = teamBySlug(chosen.teamSlug);
+    if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  if (!(await isCoachForTeam(email, team.slug))) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    if (!(await isCoachForTeam(email, team.slug))) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+  } else {
+    team = teamFromCookieHeader(req.headers.get("cookie"));
+    if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   try {

@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
 import { getData, setData } from "@/lib/store";
-import { teamBySlug } from "@/lib/teams";
+import { teamBySlug, teamFromCookieHeader } from "@/lib/teams";
 import { auth } from "@/auth";
 import { membershipsForEmail, isCoachForTeam } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
 
-// Resolve which team this request is allowed to touch, from the auth session.
-// The team_slug cookie picks which of the caller's teams; it's validated
-// against their memberships so a forged cookie can't reach a team they're
-// not in. Returns the team, or null if unauthorised.
+const AUTH_ON = !!process.env.AUTH_SECRET;
+
+// Resolve which team this request is allowed to touch.
+// - Account mode (AUTH_SECRET set): the session email must have a membership;
+//   the team_slug cookie picks which of their teams, validated against their
+//   memberships so a forged cookie can't reach a team they're not in.
+// - Legacy team-code mode: the site_auth cookie maps to exactly one team.
 async function resolveTeam(req) {
+  if (!AUTH_ON) return teamFromCookieHeader(req.headers.get("cookie"));
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return null;
@@ -21,24 +25,27 @@ async function resolveTeam(req) {
   return teamBySlug(chosen.teamSlug);
 }
 
-// READ: any member of the team (parent or coach) can read team data.
+// READ: any member of the team (account mode) or anyone with the team code
+// (legacy mode) can read team data.
 export async function GET(req) {
   const t = await resolveTeam(req);
   if (!t) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   return NextResponse.json((await getData(t.slug)) ?? null);
 }
 
-// WRITE: coach/admin only. Parents change their own child's availability via
-// the narrow /api/rsvp route — never the whole team object — so this POST is
-// reserved for coach edits (fixtures, squad, league config, etc.).
+// WRITE: coach/admin only in account mode — parents use the narrow /api/rsvp
+// route. In legacy team-code mode everyone with the code can edit (the
+// original access model: one shared code, no roles).
 export async function POST(req) {
   const t = await resolveTeam(req);
   if (!t) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!(await isCoachForTeam(email, t.slug))) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (AUTH_ON) {
+    const session = await auth();
+    const email = session?.user?.email;
+    if (!(await isCoachForTeam(email, t.slug))) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
   }
 
   let body;
