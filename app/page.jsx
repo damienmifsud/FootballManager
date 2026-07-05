@@ -33,7 +33,7 @@ export default async function Page() {
     );
   }
 
-  const slug = cookies().get("team_slug")?.value;
+  const slug = (await cookies()).get("team_slug")?.value;
   const current = memberships.find((m) => m.teamSlug === slug);
   if (!current) return <TeamPicker memberships={memberships} email={email} />;
 

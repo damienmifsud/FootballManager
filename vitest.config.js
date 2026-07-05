@@ -7,9 +7,8 @@ export default defineConfig({
   resolve: {
     alias: { "@": path.resolve(__dirname, ".") }
   },
-  // Use React's automatic JSX runtime so component tests can render JSX without
-  // importing React in every file.
-  esbuild: { jsx: "automatic" },
+  // (vitest 4's oxc transform handles .jsx with the automatic runtime out of
+  // the box — no transform config needed.)
   test: {
     // Default to node; component tests opt into jsdom via a
     // `// @vitest-environment jsdom` directive at the top of the file.
