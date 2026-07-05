@@ -18,6 +18,7 @@ import {
   initials, secToClock, clockToSec, occurrences, monthItems, upcomingItems,
   nextBirthdays
 } from "@/lib/dashboardData";
+import MatchDayPlanner from "@/components/MatchDayPlanner";
 
 /* ============================================================
    STORAGE
@@ -571,6 +572,21 @@ export default function App() {
     try { await window.storage.set(KEY, JSON.stringify(next), true); } catch (e) { console.error(e); }
   }, []);
 
+  // Game-plan autosave: update local state and write ONLY this fixture's plan
+  // through the narrow /api/plan endpoint (never the whole team document, so a
+  // mid-game save can't clobber an RSVP that landed moments earlier).
+  const savePlan = useCallback(async (fixtureId, plan) => {
+    setData((d) => d ? { ...d, fixtures: (d.fixtures || []).map((f) => f.id === fixtureId ? { ...f, plan } : f) } : d);
+    try {
+      const res = await fetch("/api/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fixtureId, plan })
+      });
+      if (!res.ok) throw new Error("plan save " + res.status);
+    } catch (e) { console.error("Could not save game plan:", e); }
+  }, []);
+
   const stats = useMemo(() => data ? computeStats(data) : null, [data]);
   const next = useMemo(() => data ? nextFixture(data) : null, [data]);
   const pname = useCallback((id) => data?.players.find(p => p.id === id)?.name || "—", [data]);
@@ -648,7 +664,18 @@ export default function App() {
         ))}
       </nav>
 
-      {modal && <Modal {...{ modal, setModal, data, persist, isCoach, setIsCoach, viewer, setViewer }} />}
+      {modal && modal.type === "plan" ? (
+        <MatchDayPlanner
+          data={data}
+          fixture={(data.fixtures || []).find((x) => x.id === modal.payload?.id) || modal.payload}
+          isCoach={isCoach}
+          onSavePlan={savePlan}
+          onSaveTeamFormat={(fmt) => persist({ ...data, team: { ...data.team, matchFormat: fmt }, isSample: false })}
+          close={() => setModal(null)}
+        />
+      ) : modal ? (
+        <Modal {...{ modal, setModal, data, persist, isCoach, setIsCoach, viewer, setViewer }} />
+      ) : null}
     </div>
   );
 }
@@ -1855,6 +1882,18 @@ const setAv = async (pid, patch) => {
         </div>
       )}
     </div>
+
+    {/* Match-day planner: coaches always; parents get the read-only live view
+        once a lineup exists. */}
+    {(() => {
+      const hasPlan = !!(f.plan && (f.plan.assignments || []).some((s) => Object.keys(s || {}).length));
+      if (!(isCoach || hasPlan) || f.status === "cancelled") return null;
+      return (
+        <button className="btn" style={{ marginBottom: 10 }} onClick={() => setModal({ type: "plan", payload: f })}>
+          ⚽ {isCoach ? "Game plan — lineup & subs" : "Match day — live lineup"}
+        </button>
+      );
+    })()}
 
     <FocusCard f={f} label={f.status === "played" ? "Focus that week" : "This week's focus"} />
 
