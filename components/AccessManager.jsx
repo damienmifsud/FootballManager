@@ -129,6 +129,16 @@ export default function AccessManager({ adminEmail }) {
                 </div>
               ))}
             </div>
+
+            <div style={card}>
+              <div style={label}>League — Squadi fixtures & sync</div>
+              <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>
+                The FQ/Squadi league widget, its filter setup (competition, division, team ids) and the
+                "Sync fixtures now" button live on the league page. It's no longer linked from the
+                parent-facing dashboard.
+              </div>
+              <Link href="/league" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>Open league page ▸</Link>
+            </div>
           </>
         )}
       </div>
