@@ -538,6 +538,34 @@ const CSS = `
 .savatar{width:48px;height:48px;border-radius:50%;flex-shrink:0;object-fit:cover;background:var(--pitch);
   color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;}
 .staffrole{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--pitch);}
+/* Squadi-style results rows (home · score · away) */
+.sqrow{padding:13px 4px;border-bottom:1px solid var(--line);cursor:pointer;}
+.sqrow:last-child{border-bottom:none;}
+.sqmatch{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;}
+.sqteam{display:flex;align-items:center;gap:9px;min-width:0;}
+.sqteam.away{flex-direction:row-reverse;text-align:right;}
+.sqcrest{width:34px;height:34px;border-radius:9px;flex:0 0 34px;object-fit:contain;background:#fff;}
+.sqcrest-ph{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:var(--muted);background:var(--soft);}
+.sqname{flex:1;min-width:0;font-weight:700;font-size:14.5px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.squs .sqname{color:var(--pitch);}
+.squs .sqcrest{box-shadow:0 0 0 2px #fff,0 0 0 4px rgba(200,16,46,.25);}
+.sqscore{font-family:'Anton';font-size:23px;line-height:1;padding:4px 10px;border-radius:9px;white-space:nowrap;min-width:58px;text-align:center;}
+.sqscore.win{color:var(--win);background:rgba(30,158,87,.10);}
+.sqscore.loss{color:var(--red);background:rgba(229,72,77,.09);}
+.sqscore.draw{color:var(--muted);background:rgba(107,90,93,.10);}
+.sqscore.state{font-family:'DM Sans',sans-serif;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:6px 9px;}
+.sqscore.up{color:var(--amber);background:rgba(246,166,35,.12);}
+.sqscore.canc{color:var(--red);background:rgba(229,72,77,.10);}
+.sqscore.none{color:var(--muted);background:var(--soft);}
+.sqmeta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;}
+.sqwhen{flex:1;min-width:0;font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sqwhen b{color:#56535a;font-weight:700;}
+.sqtags{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
+.sqtag{font-size:9.5px;font-weight:800;letter-spacing:.04em;padding:3px 7px;border-radius:999px;white-space:nowrap;text-transform:uppercase;}
+.sqtag.ha{background:#f0ebed;color:#6b6770;}
+.sqtag.watch{background:rgba(200,16,46,.10);color:var(--pitch);}
+.sqtag.upd{background:var(--red);color:#fff;}
+.sqrow.canc .sqname,.sqrow.canc .sqcrest{opacity:.5;}
 `;
 
 /* ============================================================
@@ -1031,35 +1059,63 @@ function CalendarTab({ data, isCoach, setModal }) {
 function FixturesTab({ data, isCoach, pname, setModal, persist }) {
   const fixtures = [...data.fixtures].sort((a, b) => a.round - b.round);
   const del = (id) => persist({ ...data, fixtures: data.fixtures.filter(f => f.id !== id), isSample: false });
+  const usName = data.team.name;
+  const usLogo = data.team.logo || "/logo.png";
+
+  // Crest as image when we have one, else a soft tile with the team's initials.
+  const crest = (logo, name) => logo
+    ? <img className="sqcrest" src={logo} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+    : <span className="sqcrest sqcrest-ph">{initials(name)}</span>;
+
   return (
     <>
       {isCoach && <button className="addfab" onClick={() => setModal({ type: "fixture", payload: null })}><Plus size={17} />Add fixture</button>}
-      <div className="card" style={{ padding: "6px 14px" }}>
+      <div className="card" style={{ padding: "2px 12px" }}>
         {fixtures.length === 0 && <div className="empty"><div className="disp">No fixtures yet</div></div>}
         {fixtures.map(f => {
+          const home = f.homeAway === "H";
           const won = f.us > f.them, drew = f.us === f.them;
           const hasVid = !!videoKind(f.video);
+          const updated = recentChanges(f).length > 0;
+          const cancelled = f.status === "cancelled";
+          // Home team sits left, away right — flip when Olympic is away.
+          const homeName = home ? usName : f.opponent;
+          const awayName = home ? f.opponent : usName;
+          const homeLogo = home ? usLogo : (f.opponentLogo || "");
+          const awayLogo = home ? (f.opponentLogo || "") : usLogo;
+          const hs = home ? f.us : f.them;
+          const as = home ? f.them : f.us;
           return (
-            <div className="fx" key={f.id} onClick={() => setModal({ type: "match", payload: f })} style={{ cursor: "pointer" }}>
-              <div className="rd"><div className="r">{f.round}</div><div className="dt">{fmtDate(f.dateISO)}</div></div>
-              {f.opponentLogo && <img className="crest" src={f.opponentLogo} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
-              <div className="mid">
-                <div className="opp">{f.opponent}<span className={"hatag " + f.homeAway}>{f.homeAway}</span>{hasVid && <span className="playtag"><Goal size={9} />Watch</span>}{recentChanges(f).length > 0 && <span className="updtag">Updated</span>}</div>
-                <div className="ven"><MapPin size={11} />{f.venue} · {f.time}</div>
-              </div>
-              {f.status === "cancelled"
-                ? <div className="res"><div className="upc" style={{ color: "var(--red)", fontWeight: 800 }}>Cancelled</div></div>
-                : f.us != null
-                ? <div className="res"><div className={"score " + (won ? "w" : drew ? "d" : "l")}>{f.us}–{f.them}</div></div>
-                : isPastGame(f)
-                  ? <div className="res"><div className="upc" style={{ color: "var(--muted)" }}>Awaiting score</div></div>
-                  : <div className="res"><div className="upc">Upcoming</div></div>}
-              {isCoach && (
-                <div className="editbar">
-                  <button className="iconbtn" onClick={(e) => { e.stopPropagation(); setModal({ type: "fixture", payload: f }); }}><Pencil size={14} /></button>
-                  <button className="iconbtn" onClick={(e) => { e.stopPropagation(); del(f.id); }}><Trash2 size={14} /></button>
+            <div className={"sqrow" + (cancelled ? " canc" : "")} key={f.id} onClick={() => setModal({ type: "match", payload: f })}>
+              <div className="sqmatch">
+                <div className={"sqteam" + (home ? " squs" : "")}>
+                  {crest(homeLogo, homeName)}
+                  <span className="sqname">{homeName}</span>
                 </div>
-              )}
+                {cancelled
+                  ? <div className="sqscore state canc">Canc</div>
+                  : f.us != null
+                  ? <div className={"sqscore " + (won ? "win" : drew ? "draw" : "loss")}>{hs}–{as}</div>
+                  : isPastGame(f)
+                    ? <div className="sqscore state none">No score</div>
+                    : <div className="sqscore state up">Upcoming</div>}
+                <div className={"sqteam away" + (!home ? " squs" : "")}>
+                  {crest(awayLogo, awayName)}
+                  <span className="sqname">{awayName}</span>
+                </div>
+              </div>
+              <div className="sqmeta">
+                <span className="sqwhen"><b>Round {f.round}</b> · {fmtDate(f.dateISO)}{f.time ? " · " + f.time : ""}</span>
+                <div className="sqtags">
+                  {hasVid && <span className="sqtag watch">▶ Watch</span>}
+                  {updated && <span className="sqtag upd">Updated</span>}
+                  <span className="sqtag ha">{home ? "Home" : "Away"}</span>
+                  {isCoach && (<>
+                    <button className="iconbtn" style={{ width: 28, height: 28 }} onClick={(e) => { e.stopPropagation(); setModal({ type: "fixture", payload: f }); }}><Pencil size={13} /></button>
+                    <button className="iconbtn" style={{ width: 28, height: 28 }} onClick={(e) => { e.stopPropagation(); del(f.id); }}><Trash2 size={13} /></button>
+                  </>)}
+                </div>
+              </div>
             </div>
           );
         })}

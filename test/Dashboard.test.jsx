@@ -157,6 +157,42 @@ describe("App — RSVP toggle (match modal)", () => {
   });
 });
 
+describe("App — Squadi-style results rows", () => {
+  const withFixtures = (fixtures) => makeData({ fixtures });
+
+  it("flips an away game (home team left) but colours the score by our result", async () => {
+    // Olympic away win 3–1 → rendered home-perspective as 1–3 with a WIN chip.
+    storage.get.mockResolvedValue({ value: JSON.stringify(withFixtures([
+      { id: "f1", round: 4, status: "played", dateISO: "2026-05-02", time: "09:00", opponent: "Wests", homeAway: "A", venue: "X", us: 3, them: 1, availability: {} }
+    ])) });
+    const { container } = render(<App />);
+    await screen.findByRole("button", { name: /View/ });
+    fireEvent.click(screen.getByText("Results"));
+    const row = container.querySelector(".sqrow");
+    expect(row.querySelector(".sqscore").className).toContain("win");
+    expect(row.querySelector(".sqscore").textContent).toBe("1–3");
+    // Away flip: opponent (home side) renders first, Olympic highlighted on the right.
+    const names = [...row.querySelectorAll(".sqname")].map((n) => n.textContent);
+    expect(names).toEqual(["Wests", "Test FC"]);
+    expect(row.querySelector(".sqteam.away").className).toContain("squs");
+  });
+
+  it("renders the non-score states as chips (cancelled dims the row)", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(withFixtures([
+      { id: "c1", round: 1, status: "cancelled", dateISO: "2026-05-02", opponent: "A", homeAway: "H", us: null, them: null, availability: {} },
+      { id: "u1", round: 2, status: "upcoming", dateISO: "2099-05-02", opponent: "B", homeAway: "H", us: null, them: null, availability: {} },
+      { id: "n1", round: 3, status: "played", dateISO: "2020-01-01", opponent: "C", homeAway: "H", us: null, them: null, availability: {} }
+    ])) });
+    const { container } = render(<App />);
+    await screen.findByRole("button", { name: /View/ });
+    fireEvent.click(screen.getByText("Results"));
+    expect(screen.getByText("Canc")).toBeTruthy();
+    expect(screen.getByText("Upcoming")).toBeTruthy();
+    expect(screen.getByText("No score")).toBeTruthy();
+    expect(container.querySelector(".sqrow.canc")).toBeTruthy();
+  });
+});
+
 describe("App — coach edit-save (fixture)", () => {
   it("persists a new fixture via window.storage and clears the sample flag", async () => {
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
