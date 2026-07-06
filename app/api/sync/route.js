@@ -3,7 +3,7 @@ import { getData, setData, getMeta, setMeta } from "@/lib/store";
 import { fetchSquadi, applySync } from "@/lib/squadiSync";
 import { getTeams, teamBySlug, teamFromCookieHeader } from "@/lib/teams";
 import { auth } from "@/auth";
-import { membershipsForEmail, isCoachForTeam } from "@/lib/directory";
+import { membershipsForEmail, isCoachForTeam, viewingAs } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
 const AUTH_ON = !!process.env.AUTH_SECRET;
@@ -91,6 +91,7 @@ export async function GET(req) {
     const session = await auth();
     const email = session?.user?.email;
     if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    if (viewingAs(req, email)) return NextResponse.json({ error: "You're viewing as another user — read only. Exit view-as to make changes." }, { status: 403 });
 
     const { memberships } = await membershipsForEmail(email);
     if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
