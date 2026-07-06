@@ -4,6 +4,7 @@
 // in lib/directory.js applies whatever is saved here on every request.
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { signOut } from "next-auth/react";
 import TeamWizard from "@/components/TeamWizard";
 
 const C = { red: "#C8102E", ink: "#1d1417", muted: "#7a6f72", line: "#eee", soft: "#f6f2f3" };
@@ -59,7 +60,8 @@ export default function AccessManager({ adminEmail }) {
         <div style={{ color: "#fff", marginBottom: 18 }}>
           <div style={{ fontSize: 24, fontWeight: 800 }}>Club access control</div>
           <div style={{ fontSize: 13, opacity: .85, marginTop: 3 }}>
-            Signed in as {adminEmail} (super admin) · <Link href="/" style={{ color: "#fff" }}>back to the dashboard</Link>
+            Signed in as {adminEmail} (super admin) · <Link href="/" style={{ color: "#fff" }}>back to the dashboard</Link> ·{" "}
+            <button onClick={() => signOut({ callbackUrl: "/login" })} style={{ background: "none", border: "none", color: "#fff", textDecoration: "underline", cursor: "pointer", fontSize: 13, padding: 0 }}>sign out</button>
           </div>
         </div>
 
