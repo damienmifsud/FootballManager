@@ -12,10 +12,11 @@ export async function GET(req) {
   let team = null;
   if (AUTH_ON) {
     const { auth } = await import("@/auth");
-    const { membershipsForEmail } = await import("@/lib/directory");
+    const { membershipsForEmail, viewingAs } = await import("@/lib/directory");
     const session = await auth();
-    const email = session?.user?.email;
-    if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const realEmail = session?.user?.email;
+    if (!realEmail) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const email = viewingAs(req, realEmail) || realEmail;
     const { memberships } = await membershipsForEmail(email);
     if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     const wanted = req.cookies.get("team_slug")?.value;

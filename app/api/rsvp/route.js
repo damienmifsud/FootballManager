@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getData, setData } from "@/lib/store";
 import { teamBySlug, teamFromCookieHeader } from "@/lib/teams";
 import { auth } from "@/auth";
-import { membershipsForEmail, isCoachForTeam } from "@/lib/directory";
+import { membershipsForEmail, isCoachForTeam, viewingAs } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +52,7 @@ export async function POST(req) {
     const session = await auth();
     email = session?.user?.email;
     if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    if (viewingAs(req, email)) return NextResponse.json({ error: "You're viewing as another user — read only. Exit view-as to make changes." }, { status: 403 });
     const { memberships } = await membershipsForEmail(email);
     if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     const wanted = req.cookies.get("team_slug")?.value;

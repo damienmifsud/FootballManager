@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { teamFromCookieHeader } from "@/lib/teams";
 import { auth } from "@/auth";
-import { membershipsForEmail, isAdminEmail } from "@/lib/directory";
+import { membershipsForEmail, isAdminEmail, viewingAs } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
 
@@ -19,18 +19,31 @@ export async function GET(req) {
   }
 
   const session = await auth();
-  const email = session?.user?.email;
-  if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const realEmail = session?.user?.email;
+  if (!realEmail) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  // Super admins may be "viewing as" someone: resolve everything as that
+  // person so the UI renders exactly what they'd see (reads only — every
+  // mutating route refuses writes while impersonating).
+  const impersonating = viewingAs(req, realEmail);
+  const email = impersonating || realEmail;
 
   const { memberships } = await membershipsForEmail(email);
-  if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!memberships.length) {
+    if (impersonating) {
+      // Still tell the admin what's going on rather than a bare 401.
+      return NextResponse.json({ mode: "account", email, viewingAs: impersonating, realAdmin: true, admin: false, role: null, memberships: [] });
+    }
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
 
   const wanted = req.cookies.get("team_slug")?.value;
   const current = memberships.find((m) => m.teamSlug === wanted) || memberships[0];
   return NextResponse.json({
     mode: "account",
     email,
-    admin: isAdminEmail(email),
+    admin: !impersonating && isAdminEmail(realEmail),
+    ...(impersonating ? { viewingAs: impersonating, realAdmin: true } : {}),
     teamSlug: current.teamSlug,
     role: current.role,
     memberships: memberships.map(({ teamSlug, teamName, role, playerId, playerName }) => ({ teamSlug, teamName, role, playerId, playerName }))

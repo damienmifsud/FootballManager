@@ -4,15 +4,15 @@ import { fakeRequest } from "./helpers/fakeRequest";
 // /api/plan writes ONE fixture's game plan and nothing else. Coach-gated in
 // account mode; any code holder in legacy mode. AUTH_ON is module-load state,
 // so each block re-imports the route.
-const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, isCoachForTeam } = vi.hoisted(() => ({
+const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, isCoachForTeam, viewingAs } = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(),
   teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(),
-  membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn()
+  membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/store", () => ({ getData, setData }));
 vi.mock("@/lib/teams", () => ({ teamBySlug, teamFromCookieHeader }));
-vi.mock("@/lib/directory", () => ({ membershipsForEmail, isCoachForTeam }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail, isCoachForTeam, viewingAs }));
 
 const PLAN = { subTimes: [10, 30], assignments: [{ GK: "p1" }], updatedAt: 1 };
 const DATA = () => ({
@@ -116,5 +116,16 @@ describe("POST /api/plan — legacy team-code mode", () => {
     teamFromCookieHeader.mockReturnValue(null);
     const { POST } = await loadRoute({ authOn: false });
     expect((await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN } }))).status).toBe(401);
+  });
+});
+
+describe("account mode — view as blocks plan saves", () => {
+  it("403s a write while impersonating", async () => {
+    auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
+    viewingAs.mockReturnValue("mum@a.com");
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN } }));
+    expect(res.status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
   });
 });

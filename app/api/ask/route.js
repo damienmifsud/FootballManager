@@ -35,10 +35,11 @@ async function pickModel() {
 async function resolveTeam(req) {
   if (AUTH_ON) {
     const { auth } = await import("@/auth");
-    const { membershipsForEmail } = await import("@/lib/directory");
+    const { membershipsForEmail, viewingAs } = await import("@/lib/directory");
     const session = await auth();
-    const email = session?.user?.email;
-    if (!email) return null;
+    const realEmail = session?.user?.email;
+    if (!realEmail) return null;
+    const email = viewingAs(req, realEmail) || realEmail;
     const { memberships } = await membershipsForEmail(email);
     if (!memberships.length) return null;
     const m = req.cookies.get("team_slug")?.value;

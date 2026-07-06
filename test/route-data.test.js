@@ -6,15 +6,15 @@ import { fakeRequest } from "./helpers/fakeRequest";
 // one team and everyone with the code can read AND write (the original access
 // model). AUTH_ON is read at module load, so each block re-imports the route
 // with the right env.
-const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, isCoachForTeam } = vi.hoisted(() => ({
+const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, isCoachForTeam, viewingAs } = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(),
   teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(),
-  membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn()
+  membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/store", () => ({ getData, setData }));
 vi.mock("@/lib/teams", () => ({ teamBySlug, teamFromCookieHeader }));
-vi.mock("@/lib/directory", () => ({ membershipsForEmail, isCoachForTeam }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail, isCoachForTeam, viewingAs }));
 
 let savedSecret;
 beforeEach(() => {
@@ -138,6 +138,29 @@ describe("legacy team-code mode (no AUTH_SECRET)", () => {
     const { POST } = await loadRoute({ authOn: false });
     const res = await POST(fakeRequest({ body: {} }));
     expect(res.status).toBe(401);
+    expect(setData).not.toHaveBeenCalled();
+  });
+});
+
+describe("account mode — view as (impersonation)", () => {
+  it("GET reads as the impersonated user", async () => {
+    auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
+    viewingAs.mockReturnValue("mum@a.com");
+    membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "parent" }] });
+    teamBySlug.mockReturnValue({ slug: "a" });
+    getData.mockResolvedValue({ team: { name: "A" } });
+    const { GET } = await loadRoute({ authOn: true });
+    expect((await GET(fakeRequest())).status).toBe(200);
+    expect(membershipsForEmail).toHaveBeenCalledWith("mum@a.com");
+  });
+
+  it("POST is refused while viewing as someone (read-only impersonation)", async () => {
+    auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
+    viewingAs.mockReturnValue("mum@a.com");
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { team: { name: "X" } } }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/read only/i);
     expect(setData).not.toHaveBeenCalled();
   });
 });

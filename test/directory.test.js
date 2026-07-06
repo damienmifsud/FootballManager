@@ -266,3 +266,18 @@ describe("emailCanAccessTeam / isCoachForTeam / isAdminEmail", () => {
     expect(isAdminEmail("nobody@x.com")).toBe(false);
   });
 });
+
+describe("viewingAs (super-admin impersonation)", () => {
+  const { fakeRequest } = require("./helpers/fakeRequest");
+
+  it("honours the cookie only for a super admin, normalising the email", async () => {
+    process.env.TEAMS = TWO_TEAMS;
+    process.env.ADMIN_EMAILS = "boss@dam.fund";
+    const { viewingAs } = await loadDir();
+    const req = fakeRequest({ cookies: { view_as: "Mum%40A.com" } });
+    expect(viewingAs(req, "boss@dam.fund")).toBe("mum@a.com");
+    expect(viewingAs(req, "coach@a.com")).toBeNull(); // not an admin
+    expect(viewingAs(fakeRequest(), "boss@dam.fund")).toBeNull(); // no cookie
+    expect(viewingAs(fakeRequest({ cookies: { view_as: "junk" } }), "boss@dam.fund")).toBeNull(); // not an email
+  });
+});

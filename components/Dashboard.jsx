@@ -629,9 +629,21 @@ export default function App() {
     else setIsCoach(true);
   };
 
+  const exitViewAs = async () => {
+    try { await fetch("/api/access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "clearViewAs" }) }); } catch {}
+    window.location.href = "/";
+  };
+
   return (
     <div className="fqd">
       <style>{CSS}</style>
+
+      {me?.viewingAs && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 400, background: "#E07B1F", color: "#fff", fontFamily: "system-ui,sans-serif", fontWeight: 700, fontSize: 12.5, padding: "8px 12px", display: "flex", justifyContent: "center", alignItems: "center", gap: 12, boxShadow: "0 2px 10px rgba(0,0,0,.25)" }}>
+          <span>👁 Viewing as {me.viewingAs} — read only</span>
+          <button onClick={exitViewAs} style={{ background: "#fff", color: "#E07B1F", border: "none", borderRadius: 999, padding: "3px 12px", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>Exit</button>
+        </div>
+      )}
 
       <div className="head">
         <div className="htop">
