@@ -30,7 +30,7 @@ The colour scheme is set with the CSS variables at the top of `components/Dashbo
 
 ## Run it locally
 
-Requires Node 18+.
+Requires Node 20+.
 
 ```bash
 cp .env.example .env.local      # then edit it
