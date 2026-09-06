@@ -2,17 +2,22 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import App from "@/components/Dashboard";
+import { isoLocal } from "@/lib/dashboardData";
 
 // Component-level tests for the Dashboard App: data loading via window.storage,
 // the sample-data fallback, tab navigation, and the coach-mode PIN gate. These
 // render the real component in jsdom, so they exercise the wiring the pure-helper
 // unit tests can't. We stay off the Stats tab (recharts needs a real layout).
 
+// Dates relative to "today" so the next-fixture cards (Home, Duties) keep
+// finding an upcoming game no matter when the suite runs.
+const daysFromNow = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return isoLocal(d); };
+
 function makeData(over = {}) {
   return {
     team: { name: "Test FC", division: "Div 1", ageGroup: "U8", coachPin: "", headCoach: "Byron", assistantCoach: "Dee" },
     players: [{ id: "p1", name: "Sam Smith", number: 7, position: "FWD" }],
-    fixtures: [{ id: "f1", status: "upcoming", dateISO: "2026-09-01", time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park", availability: {} }],
+    fixtures: [{ id: "f1", status: "upcoming", dateISO: daysFromNow(7), time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park", availability: {} }],
     sessions: [],
     isSample: false,
     ...over
