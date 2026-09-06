@@ -6,15 +6,15 @@ import { fakeRequest } from "./helpers/fakeRequest";
 // legacy team-code mode anyone with the code may write and the whoami cookie
 // attributes the entry. Both modes do a surgical single-entry merge. AUTH_ON
 // is read at module load, so each block re-imports the route.
-const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, isCoachForTeam } = vi.hoisted(() => ({
+const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, isCoachForTeam, viewingAs } = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(),
   teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(),
-  membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn()
+  membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/store", () => ({ getData, setData }));
 vi.mock("@/lib/teams", () => ({ teamBySlug, teamFromCookieHeader }));
-vi.mock("@/lib/directory", () => ({ membershipsForEmail, isCoachForTeam }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail, isCoachForTeam, viewingAs }));
 
 let savedSecret;
 beforeEach(() => {
@@ -189,5 +189,16 @@ describe("legacy team-code mode", () => {
     expect(res.status).toBe(200);
     const [, saved] = setData.mock.calls[0];
     expect(saved.fixtures[0].availability.p1).toMatchObject({ status: "out", reason: "Away", by: "Coach" });
+  });
+});
+
+describe("account mode — view as blocks RSVPs", () => {
+  it("403s a write while impersonating", async () => {
+    auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
+    viewingAs.mockReturnValue("mum@a.com");
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { kind: "game", id: "f1", playerId: "p1", status: "in" } }));
+    expect(res.status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
   });
 });

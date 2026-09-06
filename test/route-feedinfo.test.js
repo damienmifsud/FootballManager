@@ -5,12 +5,12 @@ import { fakeRequest } from "./helpers/fakeRequest";
 // resolves the team from the site_auth cookie; account mode from the
 // session's memberships (any role — viewers can subscribe too). AUTH_ON is
 // module-load state, so each block re-imports the route.
-const { auth, teamBySlug, teamFromCookieHeader, membershipsForEmail } = vi.hoisted(() => ({
-  auth: vi.fn(), teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(), membershipsForEmail: vi.fn()
+const { auth, teamBySlug, teamFromCookieHeader, membershipsForEmail, viewingAs } = vi.hoisted(() => ({
+  auth: vi.fn(), teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(), membershipsForEmail: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/teams", () => ({ teamBySlug, teamFromCookieHeader }));
-vi.mock("@/lib/directory", () => ({ membershipsForEmail }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail, viewingAs }));
 
 let savedSecret;
 beforeEach(() => {

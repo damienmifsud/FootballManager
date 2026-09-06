@@ -116,3 +116,36 @@ describe("POST", () => {
     expect((await POST(fakeRequest({ body: { action: "explode", email: "x@y.com" } }))).status).toBe(400);
   });
 });
+
+describe("POST — view as", () => {
+  const asAdmin = async () => {
+    const route = await loadRoute();
+    auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
+    return route;
+  };
+
+  it("sets a session view_as cookie for a target email", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: { action: "viewAs", email: "Mum@A.com" } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).viewingAs).toBe("mum@a.com");
+    const cookie = res.headers.getSetCookie().find((c) => c.startsWith("view_as="));
+    expect(cookie).toContain("view_as=mum%40a.com");
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).not.toContain("Max-Age"); // session-lived
+  });
+
+  it("refuses to view as the super admin themself and clears on request", async () => {
+    const { POST } = await asAdmin();
+    expect((await POST(fakeRequest({ body: { action: "viewAs", email: "boss@dam.fund" } }))).status).toBe(400);
+    const res = await POST(fakeRequest({ body: { action: "clearViewAs" } }));
+    expect(res.status).toBe(200);
+    expect(res.headers.getSetCookie().find((c) => c.startsWith("view_as="))).toContain("Max-Age=0");
+  });
+
+  it("GET reports the active impersonation", async () => {
+    const { GET } = await asAdmin();
+    const body = await (await GET(fakeRequest({ cookies: { view_as: "mum@a.com" } }))).json();
+    expect(body.viewingAs).toBe("mum@a.com");
+  });
+});

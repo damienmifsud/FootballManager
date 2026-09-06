@@ -10,13 +10,13 @@ import { fakeRequest } from "./helpers/fakeRequest";
 const m = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(), getMeta: vi.fn(), setMeta: vi.fn(),
   fetchSquadi: vi.fn(), applySync: vi.fn(), getTeams: vi.fn(), teamBySlug: vi.fn(),
-  teamFromCookieHeader: vi.fn(), membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn()
+  teamFromCookieHeader: vi.fn(), membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth: m.auth }));
 vi.mock("@/lib/store", () => ({ getData: m.getData, setData: m.setData, getMeta: m.getMeta, setMeta: m.setMeta }));
 vi.mock("@/lib/squadiSync", () => ({ fetchSquadi: m.fetchSquadi, applySync: m.applySync }));
 vi.mock("@/lib/teams", () => ({ getTeams: m.getTeams, teamBySlug: m.teamBySlug, teamFromCookieHeader: m.teamFromCookieHeader }));
-vi.mock("@/lib/directory", () => ({ membershipsForEmail: m.membershipsForEmail, isCoachForTeam: m.isCoachForTeam }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail: m.membershipsForEmail, isCoachForTeam: m.isCoachForTeam, viewingAs: m.viewingAs }));
 
 const TEAM = { slug: "a", name: "Team A", squadi: { competitionId: "1", divisionId: "2", teamId: 3 } };
 let savedSecret, savedAuthSecret;
@@ -136,5 +136,17 @@ describe("legacy team-code mode", () => {
     const { GET } = await loadRoute({ authOn: false });
     const res = await GET(fakeRequest({ url: "https://x.test/api/sync" }));
     expect(res.status).toBe(401);
+  });
+});
+
+describe("account mode — view as blocks manual sync", () => {
+  it("403s while impersonating", async () => {
+    m.getTeams.mockReturnValue([TEAM]);
+    m.auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
+    m.viewingAs.mockReturnValue("mum@a.com");
+    const { GET } = await loadRoute({ authOn: true });
+    const res = await GET(fakeRequest({ url: "https://x.test/api/sync" }));
+    expect(res.status).toBe(403);
+    expect(m.fetchSquadi).not.toHaveBeenCalled();
   });
 });

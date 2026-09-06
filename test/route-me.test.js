@@ -3,12 +3,12 @@ import { fakeRequest } from "./helpers/fakeRequest";
 
 // /api/me tells the dashboard who the caller is and what they may do, so the
 // UI can show the right controls (the server still enforces every write).
-const { auth, teamFromCookieHeader, membershipsForEmail, isAdminEmail } = vi.hoisted(() => ({
-  auth: vi.fn(), teamFromCookieHeader: vi.fn(), membershipsForEmail: vi.fn(), isAdminEmail: vi.fn()
+const { auth, teamFromCookieHeader, membershipsForEmail, isAdminEmail, viewingAs } = vi.hoisted(() => ({
+  auth: vi.fn(), teamFromCookieHeader: vi.fn(), membershipsForEmail: vi.fn(), isAdminEmail: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/teams", () => ({ teamFromCookieHeader }));
-vi.mock("@/lib/directory", () => ({ membershipsForEmail, isAdminEmail }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail, isAdminEmail, viewingAs }));
 
 let savedSecret;
 beforeEach(() => {
@@ -71,5 +71,28 @@ describe("account mode", () => {
     auth.mockResolvedValue({ user: { email: "x@y.com" } });
     membershipsForEmail.mockResolvedValue({ memberships: [] });
     expect((await GET(fakeRequest())).status).toBe(401);
+  });
+});
+
+describe("account mode — view as (super admin impersonation)", () => {
+  it("resolves everything as the impersonated user and flags it", async () => {
+    auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
+    viewingAs.mockReturnValue("mum@x.com");
+    isAdminEmail.mockReturnValue(true);
+    membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam" }] });
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await GET(fakeRequest())).json();
+    expect(membershipsForEmail).toHaveBeenCalledWith("mum@x.com");
+    expect(body).toMatchObject({ email: "mum@x.com", role: "parent", viewingAs: "mum@x.com", realAdmin: true, admin: false });
+  });
+
+  it("explains instead of 401ing when the impersonated user has no teams", async () => {
+    auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
+    viewingAs.mockReturnValue("ghost@x.com");
+    membershipsForEmail.mockResolvedValue({ memberships: [] });
+    const { GET } = await loadRoute({ authOn: true });
+    const res = await GET(fakeRequest());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ viewingAs: "ghost@x.com", realAdmin: true, memberships: [] });
   });
 });

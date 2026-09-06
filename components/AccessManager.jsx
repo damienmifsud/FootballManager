@@ -25,6 +25,17 @@ export default function AccessManager({ adminEmail }) {
   const [ovEmail, setOvEmail] = useState("");
   const [ovTeam, setOvTeam] = useState("");
   const [ovRole, setOvRole] = useState("viewer");
+  const [vaEmail, setVaEmail] = useState("");
+
+  const startViewAs = async () => {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch("/api/access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "viewAs", email: vaEmail }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "failed");
+      window.location.href = "/"; // straight into their view
+    } catch (e) { setErr(String(e.message || e)); setBusy(false); }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -93,6 +104,29 @@ export default function AccessManager({ adminEmail }) {
                 <input style={{ ...inp, flex: 1 }} type="email" placeholder="td@club.com" value={caEmail} onChange={(e) => setCaEmail(e.target.value)} />
                 <button disabled={busy || !caEmail.includes("@")} style={btn} onClick={() => { post({ action: "addClubAdmin", email: caEmail }); setCaEmail(""); }}>Add</button>
               </div>
+            </div>
+
+            <div style={card}>
+              <div style={label}>View as a user</div>
+              <div style={{ fontSize: 13, color: C.muted, marginBottom: 10 }}>
+                See the site exactly as a parent, coach or club admin sees it — strictly read only
+                (every save is refused while viewing). An orange banner shows while active; Exit
+                brings you back to yourself.
+              </div>
+              {state.viewingAs ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ ...chip, background: "rgba(224,123,31,.15)", color: "#E07B1F" }}>👁 viewing as {state.viewingAs}</span>
+                  <Link href="/" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>Open their view ▸</Link>
+                  <button disabled={busy} style={{ ...btn, background: "#fff", color: C.red, border: "1px solid " + C.red }}
+                    onClick={() => post({ action: "clearViewAs" })}>Exit view-as</button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <input style={{ ...inp, flex: "1 1 200px" }} type="email" placeholder="parent@example.com" value={vaEmail}
+                    onChange={(e) => setVaEmail(e.target.value)} />
+                  <button disabled={busy || !vaEmail.includes("@")} style={btn} onClick={startViewAs}>👁 View as</button>
+                </div>
+              )}
             </div>
 
             <div style={card}>

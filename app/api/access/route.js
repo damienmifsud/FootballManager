@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getClubAccess, setClubAccess } from "@/lib/store";
 import { getTeams } from "@/lib/teams";
 import { auth } from "@/auth";
-import { isAdminEmail, OVERRIDE_ROLES } from "@/lib/directory";
+import { isAdminEmail, OVERRIDE_ROLES, viewingAs } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,7 @@ async function requireAdmin() {
 }
 
 // GET: the current access doc + enough context to manage it.
-export async function GET() {
+export async function GET(req) {
   const gate = await requireAdmin();
   if (gate.error) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
@@ -33,7 +33,8 @@ export async function GET() {
     clubAdmins: (access.clubAdmins || []).map(norm),
     envClubAdmins, // configured in the env; shown but not editable here
     overrides: access.overrides || {},
-    roles: OVERRIDE_ROLES
+    roles: OVERRIDE_ROLES,
+    viewingAs: viewingAs(req, gate.email)
   });
 }
 
@@ -47,8 +48,23 @@ export async function POST(req) {
   let body;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "bad json" }, { status: 400 }); }
   const action = body?.action;
+
+  // "View as" toggles a session cookie only; it never touches the access doc.
+  // The cookie is deliberately session-lived (no maxAge) so impersonation
+  // can't outlive the browser session.
+  if (action === "clearViewAs") {
+    const res = NextResponse.json({ ok: true, viewingAs: null });
+    res.cookies.set("view_as", "", { path: "/", maxAge: 0, sameSite: "lax" });
+    return res;
+  }
   const email = norm(body?.email);
   if (!email || !email.includes("@")) return NextResponse.json({ error: "bad email" }, { status: 400 });
+  if (action === "viewAs") {
+    if (isAdminEmail(email)) return NextResponse.json({ error: "you already are the super admin" }, { status: 400 });
+    const res = NextResponse.json({ ok: true, viewingAs: email });
+    res.cookies.set("view_as", email, { path: "/", sameSite: "lax", httpOnly: true });
+    return res;
+  }
 
   const access = (await getClubAccess()) || {};
   const next = { clubAdmins: (access.clubAdmins || []).map(norm), overrides: { ...(access.overrides || {}) } };
