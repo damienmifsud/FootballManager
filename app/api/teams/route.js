@@ -6,7 +6,7 @@ import { auth } from "@/auth";
 import { isAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
-import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES } from "@/lib/teamSetup";
+import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE } from "@/lib/teamSetup";
 
 export const dynamic = "force-dynamic";
 
@@ -61,7 +61,8 @@ async function clash(field, value, exceptSlug) {
 }
 
 // GET: every team, flagged by source, including codes/keys (admin-only view)
-// plus the doc-held fields the wizard can edit (division, WhatsApp, features).
+// plus the doc-held fields the wizard can edit (division, WhatsApp, features,
+// what parents can see).
 export async function GET() {
   const gate = await requireAdmin();
   if (gate.error) return NextResponse.json({ error: gate.error }, { status: gate.status });
@@ -76,6 +77,7 @@ export async function GET() {
       division: doc?.team?.division || "",
       whatsapp: doc?.team?.whatsapp || "",
       features: { ...DEFAULT_FEATURES, ...(doc?.team?.features || {}) },
+      parentsSee: { ...DEFAULT_PARENTS_SEE, ...(doc?.team?.parentsSee || {}) },
       staff: Array.isArray(doc?.team?.staff) ? doc.team.staff.map(({ role, name, mobile, email }) => ({ role, name, mobile, email })) : [],
       coachPin: doc?.team?.coachPin || "",
       hasLogo: !!doc?.team?.logo, // the data URL itself is too heavy for the list
@@ -119,7 +121,8 @@ export async function POST(req) {
   // Majestri roster (players + parents' names/emails/mobiles, so parent login
   // and RSVPs work from day one), the weekly training schedule (flows into
   // the calendar tab and every subscribed calendar via the ICS feed, just
-  // like Squadi-synced games), and the team's feature flags.
+  // like Squadi-synced games), the team's feature flags and what parents can
+  // see of match day (defaults when omitted).
   const players = sanitizePlayers(body.players);
   const sessions = sanitizeTrainingSessions(body.training);
   let seeded = 0;
@@ -133,7 +136,8 @@ export async function POST(req) {
         logo: sanitizeLogo(body.logo),
         staff: sanitizeStaff(body.staff),
         matchFormat: defaultFormatForAgeGroup(team.ageGroup),
-        features: sanitizeFeatures(body.features)
+        features: sanitizeFeatures(body.features),
+        parentsSee: sanitizeParentsSee(body.parentsSee)
       },
       players, fixtures: [], sessions
     });
@@ -182,8 +186,8 @@ export async function PATCH(req) {
 
   // Doc-held fields (shown throughout the dashboard) update in place too.
   let docUpdated = false;
-  if (body.division != null || body.whatsapp != null || body.features != null || body.name != null ||
-      body.logo != null || body.staff != null || body.coachPin != null) {
+  if (body.division != null || body.whatsapp != null || body.features != null || body.parentsSee != null ||
+      body.name != null || body.logo != null || body.staff != null || body.coachPin != null) {
     const doc = await getData(slug);
     if (doc) {
       const teamDoc = { ...(doc.team || {}) };
@@ -191,6 +195,7 @@ export async function PATCH(req) {
       if (body.division != null) teamDoc.division = String(body.division).trim().slice(0, 80);
       if (body.whatsapp != null) teamDoc.whatsapp = String(body.whatsapp).trim().slice(0, 200);
       if (body.features != null) teamDoc.features = sanitizeFeatures(body.features);
+      if (body.parentsSee != null) teamDoc.parentsSee = sanitizeParentsSee(body.parentsSee);
       if (body.logo != null) { const l = sanitizeLogo(body.logo); if (l) teamDoc.logo = l; }
       if (body.staff != null) {
         // Preserve photos added in the dashboard for staff kept by name.

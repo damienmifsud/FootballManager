@@ -3,7 +3,8 @@ import { fakeRequest } from "./helpers/fakeRequest";
 
 // /api/plan writes ONE fixture's game plan and nothing else. Coach-gated in
 // account mode; any code holder in legacy mode. AUTH_ON is module-load state,
-// so each block re-imports the route.
+// so each block re-imports the route. The optional gk field writes the plan's
+// first-block keeper back to the fixture's in-goal duty in the same merge.
 const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, isCoachForTeam, viewingAs } = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(),
   teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(),
@@ -17,9 +18,9 @@ vi.mock("@/lib/directory", () => ({ membershipsForEmail, isCoachForTeam, viewing
 const PLAN = { subTimes: [10, 30], assignments: [{ GK: "p1" }], updatedAt: 1 };
 const DATA = () => ({
   team: { name: "A" },
-  players: [{ id: "p1", name: "Sam" }],
+  players: [{ id: "p1", name: "Sam" }, { id: "p2", name: "Ella" }],
   fixtures: [
-    { id: "f1", round: 1, us: 3, them: 1, availability: { p1: { status: "in" } } },
+    { id: "f1", round: 1, us: 3, them: 1, gk: "p1", availability: { p1: { status: "in" } } },
     { id: "f2", round: 2 }
   ]
 });
@@ -30,6 +31,8 @@ beforeEach(() => {
   savedSecret = process.env.AUTH_SECRET;
   getData.mockResolvedValue(DATA());
   setData.mockResolvedValue();
+  // clearAllMocks keeps implementations, so undo the view-as test's stub.
+  viewingAs.mockReturnValue(null);
 });
 afterEach(() => {
   if (savedSecret === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = savedSecret;
@@ -98,7 +101,7 @@ describe("POST /api/plan — account mode", () => {
     // The other fixture and the rest of the document are untouched.
     expect(saved.fixtures.find((f) => f.id === "f2")).toEqual({ id: "f2", round: 2 });
     expect(saved.team).toEqual({ name: "A" });
-    expect(saved.players).toHaveLength(1);
+    expect(saved.players).toHaveLength(2);
   });
 });
 
@@ -125,6 +128,99 @@ describe("account mode — view as blocks plan saves", () => {
     viewingAs.mockReturnValue("mum@a.com");
     const { POST } = await loadRoute({ authOn: true });
     const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN } }));
+    expect(res.status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/plan — gk write-back to the in-goal duty", () => {
+  it("writes gk when it differs from the fixture's current duty, alongside the plan", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN, gk: "p2" } }));
+    expect(res.status).toBe(200);
+    const saved = setData.mock.calls[0][1];
+    const f1 = saved.fixtures.find((f) => f.id === "f1");
+    expect(f1.gk).toBe("p2");
+    expect(f1.plan).toEqual(PLAN);
+    // Same-fixture fields and the other fixture are untouched.
+    expect(f1).toMatchObject({ us: 3, them: 1, availability: { p1: { status: "in" } } });
+    expect(saved.fixtures.find((f) => f.id === "f2")).toEqual({ id: "f2", round: 2 });
+  });
+
+  it("leaves gk alone when the body has no gk", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN } }));
+    expect(res.status).toBe(200);
+    const f1 = setData.mock.calls[0][1].fixtures.find((f) => f.id === "f1");
+    expect(f1.gk).toBe("p1");
+    expect(f1).toEqual({ ...DATA().fixtures[0], plan: PLAN });
+  });
+
+  it("leaves the fixture otherwise identical when gk equals the current duty", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN, gk: "p1" } }));
+    expect(res.status).toBe(200);
+    const f1 = setData.mock.calls[0][1].fixtures.find((f) => f.id === "f1");
+    expect(f1).toEqual({ ...DATA().fixtures[0], plan: PLAN });
+  });
+
+  it("treats \"\" as no change for a fixture that never had a keeper", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { fixtureId: "f2", plan: PLAN, gk: "" } }));
+    expect(res.status).toBe(200);
+    const f2 = setData.mock.calls[0][1].fixtures.find((f) => f.id === "f2");
+    expect(f2).toEqual({ id: "f2", round: 2, plan: PLAN });
+    expect("gk" in f2).toBe(false);
+  });
+
+  it("400s for a player id not on the roster and writes nothing", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN, gk: "ghost" } }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "no such player" });
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("400s for a non-string gk and writes nothing", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN, gk: 7 } }))).status).toBe(400);
+    expect((await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN, gk: null } }))).status).toBe(400);
+    expect((await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN, gk: ["p1"] } }))).status).toBe(400);
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("clears the duty when gk is \"\"", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN, gk: "" } }));
+    expect(res.status).toBe(200);
+    const f1 = setData.mock.calls[0][1].fixtures.find((f) => f.id === "f1");
+    expect(f1.gk).toBe("");
+    expect(f1.plan).toEqual(PLAN);
+  });
+
+  it("honours gk in legacy team-code mode too", async () => {
+    teamFromCookieHeader.mockReturnValue({ slug: "a" });
+    const { POST } = await loadRoute({ authOn: false });
+    const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN, gk: "p2" }, headers: { cookie: "site_auth=code" } }));
+    expect(res.status).toBe(200);
+    expect(auth).not.toHaveBeenCalled();
+    const f1 = setData.mock.calls[0][1].fixtures.find((f) => f.id === "f1");
+    expect(f1.gk).toBe("p2");
+    expect(f1.plan).toEqual(PLAN);
+  });
+
+  it("still refuses a non-coach even when gk is valid", async () => {
+    coachSession();
+    isCoachForTeam.mockResolvedValue(false);
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN, gk: "p2" } }));
     expect(res.status).toBe(403);
     expect(setData).not.toHaveBeenCalled();
   });

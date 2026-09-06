@@ -216,6 +216,59 @@ describe("PATCH — edit", () => {
   });
 });
 
+describe("parentsSee — what parents see of match day", () => {
+  const DEFAULTS = { planBeforeKickoff: false, liveScore: true, liveLineup: true, ownChildMinutes: false, everyoneMinutes: false };
+
+  it("POST without parentsSee seeds the defaults into the starter doc", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: { name: "Wiz F", password: "lucky-goal-51" } }));
+    expect(res.status).toBe(200);
+    const [, doc] = setData.mock.calls[0];
+    expect(doc.team.parentsSee).toEqual(DEFAULTS);
+  });
+
+  it("POST with a partial object seeds it sanitised (unknown key dropped, values coerced)", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: {
+      name: "Wiz G", password: "mighty-boot-62",
+      parentsSee: { planBeforeKickoff: "yes", liveScore: 0, secretFlag: true }
+    } }));
+    expect(res.status).toBe(200);
+    const [, doc] = setData.mock.calls[0];
+    expect(doc.team.parentsSee).toEqual({ ...DEFAULTS, planBeforeKickoff: true, liveScore: false });
+    expect(doc.team.parentsSee).not.toHaveProperty("secretFlag");
+  });
+
+  it("PATCH updates only parentsSee on the doc, preserving other team keys and players", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b", calendarKey: "key-b" }]);
+    getData.mockResolvedValue({
+      team: { name: "Wiz B", coachPin: "9", division: "K1", features: { gkDuty: false }, parentsSee: { ...DEFAULTS, liveScore: false } },
+      players: [{ id: "p1" }], fixtures: [{ id: "f1" }]
+    });
+    const { PATCH } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "wiz-b", parentsSee: { ownChildMinutes: true, everyoneMinutes: "1" } } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).docUpdated).toBe(true);
+    const [slug, doc] = setData.mock.calls[0];
+    expect(slug).toBe("wiz-b");
+    expect(doc.team.parentsSee).toEqual({ ...DEFAULTS, ownChildMinutes: true, everyoneMinutes: true });
+    // Untouched team keys and the rest of the document survive the write.
+    expect(doc.team).toMatchObject({ name: "Wiz B", coachPin: "9", division: "K1", features: { gkDuty: false } });
+    expect(doc.players).toEqual([{ id: "p1" }]);
+    expect(doc.fixtures).toEqual([{ id: "f1" }]);
+  });
+
+  it("GET reports parentsSee merged with defaults for a team whose doc has none", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b", calendarKey: "key-b" }]);
+    getData.mockImplementation(async (slug) => (slug === "wiz-b" ? { team: { name: "Wiz B", parentsSee: { liveLineup: false } }, players: [] } : null));
+    const { GET } = await asAdmin();
+    const body = await (await GET()).json();
+    const bySlug = Object.fromEntries(body.teams.map((t) => [t.slug, t]));
+    expect(bySlug["env-a"].parentsSee).toEqual(DEFAULTS);                        // no doc at all
+    expect(bySlug["wiz-b"].parentsSee).toEqual({ ...DEFAULTS, liveLineup: false }); // partial doc value merged over defaults
+  });
+});
+
 describe("DELETE", () => {
   it("removes a stored team but refuses env teams", async () => {
     getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b" }]);

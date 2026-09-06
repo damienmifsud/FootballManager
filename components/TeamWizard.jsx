@@ -5,7 +5,7 @@
 // (editing an env-defined team takes it over into the store).
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { parsePlayerImport } from "@/lib/majestri";
-import { DEFAULT_FEATURES, FEATURE_LABELS, STAFF_ROLES } from "@/lib/teamSetup";
+import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES } from "@/lib/teamSetup";
 import { downscaleImage } from "@/lib/clientImage";
 
 const C = { red: "#C8102E", ink: "#1d1417", muted: "#7a6f72", line: "#eee", soft: "#f6f2f3", ok: "#1E9E57" };
@@ -37,6 +37,7 @@ const BLANK = {
   importText: "",
   training: [], // { weekday, time, endTime, location }
   features: { ...DEFAULT_FEATURES },
+  parentsSee: { ...DEFAULT_PARENTS_SEE },
   logo: "", hasLogo: false, coachPin: "",
   staff: STAFF_ROLES.map((role) => ({ role, name: "", mobile: "" }))
 };
@@ -65,7 +66,7 @@ export default function TeamWizard() {
   };
   const feedUrl = (t) => `${window.location.origin}/api/calendar?key=${t.calendarKey}`;
 
-  const openCreate = () => { setCreated(null); setEditSlug(null); setForm({ ...BLANK, features: { ...DEFAULT_FEATURES }, training: [], password: friendlyCode() }); };
+  const openCreate = () => { setCreated(null); setEditSlug(null); setForm({ ...BLANK, features: { ...DEFAULT_FEATURES }, parentsSee: { ...DEFAULT_PARENTS_SEE }, training: [], password: friendlyCode() }); };
   const openEdit = (t) => {
     setCreated(null); setEditSlug(t.slug);
     setForm({
@@ -75,6 +76,7 @@ export default function TeamWizard() {
       squadi: { competitionId: t.squadi?.competitionId || "", divisionId: t.squadi?.divisionId || "", teamId: t.squadi?.teamId || "" },
       importText: "", training: [],
       features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
+      parentsSee: { ...DEFAULT_PARENTS_SEE, ...(t.parentsSee || {}) },
       logo: "", hasLogo: !!t.hasLogo, coachPin: t.coachPin || "",
       staff: STAFF_ROLES.map((role) => {
         const s = (t.staff || []).find((x) => x.role === role) || {};
@@ -130,7 +132,7 @@ export default function TeamWizard() {
     const payload = {
       name: form.name, ageGroup: form.ageGroup, password: form.password.trim(),
       coachEmails: form.coachEmails, ...(squadi ? { squadi } : {}),
-      division: form.division, whatsapp: form.whatsapp, features: form.features,
+      division: form.division, whatsapp: form.whatsapp, features: form.features, parentsSee: form.parentsSee,
       staff: form.staff.filter((s) => s.name.trim()),
       coachPin: form.coachPin,
       ...(form.logo ? { logo: form.logo } : {}), // only when a new file was chosen
@@ -363,7 +365,21 @@ export default function TeamWizard() {
             })}
           </div>
 
-          <span style={fieldLb}>{editSlug ? "Team identity" : "9 · Team identity"} — logo, staff & coach PIN (all optional)</span>
+          <span style={fieldLb}>{editSlug ? "Parents can see" : "9 · Parents can see"} — what parents see of match day</span>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+            {Object.keys(DEFAULT_PARENTS_SEE).map((k) => {
+              const on = !!form.parentsSee[k];
+              return (
+                <button key={k} onClick={() => setForm((f) => ({ ...f, parentsSee: { ...f.parentsSee, [k]: !on } }))}
+                  style={{ ...chip, cursor: "pointer", padding: "7px 12px", border: "1px solid " + (on ? C.ok : C.line), background: on ? "rgba(30,158,87,.10)" : "#fff", color: on ? C.ok : C.muted }}>
+                  {on ? "✓ " : ""}{PARENTS_SEE_LABELS[k]}
+                </button>
+              );
+            })}
+          </div>
+          <div style={hint}>You can change this any time in Settings.</div>
+
+          <span style={fieldLb}>{editSlug ? "Team identity" : "10 · Team identity"} — logo, staff & coach PIN (all optional)</span>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             {form.logo
               ? <img src={form.logo} alt="" style={{ width: 44, height: 44, objectFit: "contain", borderRadius: 10, background: C.soft }} />

@@ -246,3 +246,553 @@ describe("App — coach edit-save (fixture)", () => {
     expect(added.homeAway).toBe("A");
   });
 });
+
+/* ---------------- Match-day slice ---------------- */
+
+// Echo-style stub for the narrow settings routes: /api/team-settings and
+// /api/player-coach answer like the real handlers (sanitised body echoed
+// back); everything else stays "not found" as in the default harness.
+const stubNarrowRoutes = () => {
+  fetch.mockImplementation((url, init) => {
+    const u = String(url);
+    const body = init?.body ? JSON.parse(init.body) : {};
+    if (u.includes("/api/team-settings")) return Promise.resolve({ ok: true, json: async () => ({ ok: true, team: body }) });
+    if (u.includes("/api/player-coach")) {
+      return Promise.resolve({ ok: true, json: async () => ({ ok: true, playerId: body.playerId, coach: { ratings: body.ratings || { GK: null, DEF: null, MID: null, FWD: null }, note: body.note || "" } }) });
+    }
+    return Promise.resolve({ ok: false, json: async () => ({}) });
+  });
+};
+const callTo = (path) => fetch.mock.calls.find((c) => String(c[0]).includes(path));
+const bodyOf = (path) => JSON.parse(callTo(path)[1].body);
+const enterCoachMode = async () => {
+  await waitForLoaded();
+  fireEvent.click(screen.getByRole("button", { name: /View/ }));
+  await screen.findByText("Settings");
+};
+
+describe("Match day hub card", () => {
+  const players = [
+    { id: "p1", name: "Seyjan Lee", number: 7, position: "FWD" },
+    { id: "p2", name: "Milo Park", number: 8, position: "MID" }
+  ];
+  const u7 = { gameLength: 40, periods: 2, playersOnField: 4, hasGK: false, formation: "2-2", subInterval: 10 };
+  const four = [
+    { id: "p1", name: "Seyjan Lee", number: 1, position: "DEF" },
+    { id: "p2", name: "Milo Park", number: 2, position: "DEF" },
+    { id: "p3", name: "Ada Chen", number: 3, position: "MID" },
+    { id: "p4", name: "Remy Hall", number: 4, position: "FWD" }
+  ];
+  const fullBlock = { r0c0: "p1", r0c1: "p2", r1c0: "p3", r1c1: "p4" };
+  const fixture = (over = {}) => ({ id: "f1", round: 3, status: "upcoming", dateISO: daysFromNow(5), time: "09:00", opponent: "Wests", homeAway: "H", venue: "X", availability: {}, ...over });
+
+  // Coach mode -> Results tab -> tap the fixture row -> hub card in the sheet.
+  const openHub = async (container) => {
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Results"));
+    fireEvent.click(container.querySelector(".sqrow"));
+    await screen.findByText("Match day");
+  };
+  // The four .stg cells in order: Availability, Plan, Live, Record.
+  const stage = (i) => document.querySelectorAll(".stg")[i];
+
+  it("nobody replied: Availability is 'now' with counts and the no-reply line names both kids", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture()] })) });
+    const { container } = render(<App />);
+    await openHub(container);
+    expect(stage(0).className).toContain("now");
+    expect(stage(0).textContent).toContain("0 in · 0 out · 2 no reply");
+    expect(screen.getByText("Seyjan and Milo haven't replied. They're counted in until you mark them out.")).toBeTruthy();
+    // Plan not started, Live/Record still to come, coach-only pill and primary button.
+    expect(stage(1).className).not.toMatch(/now|done/);
+    expect(screen.getByText("Not started")).toBeTruthy();
+    expect(screen.getByText("Kick-off 09:00")).toBeTruthy();
+    expect(screen.getByText("After full time")).toBeTruthy();
+    expect(screen.getByText("Coach only")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open the plan" })).toBeTruthy();
+  });
+
+  it("one reply outstanding: '1 in · 0 out · 1 no reply' and a singular no-reply line", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture({ availability: { p1: { status: "in", by: "Coach", at: 1 } } })] })) });
+    const { container } = render(<App />);
+    await openHub(container);
+    expect(stage(0).className).toContain("now");
+    expect(stage(0).textContent).toContain("1 in · 0 out · 1 no reply");
+    expect(screen.getByText("Milo hasn't replied. They're counted in until you mark them out.")).toBeTruthy();
+  });
+
+  it("everyone replied: Availability is done with in/out counts and no no-reply line", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture({ availability: { p1: { status: "in", by: "Coach", at: 1 }, p2: { status: "out", reason: "Sick", by: "Coach", at: 1 } } })] })) });
+    const { container } = render(<App />);
+    await openHub(container);
+    expect(stage(0).className).toContain("done");
+    expect(stage(0).textContent).toContain("1 in · 1 out");
+    expect(screen.queryByText(/replied\. They're counted in/)).toBeNull();
+  });
+
+  it("a no-reply player the coach marked OUT in the planner is counted out: no dot, no no-reply line", async () => {
+    const f = fixture({
+      availability: { p1: { status: "in", by: "Coach", at: 1 } }, // Milo: no reply
+      plan: { subTimes: [], assignments: [], overrides: { p2: "out" }, updatedAt: 1 }
+    });
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [f] })) });
+    const { container } = render(<App />);
+    await openHub(container);
+    expect(stage(0).className).toContain("done");
+    expect(stage(0).textContent).toContain("1 in · 1 out");
+    expect(stage(0).textContent).not.toContain("no reply");
+    expect(screen.queryByText(/replied\. They're counted in/)).toBeNull();
+    expect(document.querySelectorAll(".rdot")).toHaveLength(0);
+  });
+
+  it("a no-reply player the coach marked IN in the planner is counted in: no dot, no no-reply line", async () => {
+    const f = fixture({
+      availability: { p1: { status: "in", by: "Coach", at: 1 } }, // Milo: no reply
+      plan: { subTimes: [], assignments: [], overrides: { p2: "in" }, updatedAt: 1 }
+    });
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [f] })) });
+    const { container } = render(<App />);
+    await openHub(container);
+    expect(stage(0).className).toContain("done");
+    expect(stage(0).textContent).toContain("2 in · 0 out");
+    expect(screen.queryByText(/replied\. They're counted in/)).toBeNull();
+    expect(document.querySelectorAll(".rdot")).toHaveLength(0);
+  });
+
+  it("an override on one player leaves the other no-reply player dotted and named", async () => {
+    const f = fixture({ plan: { subTimes: [], assignments: [], overrides: { p1: "in" }, updatedAt: 1 } }); // nobody RSVP'd
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [f] })) });
+    const { container } = render(<App />);
+    await openHub(container);
+    expect(stage(0).className).toContain("now");
+    expect(stage(0).textContent).toContain("1 in · 0 out · 1 no reply");
+    expect(screen.getByText("Milo hasn't replied. They're counted in until you mark them out.")).toBeTruthy();
+    expect(document.querySelectorAll(".rdot")).toHaveLength(1);
+  });
+
+  it("half-filled plan: Plan is 'now' with 'Gaps to fill'", async () => {
+    const data = makeData({ players: four, fixtures: [fixture({ plan: { subTimes: [], assignments: [{ r0c0: "p1" }, {}], updatedAt: 1 } })] });
+    data.team.matchFormat = u7;
+    storage.get.mockResolvedValue({ value: JSON.stringify(data) });
+    const { container } = render(<App />);
+    await openHub(container);
+    expect(stage(1).className).toContain("now");
+    expect(screen.getByText("Gaps to fill")).toBeTruthy();
+  });
+
+  it("complete plan: Plan is done with the block count", async () => {
+    // 4v4, no keeper, 2 halves and no extra subs -> 2 blocks, 4 spots each.
+    const data = makeData({ players: four, fixtures: [fixture({ plan: { subTimes: [], assignments: [fullBlock, fullBlock], updatedAt: 1 } })] });
+    data.team.matchFormat = u7;
+    storage.get.mockResolvedValue({ value: JSON.stringify(data) });
+    const { container } = render(<App />);
+    await openHub(container);
+    expect(stage(1).className).toContain("done");
+    expect(screen.getByText("Lineup set · 2 blocks")).toBeTruthy();
+  });
+
+  it("game day: Live is 'now' and the primary button reads 'Kick off'", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture({ dateISO: isoLocal(new Date()) })] })) });
+    const { container } = render(<App />);
+    await openHub(container);
+    expect(stage(2).className).toContain("now");
+    expect(screen.getByRole("button", { name: "Kick off" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open the plan" })).toBeNull();
+  });
+
+  it("record present: Record (and Live) are done and read 'Saved'", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture({ status: "played", dateISO: "2026-05-02", us: 2, them: 1, record: { savedAt: 1, savedBy: "Coach", minutes: [{ pid: "p1", min: 30 }] } })] })) });
+    const { container } = render(<App />);
+    await openHub(container);
+    expect(stage(3).className).toContain("done");
+    expect(stage(2).className).toContain("done");
+    expect(screen.getByText("Saved")).toBeTruthy();
+  });
+
+  it("parents see no hub, but do get the live-lineup button once a plan exists", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture({ plan: { subTimes: [], assignments: [{ r0c0: "p1" }, {}], updatedAt: 1 } })] })) });
+    const { container } = render(<App />);
+    await waitForLoaded(); // stay in view mode
+    fireEvent.click(screen.getByText("Results"));
+    fireEvent.click(container.querySelector(".sqrow"));
+    expect(await screen.findByText("Match day — live lineup")).toBeTruthy();
+    expect(screen.queryByText("Match day")).toBeNull();
+    expect(screen.queryByText("Coach only")).toBeNull();
+    expect(document.querySelector(".stages")).toBeNull();
+  });
+
+  it("parents get no button at all when there is no plan yet", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture()] })) });
+    const { container } = render(<App />);
+    await waitForLoaded();
+    fireEvent.click(screen.getByText("Results"));
+    fireEvent.click(container.querySelector(".sqrow"));
+    await screen.findByText("Who's playing? Tap your player");
+    expect(screen.queryByText("Match day — live lineup")).toBeNull();
+    expect(screen.queryByText("Match day")).toBeNull();
+  });
+});
+
+describe("Settings — parents can see", () => {
+  it("toggles a switch, POSTs only parentsSee to /api/team-settings and flips aria-checked", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    expect(await screen.findByText("Parents can see")).toBeTruthy();
+    // Three groups, five switches, defaults applied.
+    expect(screen.getByText("Before kick-off")).toBeTruthy();
+    expect(screen.getByText("During the game")).toBeTruthy();
+    expect(screen.getByText("After the game")).toBeTruthy();
+    const sw = screen.getByRole("switch", { name: "Lineup and sub plan before kick-off" });
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("switch", { name: "Live score and clock" }).getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(sw);
+    await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy());
+    const body = bodyOf("/api/team-settings");
+    expect(body.parentsSee.planBeforeKickoff).toBe(true);
+    expect(body.parentsSee.liveScore).toBe(true);
+    expect(body.matchFormat).toBeUndefined();
+    expect(body.rules).toBeUndefined();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Lineup and sub plan before kick-off" }).getAttribute("aria-checked")).toBe("true"));
+    // No whole-document write for this.
+    expect(storage.set).not.toHaveBeenCalled();
+  });
+
+  it("reverts the switch and shows an inline error when the save fails", async () => {
+    // Default harness fetch: everything fails.
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    const sw = await screen.findByRole("switch", { name: "Lineup and sub plan before kick-off" });
+    fireEvent.click(sw);
+    expect(await screen.findByText("Couldn't save — try again.")).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Lineup and sub plan before kick-off" }).getAttribute("aria-checked")).toBe("false");
+  });
+});
+
+describe("Settings — team details draft survives the settings cards", () => {
+  const teamNameInput = () => screen.getByDisplayValue(/Test FC|Renamed FC/);
+
+  it("an unsaved Team name edit is kept when a parents-see switch is flipped, and Save merges it over the live team", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    await screen.findByText("Parents can see");
+    fireEvent.change(teamNameInput(), { target: { value: "Renamed FC" } });
+    expect(screen.getByDisplayValue("Renamed FC")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Lineup and sub plan before kick-off" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Lineup and sub plan before kick-off" }).getAttribute("aria-checked")).toBe("true"));
+    // The draft edit is still there after the narrow-route patch landed.
+    expect(screen.getByDisplayValue("Renamed FC")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save team details" }));
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    const saved = JSON.parse(storage.set.mock.calls.at(-1)[1]);
+    expect(saved.team.name).toBe("Renamed FC");
+    // The narrow-route field keeps the value the card just saved, not a stale copy.
+    expect(saved.team.parentsSee.planBeforeKickoff).toBe(true);
+    expect(screen.getByDisplayValue("Renamed FC")).toBeTruthy();
+  });
+
+  it("an unsaved Team name edit is kept when a format chip or a rule switch is used", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    await screen.findByText("Match format");
+    fireEvent.change(teamNameInput(), { target: { value: "Renamed FC" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "9v9" }));
+    await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy(), { timeout: 2500 });
+    await screen.findByText("Saved");
+    expect(screen.getByDisplayValue("Renamed FC")).toBeTruthy();
+
+    const sw = screen.getByRole("switch", { name: "Keeper changes only at the break" });
+    fireEvent.click(sw);
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Keeper changes only at the break" }).getAttribute("aria-checked")).toBe("false"));
+    expect(screen.getByDisplayValue("Renamed FC")).toBeTruthy();
+    expect(storage.set).not.toHaveBeenCalled();
+  });
+});
+
+describe("Settings — match format number fields", () => {
+  const fieldInput = (label) => screen.getByText(label).parentElement.querySelector("input");
+  const settle = () => new Promise((r) => setTimeout(r, 800));
+
+  it("typing a partial value sends nothing until the field is left, then clamps to the server's bounds", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) }); // U8 -> 40 minutes
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    await screen.findByText("Match format");
+    const inp = fieldInput("Game length (minutes)");
+    expect(inp.value).toBe("40");
+    fireEvent.focus(inp);
+    fireEvent.change(inp, { target: { value: "5" } }); // on the way to "50"
+    await settle();
+    expect(callTo("/api/team-settings")).toBeUndefined();
+    expect(inp.value).toBe("5"); // never rewritten under the cursor
+    fireEvent.change(inp, { target: { value: "50" } });
+    fireEvent.blur(inp);
+    await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy(), { timeout: 2500 });
+    expect(bodyOf("/api/team-settings").matchFormat.gameLength).toBe(50);
+    await screen.findByText("Saved");
+    expect(inp.value).toBe("50");
+  });
+
+  it("leaving the field on an out-of-range value clamps it client-side; Enter commits", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    await screen.findByText("Match format");
+    const inp = fieldInput("Sub interval (minutes)");
+    expect(inp.value).toBe("10");
+    fireEvent.focus(inp);
+    fireEvent.change(inp, { target: { value: "1" } });
+    fireEvent.keyDown(inp, { key: "Enter" });
+    fireEvent.blur(inp); // jsdom's blur() doesn't dispatch the event
+    await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy(), { timeout: 2500 });
+    expect(bodyOf("/api/team-settings").matchFormat.subInterval).toBe(2);
+    await waitFor(() => expect(inp.value).toBe("2"));
+    expect(storage.set).not.toHaveBeenCalled();
+  });
+
+  it("clearing the field and leaving it keeps the previous value and saves nothing", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    await screen.findByText("Match format");
+    const inp = fieldInput("Game length (minutes)");
+    fireEvent.focus(inp);
+    fireEvent.change(inp, { target: { value: "" } });
+    await settle();
+    expect(inp.value).toBe("");
+    fireEvent.blur(inp);
+    await settle();
+    expect(callTo("/api/team-settings")).toBeUndefined();
+    expect(inp.value).toBe("40");
+  });
+});
+
+describe("Settings — match format autosave", () => {
+  it("tapping 9v9 autosaves the team format with a keeper and a fitting home shape", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) }); // U8 -> 7v7 default
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    expect(await screen.findByText("Match format")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "7v7" }).className).toContain("act");
+    fireEvent.click(screen.getByRole("button", { name: "9v9" }));
+    await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy(), { timeout: 2500 });
+    const body = bodyOf("/api/team-settings");
+    expect(body.matchFormat.playersOnField).toBe(9);
+    expect(body.matchFormat.hasGK).toBe(true);
+    expect(body.matchFormat.formation).toBe("3-3-2");
+    expect(body.parentsSee).toBeUndefined();
+    expect(await screen.findByText("Saved")).toBeTruthy();
+    // Home shape chips follow the new outfield count, current shape active, others carry a call when there is one.
+    expect(screen.getByRole("button", { name: "3-3-2" }).className).toContain("act");
+    expect(screen.getByRole("button", { name: "2-4-2 · Step up" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "3-2-3 · Push up" })).toBeTruthy();
+    expect(storage.set).not.toHaveBeenCalled();
+  });
+
+  it("tapping a home-shape chip saves the new formation", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) }); // 7v7, 2-3-1 default
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    await screen.findByText("Home shape");
+    fireEvent.click(screen.getByRole("button", { name: "3-2-1 · Drop in" }));
+    await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy(), { timeout: 2500 });
+    expect(bodyOf("/api/team-settings").matchFormat.formation).toBe("3-2-1");
+    await waitFor(() => expect(screen.getByRole("button", { name: "3-2-1" }).className).toContain("act"));
+  });
+});
+
+describe("Settings — lineup rules", () => {
+  it("lists the three seeded built-ins with 'Built in' tags and no delete buttons", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    expect(await screen.findByText("Lineup rules")).toBeTruthy();
+    expect(screen.getAllByText("Built in")).toHaveLength(3);
+    expect(screen.getByText("Everyone available plays in both halves")).toBeTruthy();
+    expect(screen.getByText("Keeper changes only at the break")).toBeTruthy();
+    expect(screen.getByText("Nobody plays a spot they're rated 0 in")).toBeTruthy();
+    expect(screen.getByText("In priority order: an earlier rule beats a later one.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Delete rule/ })).toBeNull();
+  });
+
+  it("adds a custom rule with Enter and POSTs the full ordered list", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    fireEvent.click(await screen.findByRole("button", { name: "Add a rule" }));
+    const inp = screen.getByPlaceholderText("e.g. Twins never on together");
+    fireEvent.change(inp, { target: { value: "No twins on together" } });
+    fireEvent.keyDown(inp, { key: "Enter" });
+    await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy());
+    const { rules } = bodyOf("/api/team-settings");
+    expect(rules.map((r) => r.id).slice(0, 3)).toEqual(["bi-period", "bi-gk-break", "bi-rating-zero"]);
+    expect(rules[3]).toMatchObject({ text: "No twins on together", builtin: false });
+    // Rendered as rule 4 with a delete button; the input has closed.
+    expect(await screen.findByText("No twins on together")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete rule: No twins on together" })).toBeTruthy();
+    expect(screen.queryByPlaceholderText("e.g. Twins never on together")).toBeNull();
+  });
+
+  it("switching a built-in off saves it with off:true", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    const sw = await screen.findByRole("switch", { name: "Keeper changes only at the break" });
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(sw);
+    await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy());
+    const { rules } = bodyOf("/api/team-settings");
+    expect(rules.find((r) => r.id === "bi-gk-break").off).toBe(true);
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Keeper changes only at the break" }).getAttribute("aria-checked")).toBe("false"));
+  });
+});
+
+describe("Settings — lineup rules (cap and refusals)", () => {
+  const twentyRules = () => [
+    { id: "bi-period", text: "Everyone available plays in both halves", builtin: true },
+    { id: "bi-gk-break", text: "Keeper changes only at the break", builtin: true },
+    { id: "bi-rating-zero", text: "Nobody plays a spot they're rated 0 in", builtin: true },
+    ...Array.from({ length: 17 }, (_, i) => ({ id: "r_" + i, text: "Custom rule " + (i + 1), builtin: false }))
+  ];
+
+  it("at 20 rules, 'Add a rule' is replaced by a note instead of silently dropping the 21st", async () => {
+    stubNarrowRoutes();
+    const data = makeData();
+    data.team.rules = twentyRules();
+    storage.get.mockResolvedValue({ value: JSON.stringify(data) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    expect(await screen.findByText("Custom rule 17")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add a rule" })).toBeNull();
+    expect(screen.getByText("Up to 20 rules. Remove one to add another.")).toBeTruthy();
+    expect(callTo("/api/team-settings")).toBeUndefined();
+  });
+
+  it("shows the server's read-only message when a save is refused with 403", async () => {
+    fetch.mockImplementation((url) => String(url).includes("/api/team-settings")
+      ? Promise.resolve({ ok: false, status: 403, json: async () => ({ error: "You're viewing as another user — read only. Exit view-as to make changes." }) })
+      : Promise.resolve({ ok: false, json: async () => ({}) }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    const sw = await screen.findByRole("switch", { name: "Keeper changes only at the break" });
+    fireEvent.click(sw);
+    expect(await screen.findByText(/read only\. Exit view-as/)).toBeTruthy();
+    // The optimistic change was rolled back.
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Keeper changes only at the break" }).getAttribute("aria-checked")).toBe("true"));
+  });
+
+  it("shows the generic retry message for any other failure", async () => {
+    fetch.mockImplementation(() => Promise.resolve({ ok: false, status: 500, json: async () => ({ error: "boom" }) }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Settings"));
+    fireEvent.click(await screen.findByRole("switch", { name: "Keeper changes only at the break" }));
+    expect(await screen.findByText("Couldn't save — try again.")).toBeTruthy();
+    expect(screen.queryByText("boom")).toBeNull();
+  });
+});
+
+describe("Player sheet — ratings", () => {
+  const openPlayer = async () => {
+    fireEvent.click(screen.getByText("Squad"));
+    fireEvent.click(await screen.findByText("Sam Smith"));
+  };
+
+  it("coach taps the 4th MID pip: POSTs ratings to /api/player-coach and shows the number", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    await openPlayer();
+    expect(await screen.findByText("Ratings")).toBeTruthy();
+    expect(screen.getAllByText("Not rated")).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: "MID 4" }));
+    await waitFor(() => expect(callTo("/api/player-coach")).toBeTruthy());
+    const body = bodyOf("/api/player-coach");
+    expect(body.playerId).toBe("p1");
+    expect(body.ratings.MID).toBe(4);
+    expect(body.note).toBeUndefined();
+    expect(await screen.findByText("4")).toBeTruthy();
+    expect(screen.getAllByText("Not rated")).toHaveLength(3);
+    expect(storage.set).not.toHaveBeenCalled();
+  });
+
+  it("tapping the pip equal to the current rating sets it to 0", async () => {
+    stubNarrowRoutes();
+    const data = makeData();
+    data.players[0].coach = { ratings: { GK: null, DEF: 2, MID: 3, FWD: 5 }, note: "" };
+    storage.get.mockResolvedValue({ value: JSON.stringify(data) });
+    render(<App />);
+    await enterCoachMode();
+    await openPlayer();
+    await screen.findByText("Ratings");
+    fireEvent.click(screen.getByRole("button", { name: "FWD 5" }));
+    await waitFor(() => expect(callTo("/api/player-coach")).toBeTruthy());
+    expect(bodyOf("/api/player-coach").ratings).toEqual({ GK: null, DEF: 2, MID: 3, FWD: 0 });
+  });
+
+  it("the coach note saves on blur", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    await openPlayer();
+    const ta = await screen.findByLabelText("Coach note");
+    fireEvent.change(ta, { target: { value: "Loves a long throw" } });
+    fireEvent.blur(ta);
+    await waitFor(() => expect(callTo("/api/player-coach")).toBeTruthy());
+    expect(bodyOf("/api/player-coach")).toMatchObject({ playerId: "p1", note: "Loves a long throw" });
+  });
+
+  it("shows the four season tiles from match records, and no Ratings card for a parent", async () => {
+    const data = makeData();
+    data.fixtures = [
+      { id: "f1", status: "played", dateISO: "2026-05-02", opponent: "A", homeAway: "H", us: 1, them: 0, goals: [{ pid: "p1", n: 1 }], availability: {}, record: { savedAt: 1, minutes: [{ pid: "p1", min: 30 }] } },
+      { id: "f2", status: "played", dateISO: "2026-05-09", opponent: "B", homeAway: "H", us: 0, them: 0, availability: {}, record: { savedAt: 1, minutes: [{ pid: "p1", min: 0 }] } },
+      { id: "f3", status: "played", dateISO: "2026-05-16", opponent: "C", homeAway: "H", us: 0, them: 0, availability: {}, record: { savedAt: 1, minutes: [{ pid: "p1", min: 25.5 }] } }
+    ];
+    storage.get.mockResolvedValue({ value: JSON.stringify(data) });
+    render(<App />);
+    await waitForLoaded(); // view mode = parent
+    await openPlayer();
+    expect(await screen.findByText("Games")).toBeTruthy();
+    const tiles = [...document.querySelectorAll(".statgrid .stat")].map((t) => t.querySelector(".k").textContent + "=" + t.querySelector(".v").textContent);
+    expect(tiles).toEqual(["Games=2", "Min=56", "Goals=1", "Assists=0"]);
+    expect(screen.queryByText("Ratings")).toBeNull();
+    expect(screen.queryByText("Coach only")).toBeNull();
+  });
+});
