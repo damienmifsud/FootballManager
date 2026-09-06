@@ -18,10 +18,16 @@ import { fmtDate, initials } from "@/lib/dashboardData";
    kit-coloured discs, subs like the fourth official's board).
 
    Integration: opens full-screen from a fixture's sheet. The roster comes
-   from the team's player list + the game's RSVPs (never edited here); the
-   plan itself lives on the fixture (fixture.plan) and autosaves through the
-   narrow /api/plan endpoint via the onSavePlan prop. Coaches get the full
-   Plan / Time / Game / Format tabs; parents get the read-only live Game view.
+   from the team's player list + the game's RSVPs (never edited here); a
+   player with no RSVP counts as in and carries a small red dot wherever
+   they render. The plan itself lives on the fixture (fixture.plan) and
+   autosaves through the narrow /api/plan endpoint via
+   onSavePlan(fixtureId, plan, gk?) — the third arg is the block-1 keeper's
+   id when it differs from fixture.gk (the in-goal duty), so saving a plan
+   writes the keeper back to the fixture; it is undefined when unchanged.
+   The Format tab changes this game only; the team default lives in the
+   dashboard's Settings tab. Coaches get the full Plan / Time / Game / Format
+   tabs; parents get the read-only live Game view.
 --------------------------------------------------------------------------- */
 
 const P = {
@@ -205,7 +211,7 @@ function PitchSVG() {
 
 /* --------------------------------- app ----------------------------------- */
 
-export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, onSaveTeamFormat, close }) {
+export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, close }) {
   const plan0 = fixture.plan || null;
   const initialFormat = () =>
     plan0?.format || data.team?.matchFormat || defaultFormatForAgeGroup(data.team?.ageGroup);
@@ -240,6 +246,9 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, on
     return { running: !!t.running, elapsed: t.elapsed || 0, anchorTs: t.running ? (t.anchorTs || Date.now()) : null };
   });
   const lastSavedRef = useRef("");
+  // Block-1 keeper as of the last save (seeded from the plan the planner opened
+  // with), so only a coach's change to block 1's GK writes back to the duty.
+  const gkBaseRef = useRef(null);
 
   const kit = fixture.strip === "Blue" ? "#2857C4" : "#C8102E";
   const kitText = kitFg(kit);
@@ -304,19 +313,30 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, on
     if (segIdx >= segments.length) setSegIdx(Math.max(0, segments.length - 1));
   }, [segments.length, segIdx]);
 
-  /* autosave (coach only) through the narrow per-fixture endpoint */
+  /* autosave (coach only) through the narrow per-fixture endpoint. The
+     block-1 keeper writes back to the fixture's in-goal duty (third arg) only
+     when the coach has SET a different keeper in block 1 since the planner
+     opened (or since the last save) and that keeper isn't already the duty.
+     Opening the planner never touches the duty: a stale plan, an out or
+     inactive duty keeper, or a no-keeper format all leave fixture.gk alone,
+     and an emptied spot never clears it. */
   useEffect(() => {
     if (!isCoach) return;
+    const gkFirst = plan[0]?.GK || "";
+    if (gkBaseRef.current === null) gkBaseRef.current = gkFirst;
     const payload = { format, subTimes, assignments: plan, overrides, timer, hintSeen };
     const json = JSON.stringify(payload);
     if (json === lastSavedRef.current) return;
     const t = setTimeout(() => {
       lastSavedRef.current = json;
-      onSavePlan(fixture.id, { ...payload, updatedAt: Date.now() });
+      const changed = gkFirst !== gkBaseRef.current;
+      gkBaseRef.current = gkFirst;
+      const writeBack = changed && !!gkFirst && !!format.hasGK && gkFirst !== (fixture.gk || "");
+      onSavePlan(fixture.id, { ...payload, updatedAt: Date.now() }, writeBack ? gkFirst : undefined);
       setSavedTick((x) => x + 1);
     }, 700);
     return () => clearTimeout(t);
-  }, [format, subTimes, plan, overrides, timer, hintSeen, isCoach, fixture.id, onSavePlan]);
+  }, [format, subTimes, plan, overrides, timer, hintSeen, isCoach, fixture.id, fixture.gk, onSavePlan]);
 
   /* settings updaters (regenerate sub times when the match shape changes) */
   const setGameLength = (v) => {
@@ -432,26 +452,29 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, on
   const benchThisBlock = roster.filter((p) => p.available && !Object.values(curAssign).includes(p.id));
   const blockIncomplete = (i) => Object.keys(plan[i] || {}).length < positions.length;
 
+  // Kit-coloured disc; a no-reply player gets a red dot on the shoulder.
   const renderDisc = (player, size, gk) => {
     const bg = gk ? P.gk : kit;
     const fg = gk ? P.ink : kitText;
     return (
-      <span
-        className="inline-flex items-center justify-center rounded-full"
-        style={{
-          width: size, height: size, background: bg, color: fg,
-          fontFamily: DISPLAY, fontWeight: 700, fontSize: size * 0.46,
-          boxShadow: "inset 0 -2px 0 rgba(0,0,0,0.18), 0 1px 2px rgba(0,0,0,0.25)",
-          border: "2px solid rgba(255,255,255,0.85)",
-          flexShrink: 0
-        }}
-      >
-        {player ? (player.number || initials(player.name)) : ""}
+      <span className="relative inline-flex shrink-0" style={{ width: size, height: size }}>
+        <span
+          className="inline-flex items-center justify-center rounded-full"
+          style={{
+            width: size, height: size, background: bg, color: fg,
+            fontFamily: DISPLAY, fontWeight: 700, fontSize: size * 0.46,
+            boxShadow: "inset 0 -2px 0 rgba(0,0,0,0.18), 0 1px 2px rgba(0,0,0,0.25)",
+            border: "2px solid rgba(255,255,255,0.85)",
+            flexShrink: 0
+          }}
+        >
+          {player ? (player.number || initials(player.name)) : ""}
+        </span>
+        {player?.noReply && <span className="rdot" aria-label="No reply" />}
       </span>
     );
   };
 
-  const [fmtSavedTick, setFmtSavedTick] = useState(0);
   const rsvpChip = (p) => {
     if (p.overridden) return <span className="text-xs" style={{ color: P.warn, fontWeight: 700 }}>coach: {p.available ? "in" : "out"}</span>;
     if (p.rsvp === "in") return <span className="text-xs" style={{ color: P.on, fontWeight: 700 }}>In</span>;
@@ -618,21 +641,9 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, on
       <Card className="p-4">
         <Eyebrow>This plan</Eyebrow>
         <div className="mt-2 text-xs" style={{ color: P.dim }}>
-          The format above applies to this game. Save it as the team default and every new game plan starts from it.
+          The format above applies to this game only. The team default lives in Settings.
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => { onSaveTeamFormat(format); setFmtSavedTick((x) => x + 1); }}
-            className="rounded-xl px-3 py-2 text-sm"
-            style={{ background: kit, color: kitText, fontWeight: 600 }}
-          >
-            Save as team default
-          </button>
-          {fmtSavedTick > 0 && (
-            <span key={fmtSavedTick} className="inline-flex items-center gap-1 text-xs" style={{ color: P.on, fontWeight: 600, animation: "mdFadeAway 2.2s forwards" }}>
-              <Check size={13} /> Saved
-            </span>
-          )}
           <ArmedButton danger label="Clear this plan" armedLabel="Really clear? Tap again" onConfirm={resetPlan} />
         </div>
       </Card>
@@ -708,6 +719,12 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, on
               </Chip>
             ))}
           </div>
+          {roster.some((p) => p.noReply) && (
+            <div className="flex items-center gap-2 px-1 text-xs" style={{ color: P.dim }}>
+              <span className="rdot" aria-hidden="true" style={{ position: "static", display: "inline-block", flexShrink: 0 }} />
+              <span>No reply yet — counted in until you mark them out.</span>
+            </div>
+          )}
 
           <Card className="p-4">{summaryFor(segIdx)}</Card>
 
@@ -1203,4 +1220,5 @@ const MDP_CSS = `
 .mdp .rounded-t-3xl{border-top-left-radius:24px;border-top-right-radius:24px}
 .mdp .overflow-hidden{overflow:hidden} .mdp .overflow-x-auto{overflow-x:auto} .mdp .overflow-y-auto{overflow-y:auto}
 .mdp .transition{transition:all .15s ease}
+.mdp .rdot{position:absolute;width:9px;height:9px;border-radius:50%;background:#E5484D;border:2px solid #fff;top:-3px;right:-3px}
 `;

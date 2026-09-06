@@ -1,11 +1,11 @@
 "use client";
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Home, CalendarDays, Users, Apple, BarChart3, ShieldCheck, Plus, Pencil,
   Trash2, X, Lock, Unlock, Trophy, MapPin, Clock, ChevronRight, Check,
   Settings as SettingsIcon, Star, Goal, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, ExternalLink, Download, Target,
-  Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt
+  Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt, Flag, GripVertical
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LabelList
@@ -20,7 +20,12 @@ import {
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport } from "@/lib/majestri";
-import { teamFeatures } from "@/lib/teamSetup";
+import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules } from "@/lib/teamSetup";
+import {
+  FORMATION_PRESETS, fallbackFormation, defaultFormatForAgeGroup, resolveFormat, parseFormation,
+  makePositions, computeAutoSubs, computeSegments, sanitizeAssignments, rosterForFixture
+} from "@/lib/planner";
+import { shapeCall } from "@/lib/shapes";
 import { downscaleImage } from "@/lib/clientImage";
 
 /* ============================================================
@@ -549,7 +554,113 @@ const CSS = `
 .sqtag.watch{background:rgba(200,16,46,.10);color:var(--pitch);}
 .sqtag.upd{background:var(--red);color:#fff;}
 .sqrow.canc .sqname,.sqrow.canc .sqcrest{opacity:.5;}
+/* Match-day hub stage strip */
+.stages{display:grid;grid-template-columns:repeat(4,1fr);margin:14px 0 4px;position:relative}
+.stages::before{content:"";position:absolute;left:12.5%;right:12.5%;top:13px;height:2px;background:var(--line)}
+.stg{position:relative;text-align:center;font-size:11px;font-weight:700;color:var(--muted)}
+.stg .dot{width:28px;height:28px;border-radius:50%;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;background:var(--soft);color:var(--muted);position:relative;z-index:1;border:2px solid var(--paper)}
+.stg.done .dot{background:#e6f6ec;color:var(--win)} .stg.now .dot{background:var(--pitch);color:#fff} .stg.now{color:var(--ink)}
+.stg .st{display:block;font-weight:500;font-size:10.5px;color:var(--muted);margin-top:2px;line-height:1.3} .stg.now .st{color:var(--pitch);font-weight:700}
+.rdot{position:absolute;width:9px;height:9px;border-radius:50%;background:var(--red);border:2px solid #fff;top:-3px;right:-3px}
+.sw{width:38px;height:22px;border-radius:999px;background:#D9D3D4;position:relative;flex-shrink:0;transition:background .18s}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .18s cubic-bezier(.2,.8,.2,1)}
+.sw.on{background:var(--pitch)} .sw.on::after{transform:translateX(16px)}
+.pips{display:flex;gap:6px;flex:1} .pips i{width:26px;height:26px;border-radius:50%;background:var(--soft);display:block} .pips i.on{background:var(--pitch)}
+.coachonly{display:inline-flex;align-items:center;gap:5px;background:#fdeaec;color:var(--pitch);border-radius:999px;padding:4px 9px;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+/* small helpers for the coach settings cards and ratings */
+button.sw{border:none;padding:0;cursor:pointer}
+.pips i{cursor:pointer}
+.swrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)} .swrow:last-child{border-bottom:none}
+.rule{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--line)} .rule .n{width:22px;font-family:'Anton';font-size:15px;color:var(--muted);text-align:center} .rule .bi{font-size:9.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;background:var(--soft);color:var(--muted);border-radius:999px;padding:2px 7px} .rule.off{opacity:.5} .rdotwrap{position:relative;display:inline-block}
 `;
+
+/* ============================================================
+   SHARED BITS FOR THE COACH FEATURES
+   Nothing here touches window.storage: every write goes through its own
+   narrow JSON route (team-settings, player-coach, plan).
+============================================================ */
+// POST a JSON body; resolves to the parsed response and throws (with the
+// server's error message when it sent one) on a non-2xx status.
+async function fetchJson(url, body) {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  let json = null;
+  try { json = await res.json(); } catch {}
+  if (!res.ok) {
+    const err = new Error(json?.error || ("Request failed (" + res.status + ")"));
+    err.status = res.status;
+    throw err;
+  }
+  return json;
+}
+const SAVE_ERROR = "Couldn't save — try again.";
+// A refusal (403: read-only view-as, or not a coach) carries a message written
+// for the user; anything else is a transient failure worth retrying.
+const saveErrorText = (e) => (e?.status === 403 && e.message ? e.message : SAVE_ERROR);
+const MAX_RULES = 20;
+
+function Switch({ on, label, onClick, disabled }) {
+  return (
+    <button type="button" role="switch" aria-checked={!!on} aria-label={label} disabled={disabled}
+      className={"sw" + (on ? " on" : "")} onClick={onClick} />
+  );
+}
+
+const firstName = (name) => String(name || "").trim().split(/\s+/)[0] || "";
+// "Seyjan" / "Seyjan and Milo" / "Seyjan, Milo and Ada"
+const joinNames = (names) => names.length <= 1 ? names.join("") : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+
+// Where a fixture sits on the Availability -> Plan -> Live -> Record path.
+// Pure (reads only the team document) so the MatchSheet hub renders straight
+// from data and tests can drive every state through the UI.
+function matchDayStages(data, f, todayISO) {
+  // Availability follows rosterForFixture: an RSVP or a coach override in the
+  // planner (plan.overrides) settles a player, so the red dot and the "hasn't
+  // replied" line drop the moment the coach marks a no-reply player in or out.
+  const roster = rosterForFixture(data, f, f.plan?.overrides || {});
+  const byId = Object.fromEntries((data?.players || []).map((p) => [p.id, p]));
+  const counts = { in: 0, out: 0, nr: 0 };
+  const noReply = [];
+  roster.forEach((r) => {
+    if (r.noReply) { counts.nr++; noReply.push(byId[r.id] || r); }
+    else if (r.available) counts.in++;
+    else counts.out++;
+  });
+  const availDone = roster.length > 0 && counts.nr === 0;
+
+  const format = resolveFormat(data, f);
+  const outfield = (Number(format.playersOnField) || 0) - (format.hasGK ? 1 : 0);
+  let rows = parseFormation(format.formation);
+  if (rows.reduce((s, n) => s + n, 0) !== outfield) rows = parseFormation(fallbackFormation(outfield));
+  const positions = makePositions(rows, !!format.hasGK);
+  const subTimes = f.plan?.subTimes ?? computeAutoSubs(format.gameLength, format.periods, format.subInterval);
+  const segments = computeSegments(format.gameLength, format.periods, subTimes);
+  const blocks = sanitizeAssignments(f.plan?.assignments, segments, positions, roster);
+  const rawBlocks = Array.isArray(f.plan?.assignments) ? f.plan.assignments : null;
+  const planExists = !!rawBlocks && rawBlocks.some((b) => Object.keys(b || {}).length > 0);
+  const planDone = !!rawBlocks && blocks.length > 0 && blocks.every((b) => positions.every((p) => !!b[p.key]));
+  const planState = planDone ? "done" : planExists ? "now" : "upcoming";
+
+  const hasRecord = !!f.record;
+  const isToday = !!f.dateISO && f.dateISO === todayISO;
+  return {
+    counts, noReply, isToday,
+    stages: [
+      {
+        key: "availability", name: "Availability", state: availDone ? "done" : "now",
+        sub: availDone ? `${counts.in} in · ${counts.out} out` : `${counts.in} in · ${counts.out} out · ${counts.nr} no reply`
+      },
+      {
+        key: "plan", name: "Plan", state: planState,
+        sub: planDone ? `Lineup set · ${blocks.length} ${blocks.length === 1 ? "block" : "blocks"}` : planExists ? "Gaps to fill" : "Not started"
+      },
+      {
+        key: "live", name: "Live", state: hasRecord ? "done" : isToday ? "now" : "upcoming",
+        sub: f.time ? "Kick-off " + f.time : "Kick-off time not set"
+      },
+      { key: "record", name: "Record", state: hasRecord ? "done" : "upcoming", sub: hasRecord ? "Saved" : "After full time" }
+    ]
+  };
+}
 
 /* ============================================================
    APP
@@ -591,16 +702,25 @@ export default function App() {
     try { await window.storage.set(KEY, JSON.stringify(next), true); } catch (e) { console.error(e); }
   }, []);
 
+  // Local-only patch: the narrow routes have already written the field, so
+  // only React state needs to catch up (never a whole-document storage write).
+  const patchLocal = useCallback((fn) => setData((d) => (d ? fn(d) : d)), []);
+
   // Game-plan autosave: update local state and write ONLY this fixture's plan
   // through the narrow /api/plan endpoint (never the whole team document, so a
   // mid-game save can't clobber an RSVP that landed moments earlier).
-  const savePlan = useCallback(async (fixtureId, plan) => {
-    setData((d) => d ? { ...d, fixtures: (d.fixtures || []).map((f) => f.id === fixtureId ? { ...f, plan } : f) } : d);
+  // The plan's first-block keeper writes back to the fixture's in-goal duty
+  // (gk) when the planner passes one.
+  const savePlan = useCallback(async (fixtureId, plan, gk) => {
+    setData((d) => d ? {
+      ...d,
+      fixtures: (d.fixtures || []).map((f) => f.id === fixtureId ? { ...f, plan, ...(gk !== undefined ? { gk } : {}) } : f)
+    } : d);
     try {
       const res = await fetch("/api/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fixtureId, plan })
+        body: JSON.stringify({ fixtureId, plan, ...(gk !== undefined ? { gk } : {}) })
       });
       if (!res.ok) throw new Error("plan save " + res.status);
     } catch (e) { console.error("Could not save game plan:", e); }
@@ -689,7 +809,7 @@ export default function App() {
         {tab === "duties" && <DutiesTab {...{ data, isCoach, pname, setModal }} />}
         {tab === "stats" && <StatsTab {...{ data, stats, pname }} />}
         {tab === "ask" && <AskTab {...{ data, viewer, isCoach }} />}
-        {tab === "settings" && <SettingsTab {...{ data, isCoach, persist, setIsCoach, setModal }} />}
+        {tab === "settings" && <SettingsTab {...{ data, isCoach, persist, patchLocal, setIsCoach, setModal }} />}
       </div>
 
       <nav className="nav" style={{ padding: "8px 2px" }}>
@@ -708,11 +828,10 @@ export default function App() {
           fixture={(data.fixtures || []).find((x) => x.id === modal.payload?.id) || modal.payload}
           isCoach={isCoach}
           onSavePlan={savePlan}
-          onSaveTeamFormat={(fmt) => persist({ ...data, team: { ...data.team, matchFormat: fmt }, isSample: false })}
           close={() => setModal(null)}
         />
       ) : modal ? (
-        <Modal {...{ modal, setModal, data, persist, isCoach, setIsCoach, viewer, setViewer }} />
+        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer }} />
       ) : null}
     </div>
   );
@@ -1492,10 +1611,40 @@ function StaffEditor({ t, setT, isCoach }) {
   </>);
 }
 
-function SettingsTab({ data, isCoach, persist, setIsCoach, setModal }) {
-  const [t, setT] = useState(data.team);
-  useEffect(() => setT(data.team), [data.team]);
-  const save = () => persist({ ...data, team: t, isSample: false });
+// team.* fields owned by the narrow /api/team-settings route. They never sit in
+// the Team-details draft, so "Save team details" can't rewrite them with a
+// stale copy and a card's patch can't be mistaken for an edit to the draft.
+const NARROW_TEAM_KEYS = ["parentsSee", "matchFormat", "rules"];
+const teamDetails = (team) => {
+  const d = { ...(team || {}) };
+  NARROW_TEAM_KEYS.forEach((k) => delete d[k]);
+  return d;
+};
+
+function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal }) {
+  // Draft of the Team-details fields only (name, age group, division, logo,
+  // staff, WhatsApp, PIN). data.team also changes when a settings card writes
+  // parentsSee/matchFormat/rules through its narrow route, so the draft only
+  // resyncs the detail keys whose value actually changed — an unsaved edit in
+  // the Team name box survives flipping a switch or tapping a format chip.
+  const [t, setT] = useState(() => teamDetails(data.team));
+  const prevTeamRef = useRef(data.team);
+  useEffect(() => {
+    const prev = prevTeamRef.current;
+    prevTeamRef.current = data.team;
+    if (prev === data.team) return;
+    const was = teamDetails(prev), now = teamDetails(data.team);
+    const changed = Object.keys({ ...was, ...now }).filter((k) => was[k] !== now[k]);
+    if (!changed.length) return;
+    setT((cur) => {
+      const next = { ...cur };
+      changed.forEach((k) => { if (k in now) next[k] = now[k]; else delete next[k]; });
+      return next;
+    });
+  }, [data.team]);
+  // Merge the draft over the live team so the narrow-route fields keep their
+  // current values rather than whatever this screen last saw.
+  const save = () => persist({ ...data, team: { ...data.team, ...t }, isSample: false });
   return (
     <>
       {!isCoach && <div className="banner"><Lock size={15} /><span>Switch to Coach mode (top-right lock) to edit team details and manage data.</span></div>}
@@ -1524,6 +1673,12 @@ function SettingsTab({ data, isCoach, persist, setIsCoach, setModal }) {
           </div>
         )}
       </div>
+
+      {isCoach && <>
+        <ParentsSeeCard team={data.team} patchLocal={patchLocal} />
+        <MatchFormatCards team={data.team} patchLocal={patchLocal} />
+        <LineupRulesCard team={data.team} patchLocal={patchLocal} />
+      </>}
 
       <div className="card">
         <div className="label" style={{ marginBottom: 12 }}>Team knowledge (for Ask)</div>
@@ -1584,10 +1739,254 @@ function SettingsTab({ data, isCoach, persist, setIsCoach, setModal }) {
   );
 }
 
+/* ---------------- COACH SETTINGS CARDS ----------------
+   Each card writes one team.* field through /api/team-settings and patches
+   local state with what the server echoes back. */
+const teamPatch = (patchLocal, patch) => patchLocal((d) => ({ ...d, team: { ...d.team, ...patch } }));
+
+// What parents see: switches in three groups, saved one toggle at a time
+// (optimistic, reverted on failure).
+function ParentsSeeCard({ team, patchLocal }) {
+  const cur = teamParentsSee(team);
+  const [err, setErr] = useState("");
+  const toggle = async (key) => {
+    const prev = team.parentsSee;
+    const next = { ...cur, [key]: !cur[key] };
+    setErr("");
+    teamPatch(patchLocal, { parentsSee: next });
+    try {
+      const res = await fetchJson("/api/team-settings", { parentsSee: next });
+      if (res?.team?.parentsSee) teamPatch(patchLocal, { parentsSee: res.team.parentsSee });
+    } catch (e) {
+      teamPatch(patchLocal, { parentsSee: prev });
+      setErr(saveErrorText(e));
+    }
+  };
+  return (
+    <div className="card">
+      <div className="label" style={{ marginBottom: 4 }}>Parents can see</div>
+      {PARENTS_SEE_GROUPS.map((g) => (
+        <div key={g.title} style={{ marginTop: 10 }}>
+          <div className="note" style={{ fontWeight: 700, color: "var(--ink)" }}>{g.title}</div>
+          {g.keys.map((k) => (
+            <div className="swrow" key={k}>
+              <span style={{ flex: 1, fontSize: 13.5 }}>{PARENTS_SEE_LABELS[k]}</span>
+              <Switch on={cur[k]} label={PARENTS_SEE_LABELS[k]} onClick={() => toggle(k)} />
+            </div>
+          ))}
+        </div>
+      ))}
+      {err && <div className="note" style={{ color: "var(--red)", marginTop: 8 }}>{err}</div>}
+      <div className="note" style={{ marginTop: 12 }}>Ratings, lineup rules, your notes and the match record stay coach-only whatever you choose here. Goals and assists show as they do today.</div>
+    </div>
+  );
+}
+
+// A whole-minutes field for the match format. The typed text is the coach's
+// while the box has focus (typing "5" on the way to "50" sends nothing); the
+// value is clamped to the same bounds the server applies and committed on blur
+// or Enter, so a mid-edit autosave can never rewrite the box under the cursor.
+// Clearing the box and leaving it keeps the previous value.
+function FormatNumber({ value, min, max, onCommit }) {
+  const [draft, setDraft] = useState(null); // string while editing, else null
+  const commit = (e) => {
+    const raw = e.target.value.trim();
+    setDraft(null);
+    if (raw === "") return;
+    const n = Math.round(Number(raw));
+    if (!Number.isFinite(n)) return;
+    const clamped = Math.min(max, Math.max(min, n));
+    if (clamped !== value) onCommit(clamped);
+  };
+  return (
+    <input className="inp" type="number" min={min} max={max} step={1}
+      value={draft ?? value}
+      onFocus={(e) => setDraft(String(e.target.value))}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }} />
+  );
+}
+
+// Team default match format and home shape. Edits autosave 500ms after the
+// last change; the echoed (sanitised) format is what lands in local state.
+const PERIOD_LABELS = { 1: "Straight through", 2: "2 halves", 3: "3 thirds", 4: "4 quarters" };
+const TEAM_SIZES = [[4, false], [7, true], [9, true]];
+const fits = (formation, outfield) => parseFormation(formation).reduce((s, n) => s + n, 0) === outfield;
+function MatchFormatCards({ team, patchLocal }) {
+  const stored = team.matchFormat || defaultFormatForAgeGroup(team.ageGroup);
+  const [fmt, setFmt] = useState(stored);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState("");
+  const storedRef = useRef(stored); storedRef.current = stored;
+  const pending = useRef(null);   // the format waiting to be saved
+  const timer = useRef(null), savedTimer = useRef(null);
+
+  const flush = async () => {
+    const next = pending.current;
+    pending.current = null;
+    if (!next) return;
+    try {
+      const res = await fetchJson("/api/team-settings", { matchFormat: next });
+      const mf = res?.team?.matchFormat || next;
+      teamPatch(patchLocal, { matchFormat: mf });
+      setFmt(mf);
+      setSaved(true);
+      clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaved(false), 1800);
+    } catch (e) {
+      setFmt(storedRef.current);
+      setErr(saveErrorText(e));
+    }
+  };
+  // Leaving the tab inside the debounce window still saves the last edit.
+  useEffect(() => () => { clearTimeout(timer.current); clearTimeout(savedTimer.current); if (pending.current) flush(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const change = (patch) => {
+    const next = { ...fmt, ...patch };
+    setFmt(next); setErr(""); setSaved(false);
+    pending.current = next;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(flush, 500);
+  };
+  const outfield = (Number(fmt.playersOnField) || 0) - (fmt.hasGK ? 1 : 0);
+  const setSize = (n, gk) => {
+    if (n === fmt.playersOnField && gk === !!fmt.hasGK) return;
+    change({ playersOnField: n, hasGK: gk, formation: fallbackFormation(n - (gk ? 1 : 0)) });
+  };
+  const setGK = (gk) => {
+    const of = (Number(fmt.playersOnField) || 0) - (gk ? 1 : 0);
+    change({ hasGK: gk, ...(fits(fmt.formation, of) ? {} : { formation: fallbackFormation(of) }) });
+  };
+  const presets = FORMATION_PRESETS[outfield] || [fallbackFormation(outfield)];
+  const shapes = presets.includes(fmt.formation) ? presets : [fmt.formation, ...presets];
+
+  return (<>
+    <div className="card">
+      <div className="label" style={{ marginBottom: 10 }}>Match format</div>
+      <div className="chips">
+        {TEAM_SIZES.map(([n, gk]) => (
+          <button key={n} type="button" className={"chip" + (fmt.playersOnField === n ? " act" : "")} onClick={() => setSize(n, gk)}>{n}v{n}</button>
+        ))}
+      </div>
+      <div className="field"><label>Game length (minutes)</label>
+        <FormatNumber min={10} max={120} value={fmt.gameLength} onCommit={(v) => change({ gameLength: v })} /></div>
+      <div className="field"><label>Halves</label>
+        <div className="seg">{[1, 2, 3, 4].map((n) => (
+          <button key={n} type="button" className={fmt.periods === n ? "sel" : ""} onClick={() => change({ periods: n })}>{PERIOD_LABELS[n]}</button>
+        ))}</div>
+      </div>
+      <div className="field"><label>Sub interval (minutes)</label>
+        <FormatNumber min={2} max={45} value={fmt.subInterval} onCommit={(v) => change({ subInterval: v })} /></div>
+      <div className="swrow" style={{ borderBottom: "none", paddingTop: 0 }}>
+        <span style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>Keeper</span>
+        <Switch on={!!fmt.hasGK} label="Keeper" onClick={() => setGK(!fmt.hasGK)} />
+      </div>
+      <div className="note">This is the team default. A single fixture can override it.</div>
+      {saved && <div className="note" style={{ color: "var(--win)", fontWeight: 700, marginTop: 6 }}>Saved</div>}
+      {err && <div className="note" style={{ color: "var(--red)", marginTop: 6 }}>{err}</div>}
+    </div>
+
+    <div className="card">
+      <div className="label" style={{ marginBottom: 10 }}>Home shape</div>
+      <div className="chips">
+        {shapes.map((s) => {
+          const call = s === fmt.formation ? null : shapeCall(fmt.formation, s);
+          return (
+            <button key={s} type="button" className={"chip" + (s === fmt.formation ? " act" : "")} onClick={() => change({ formation: s })}>
+              {s}{call ? " · " + call : ""}
+            </button>
+          );
+        })}
+      </div>
+      <div className="note">The shape you start in. Where a chip shows a call, that's the word to shout to move into it mid-game.</div>
+    </div>
+  </>);
+}
+
+// Lineup rules the planner's Suggest honours, in priority order. Built-ins can
+// be switched off but not deleted; custom rules can be dragged to re-rank.
+function LineupRulesCard({ team, patchLocal }) {
+  const rules = teamRules(team);
+  const [err, setErr] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [text, setText] = useState("");
+  const [dragId, setDragId] = useState(null);
+
+  const commit = async (next) => {
+    const prev = team.rules;
+    setErr("");
+    teamPatch(patchLocal, { rules: next });
+    try {
+      const res = await fetchJson("/api/team-settings", { rules: next });
+      if (Array.isArray(res?.team?.rules)) teamPatch(patchLocal, { rules: res.team.rules });
+    } catch (e) {
+      teamPatch(patchLocal, { rules: prev });
+      setErr(saveErrorText(e));
+    }
+  };
+  const toggleOff = (id) => commit(rules.map((r) => {
+    if (r.id !== id) return r;
+    const { off, ...rest } = r;
+    return off ? rest : { ...rest, off: true };
+  }));
+  const remove = (id) => commit(rules.filter((r) => r.id !== id));
+  const atCap = rules.length >= MAX_RULES;
+  const add = () => {
+    const t = text.trim().slice(0, 160);
+    if (!t || atCap) return;
+    commit([...rules, { id: "r_" + uid(), text: t, builtin: false, createdAt: Date.now() }]);
+    setText(""); setAdding(false);
+  };
+  const move = (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    const list = [...rules];
+    const fi = list.findIndex((r) => r.id === fromId), ti = list.findIndex((r) => r.id === toId);
+    if (fi < 0 || ti < 0) return;
+    const [it] = list.splice(fi, 1);
+    list.splice(ti, 0, it);
+    commit(list);
+  };
+
+  return (
+    <div className="card">
+      <div className="label" style={{ marginBottom: 4 }}>Lineup rules</div>
+      <div className="note" style={{ marginBottom: 4 }}>In priority order: an earlier rule beats a later one.</div>
+      {rules.map((r, i) => (
+        <div key={r.id} className={"rule" + (r.off ? " off" : "")} draggable={!r.builtin}
+          onDragStart={() => setDragId(r.id)} onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); move(dragId, r.id); setDragId(null); }} onDragEnd={() => setDragId(null)}>
+          <span className="n">{i + 1}</span>
+          {!r.builtin && <GripVertical size={15} aria-hidden="true" style={{ color: "var(--muted)", cursor: "grab", flexShrink: 0 }} />}
+          <span style={{ flex: 1, fontSize: 13.5 }}>{r.text}</span>
+          {r.builtin && <span className="bi">Built in</span>}
+          <Switch on={!r.off} label={r.text} onClick={() => toggleOff(r.id)} />
+          {!r.builtin && (
+            <button type="button" className="iconbtn" style={{ width: 28, height: 28 }} aria-label={"Delete rule: " + r.text} onClick={() => remove(r.id)}><Trash2 size={13} /></button>
+          )}
+        </div>
+      ))}
+      {adding ? (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
+          <input className="inp" autoFocus value={text} maxLength={160} placeholder="e.g. Twins never on together"
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } if (e.key === "Escape") { setAdding(false); setText(""); } }} />
+          <button type="button" className="btn" style={{ width: "auto", marginTop: 0, padding: "11px 16px" }} onClick={add}>Add</button>
+        </div>
+      ) : atCap ? (
+        <div className="note" style={{ marginTop: 10 }}>Up to {MAX_RULES} rules. Remove one to add another.</div>
+      ) : (
+        <button type="button" className="chip add" style={{ marginTop: 10 }} onClick={() => setAdding(true)}><Plus size={13} />Add a rule</button>
+      )}
+      {err && <div className="note" style={{ color: "var(--red)", marginTop: 8 }}>{err}</div>}
+    </div>
+  );
+}
+
 /* ============================================================
    MODALS
 ============================================================ */
-function Modal({ modal, setModal, data, persist, isCoach, setIsCoach, viewer, setViewer }) {
+function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer }) {
   const close = () => setModal(null);
   return (
     <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) close(); }}>
@@ -1599,7 +1998,7 @@ function Modal({ modal, setModal, data, persist, isCoach, setIsCoach, viewer, se
         {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, setModal, close }} />}
         {modal.type === "sessionEdit" && <SessionEditSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "player" && <PlayerSheet {...{ data, persist, payload: modal.payload, close }} />}
-        {modal.type === "playerView" && <PlayerViewSheet {...{ data, persist, payload: modal.payload, isCoach, viewer, close }} />}
+        {modal.type === "playerView" && <PlayerViewSheet {...{ data, persist, patchLocal, payload: modal.payload, isCoach, viewer, close }} />}
         {modal.type === "import" && <ImportSheet {...{ data, persist, close }} />}
         {modal.type === "playersImport" && <PlayersImportSheet {...{ data, persist, close }} />}
         {modal.type === "reset" && <ResetSheet {...{ data, persist, close }} />}
@@ -1970,17 +2369,50 @@ const setAv = async (pid, patch) => {
       )}
     </div>
 
-    {/* Match-day planner: coaches always; parents get the read-only live view
-        once a lineup exists. */}
-    {(() => {
-      const hasPlan = !!(f.plan && (f.plan.assignments || []).some((s) => Object.keys(s || {}).length));
-      if (!(isCoach || hasPlan) || f.status === "cancelled") return null;
+    {/* Match day: coaches get the stage hub (availability -> plan -> live ->
+        record); parents get the read-only live view once a lineup exists. */}
+    {isCoach && f.status !== "cancelled" && (() => {
+      // The plan and record live on the fixture in data (the sheet's payload is
+      // a snapshot); RSVPs come from this sheet's live state.
+      const live = (data.fixtures || []).find((x) => x.id === f.id) || f;
+      const todayISO = isoLocal(new Date());
+      const { stages, counts, noReply, isToday } = matchDayStages(data, { ...live, availability: avail }, todayISO);
+      const icons = { availability: Users, plan: ClipboardList, live: Play, record: Flag };
+      const names = noReply.map((p) => firstName(p.name));
       return (
-        <button className="btn" style={{ marginBottom: 10 }} onClick={() => setModal({ type: "plan", payload: f })}>
-          ⚽ {isCoach ? "Game plan — lineup & subs" : "Match day — live lineup"}
-        </button>
+        <div className="card">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span className="label">Match day</span>
+            <span className="coachonly"><Lock size={11} />Coach only</span>
+          </div>
+          <div className="stages">
+            {stages.map((s) => {
+              const Ic = s.state === "done" ? Check : icons[s.key];
+              return (
+                <div key={s.key} className={"stg" + (s.state === "done" ? " done" : s.state === "now" ? " now" : "")}>
+                  <div className="dot"><Ic size={14} /></div>{s.name}<span className="st">{s.sub}</span>
+                </div>
+              );
+            })}
+          </div>
+          {counts.nr > 0 && (
+            <div className="note" style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 8 }}>
+              <span className="rdotwrap" style={{ width: 12, height: 12, flexShrink: 0, marginTop: 2 }}><span className="rdot" style={{ top: 1, right: 1 }} /></span>
+              <span>{joinNames(names)} {names.length === 1 ? "hasn't" : "haven't"} replied. They're counted in until you mark them out.</span>
+            </div>
+          )}
+          <button className="btn" style={{ marginTop: 10 }} onClick={() => setModal({ type: "plan", payload: live })}>
+            {isToday ? "Kick off" : "Open the plan"}
+          </button>
+        </div>
       );
     })()}
+    {!isCoach && f.status !== "cancelled" && !!(f.plan && (f.plan.assignments || []).some((s) => Object.keys(s || {}).length)) && (
+      <button className="btn" style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+        onClick={() => setModal({ type: "plan", payload: f })}>
+        <Play size={15} /> Match day — live lineup
+      </button>
+    )}
 
     {teamFeatures(data.team).focus && <FocusCard f={f} label={f.status === "played" ? "Focus that week" : "This week's focus"} />}
 
@@ -2237,11 +2669,85 @@ function PlayerSheet({ data, persist, payload, close }) {
   </>);
 }
 
-function PlayerViewSheet({ data, persist, payload, isCoach, viewer, close }) {
+// Coach-only position ratings (0-5 per line, null = not rated) and a private
+// note, saved through /api/player-coach one field at a time.
+const RATING_LINES = ["GK", "DEF", "MID", "FWD"];
+function RatingsCard({ player, patchLocal }) {
+  const coach = player.coach || {};
+  const ratings = { GK: null, DEF: null, MID: null, FWD: null, ...(coach.ratings || {}) };
+  const [note, setNote] = useState(coach.note || "");
+  const [err, setErr] = useState("");
+  useEffect(() => { setNote(coach.note || ""); }, [coach.note]);
+  const setCoach = (c) => patchLocal((d) => ({ ...d, players: (d.players || []).map((x) => x.id === player.id ? { ...x, coach: c } : x) }));
+  const save = async (body, optimistic) => {
+    const prev = player.coach;
+    setErr("");
+    setCoach(optimistic);
+    try {
+      const res = await fetchJson("/api/player-coach", { playerId: player.id, ...body });
+      if (res?.coach) setCoach(res.coach);
+    } catch (e) {
+      setCoach(prev);
+      setErr(saveErrorText(e));
+    }
+  };
+  const setRating = (k, n) => {
+    const next = { ...ratings, [k]: ratings[k] === n ? 0 : n };
+    save({ ratings: next }, { ...coach, ratings: next });
+  };
+  const saveNote = () => {
+    const t = note.trim().slice(0, 400);
+    if (t === (coach.note || "")) return;
+    save({ note: t }, { ...coach, note: t });
+  };
+  return (
+    <div className="card" style={{ marginTop: 12, marginBottom: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+        <span className="label">Ratings</span>
+        <span className="coachonly"><Lock size={11} />Coach only</span>
+      </div>
+      {RATING_LINES.map((k) => {
+        const r = ratings[k];
+        return (
+          <div className="swrow" key={k}>
+            <span style={{ width: 36, fontWeight: 800, fontSize: 12.5 }}>{k}</span>
+            <div className="pips">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <i key={n} role="button" tabIndex={0} aria-label={k + " " + n} aria-pressed={r === n}
+                  className={r != null && r >= n ? "on" : ""}
+                  onClick={() => setRating(k, n)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setRating(k, n); } }} />
+              ))}
+            </div>
+            <span className="note" style={{ width: 64, textAlign: "right", fontWeight: 700 }}>{r == null ? "Not rated" : r}</span>
+          </div>
+        );
+      })}
+      <div className="note" style={{ marginTop: 8 }}>0 to 5 for each line. Suggest never places a 0.</div>
+      <div className="field" style={{ marginTop: 12, marginBottom: 0 }}>
+        <label>Coach note</label>
+        <textarea className="inp" rows={3} maxLength={400} value={note} aria-label="Coach note" style={{ resize: "vertical" }}
+          placeholder={"Anything to remember about " + firstName(player.name)}
+          onChange={(e) => setNote(e.target.value)} onBlur={saveNote} />
+      </div>
+      {err && <div className="note" style={{ color: "var(--red)", marginTop: 6 }}>{err}</div>}
+    </div>
+  );
+}
+
+function PlayerViewSheet({ data, persist, patchLocal, payload, isCoach, viewer, close }) {
   const [p, setP] = useState(payload);
+  // The sheet's payload is a snapshot; ratings and notes are read live from data.
+  const live = (data.players || []).find((x) => x.id === p.id) || p;
   const played = data.fixtures.filter(f => f.status === "played");
   let g = 0, a = 0;
   played.forEach(f => { g += (f.goals || []).filter(x => x.pid === p.id).reduce((s, x) => s + x.n, 0); a += (f.assists || []).filter(x => x.pid === p.id).reduce((s, x) => s + x.n, 0); });
+  // Games and minutes come from saved match records (written after full time).
+  const season = data.fixtures.reduce((acc, f) => {
+    const m = (f.record?.minutes || []).find((x) => x.pid === p.id);
+    if (m && m.min > 0) { acc.games++; acc.min += m.min; }
+    return acc;
+  }, { games: 0, min: 0 });
   const guardians = p.guardians && p.guardians.length
     ? p.guardians
     : (p.parentName || p.parentContact) ? [{ name: p.parentName, mobile: p.parentContact, email: (p.parentEmails || [])[0] }] : [];
@@ -2278,10 +2784,13 @@ function PlayerViewSheet({ data, persist, payload, isCoach, viewer, close }) {
         )}
       </div>
     </div>
-    <div className="statgrid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+    <div className="statgrid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
+      <div className="stat"><div className="v">{season.games}</div><div className="k">Games</div></div>
+      <div className="stat"><div className="v">{Math.round(season.min)}</div><div className="k">Min</div></div>
       <div className="stat"><div className="v">{g}</div><div className="k">Goals</div></div>
       <div className="stat"><div className="v">{a}</div><div className="k">Assists</div></div>
     </div>
+    {isCoach && <RatingsCard player={live} patchLocal={patchLocal} />}
     {p.dob && (
       <div className="note" style={{ marginTop: 12, fontSize: 13.5 }}>
         🎂 Birthday: {new Date(p.dob + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "long" })}
