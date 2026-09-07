@@ -256,8 +256,8 @@ function outlookUrl(ev) {
 }
 
 /* ============================================================
-   STYLES — "matchday programme": light editorial body,
-   one dark floodlit scoreboard hero, pitch green + lime + amber.
+   STYLES — Direction C "Clean sheet": white cards on paper, one red,
+   no gradients, no dark chrome (the toast is the only ink fill).
 ============================================================ */
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,800&family=DM+Mono:wght@500&display=swap');
@@ -267,7 +267,8 @@ const CSS = `
   --pitch:#C8102E; --pitch-d:#7A0A1B; --ink:#1A1012; --muted:#6B5A5D;
   --lime:#FFFFFF; --amber:#F6A623; --paper:#F4F4F3; --card:#ffffff;
   --line:#E7E3E3; --red:#E5484D; --soft:#F1EDEE; --win:#1E9E57;
-  --red-tint:#FDEAEC; --red-strong:#C0393D; --amber-strong:#B3760A; --green-strong:#1F8A4C;
+  --red-tint:#FDEAEC; --red-strong:#C0393D; --amber-tint:#FFF1DA; --amber-strong:#B3760A;
+  --green-tint:#E6F6EC; --green-strong:#1F8A4C;
   --blue-tint:#E6F0FF; --blue-strong:#2563A8; --pink-tint:#FCE7F3; --pink-strong:#BE185D;
   --ev-birthday:#BE185D; --chart-against:#D9D3D4; --row-mine:#FFF7F8;
   --card-gap:14px;
@@ -311,35 +312,104 @@ const CSS = `
 .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;
   box-shadow:0 1px 2px rgba(10,30,18,.04);margin-bottom:14px;}
 .label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700;}
-/* scoreboard hero */
-.hero{background:linear-gradient(155deg,#2a0810,#120406);color:#fff;border-radius:20px;
-  padding:18px;position:relative;overflow:hidden;border:1px solid #45121d;margin-bottom:14px;}
-.hero:before{content:"";position:absolute;inset:0;
-  background:repeating-linear-gradient(90deg,transparent,transparent 26px,rgba(255,255,255,.025) 26px,rgba(255,255,255,.025) 52px);}
-.hero .topline{display:flex;justify-content:space-between;align-items:center;position:relative;}
-.hero .ha{font-size:11px;font-weight:700;letter-spacing:.12em;color:var(--lime);text-transform:uppercase;}
-.hero .cd{font-size:11px;color:rgba(255,255,255,.65);display:flex;align-items:center;gap:5px;}
-.matchup{display:flex;align-items:center;justify-content:center;gap:14px;margin:16px 0 6px;position:relative;}
-.matchup .side{flex:1;text-align:center;}
-.matchup .side .nm{font-family:'Anton';font-size:20px;line-height:1;}
-.matchup .vs{font-family:'Anton';font-size:14px;color:var(--lime);}
-.hero .meta{display:flex;justify-content:center;gap:16px;font-size:12px;color:rgba(255,255,255,.75);position:relative;margin-top:8px;}
-.hero .meta span{display:flex;align-items:center;gap:5px;}
-.duties{display:flex;gap:10px;margin-bottom:14px;}
-.duty{flex:1;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:13px;}
-.duty .ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:8px;}
-.duty.fruit .ic{background:#fff1da;color:var(--amber);}
-.duty.gk .ic{background:#fdeaec;color:var(--pitch);}
-.duty .who{font-family:'Anton';font-size:17px;margin-top:1px;}
-.duty .rnd{font-size:10.5px;color:var(--muted);margin-top:2px;}
 .statgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
 .stat{background:var(--soft);border-radius:14px;padding:12px 8px;text-align:center;}
 .stat .v{font-family:'Anton';font-size:24px;line-height:1;}
 .stat .k{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:4px;font-weight:700;}
-.form{display:flex;gap:6px;margin-top:10px;}
-.fp{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;
-  font-weight:700;font-size:12px;color:#fff;}
-.fp.W{background:var(--win);} .fp.D{background:#9aa3a6;} .fp.L{background:var(--red);}
+/* home (S2): next game, duties, next 7 days, season, birthdays */
+.nextgame{padding:16px 16px 14px;}
+.ng-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:14px;}
+.ng-label{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--pitch);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ng-cd{font-size:12px;color:var(--muted);font-weight:600;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;flex-shrink:0;}
+.matchup{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;}
+.mu-side{display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center;min-width:0;}
+.mu-crest{width:48px;height:48px;border-radius:50%;object-fit:cover;flex-shrink:0;}
+.mu-crest.ours{box-shadow:var(--crest-ring);}
+.mu-disc{width:48px;height:48px;border-radius:50%;background:var(--soft);display:inline-flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:800;color:var(--muted);flex-shrink:0;}
+.mu-name{font-size:12px;font-weight:600;line-height:1.25;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.mu-name.ours{font-weight:800;color:var(--ink);}
+.mu-centre{text-align:center;padding:0 6px;}
+.mu-time{font-family:'Anton',sans-serif;font-weight:400;font-size:30px;line-height:1;color:var(--pitch);}
+.mu-date{font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-top:5px;white-space:nowrap;}
+.ng-venue{border-top:1px solid var(--line);margin-top:14px;padding-top:11px;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.ng-place{font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:5px;min-width:0;}
+.ng-place svg{flex-shrink:0;}
+.ng-place span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.softpill{background:var(--soft);color:var(--ink);border:none;border-radius:999px;padding:7px 12px;font:inherit;font-size:12px;font-weight:800;
+  cursor:pointer;min-height:32px;flex-shrink:0;}
+.replyrows{margin-top:10px;}
+.replyrow{display:flex;align-items:center;gap:10px;padding:8px 0 2px;}
+.avatar{width:34px;height:34px;border-radius:50%;background:var(--soft);display:inline-flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:800;color:var(--muted);flex-shrink:0;}
+.rr-body{flex:1;min-width:0;}
+.rr-name{font-weight:800;font-size:14px;}
+.rr-hint{font-size:12px;color:var(--muted);}
+.rr-btn{border:none;border-radius:999px;padding:9px 14px;font:inherit;font-size:12px;font-weight:800;cursor:pointer;min-height:36px;flex-shrink:0;
+  background:var(--pitch);color:#fff;}
+.rr-btn.in{background:var(--green-tint);color:var(--green-strong);}
+.rr-btn.out{background:var(--red-tint);color:var(--red-strong);}
+.ng-counts{margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.ng-counts .ghostlink{padding:6px 0;min-height:36px;font-size:13px;white-space:nowrap;}
+.cpills{display:flex;gap:6px;flex-wrap:wrap;}
+.cpill{border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;background:var(--soft);color:var(--muted);}
+.cpill.in{background:var(--green-tint);color:var(--green-strong);} .cpill.out{background:var(--red-tint);color:var(--red-strong);}
+.dutycard{padding:12px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;color:var(--ink);}
+.dc-slot{display:flex;align-items:center;gap:9px;flex:1;min-width:0;}
+.dc-ic{width:30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+.dc-ic.fruit{background:var(--amber-tint);color:var(--amber-strong);} .dc-ic.gk{background:var(--red-tint);color:var(--pitch);}
+.dc-ic.jersey{background:var(--blue-tint);color:var(--blue-strong);}
+.dc-txt{min-width:0;}
+.dc-label{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);}
+.dc-val{font-size:12.5px;font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dc-val.none{color:var(--muted);}
+.dc-div{width:1px;align-self:stretch;background:var(--line);flex-shrink:0;}
+.week{padding:12px 16px 4px;}
+.wk-head{display:flex;justify-content:space-between;align-items:center;}
+.wk-head .ghostlink{padding:4px 0;min-height:32px;display:inline-flex;align-items:center;}
+.wk-empty{padding:10px 0 8px;}
+.wk-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);cursor:pointer;}
+.wk-row:last-child{border-bottom:none;}
+.wk-row.static{cursor:default;}
+.wk-day{width:34px;text-align:center;flex-shrink:0;}
+.wk-dow{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+.wk-num{font-family:'Anton',sans-serif;font-weight:400;font-size:20px;line-height:1;margin-top:1px;}
+.wk-ic{width:32px;height:32px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+.wk-ic.game{background:var(--red-tint);color:var(--pitch);} .wk-ic.training{background:var(--amber-tint);color:var(--amber-strong);}
+.wk-ic.birthday{background:var(--pink-tint);color:var(--pink-strong);} .wk-ic.event{background:var(--blue-tint);color:var(--blue-strong);}
+.wk-body{flex:1;min-width:0;}
+.wk-title{font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wk-title.off{color:var(--muted);text-decoration:line-through;}
+.wk-meta{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wk-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 8px;flex-shrink:0;white-space:nowrap;background:var(--soft);color:var(--muted);}
+.wk-pill.in{background:var(--green-tint);color:var(--green-strong);} .wk-pill.out{background:var(--red-tint);color:var(--red-strong);}
+.season{padding:12px 16px 14px;}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+.tile{background:var(--paper);border-radius:14px;padding:10px 6px;text-align:center;}
+.tile .v{font-family:'Anton',sans-serif;font-weight:400;font-size:24px;line-height:1;}
+.tile .k{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:4px;}
+.tile.pts{background:var(--red-tint);} .tile.pts .v,.tile.pts .k{color:var(--pitch);}
+.formrow{display:flex;gap:6px;margin-top:12px;align-items:center;}
+.formrow .label{margin-right:6px;}
+.pip{width:24px;height:24px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:#fff;}
+.pip.W{background:var(--win);} .pip.D{background:#9AA3A6;} .pip.L{background:var(--red);}
+.formrow .fa{margin-left:auto;font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap;}
+.footnote{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.45;}
+.bdays{padding:12px 16px 6px;}
+.bd-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);}
+.bd-row:last-child{border-bottom:none;}
+/* reply sheet */
+.rs-title{font-size:20px;font-weight:800;line-height:1.2;}
+.rs-sub{font-size:13px;color:var(--muted);margin-top:4px;}
+.rs-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px;}
+.rs-btn{border:none;border-radius:14px;padding:18px 12px;font:inherit;font-size:17px;font-weight:800;cursor:pointer;min-height:64px;
+  display:flex;align-items:center;justify-content:center;gap:8px;}
+.rs-btn.in{background:var(--green-tint);color:var(--green-strong);} .rs-btn.in.sel{background:var(--win);color:#fff;}
+.rs-btn.out{background:var(--red-tint);color:var(--red-strong);} .rs-btn.out.sel{background:var(--red);color:#fff;}
+.rs-note{margin-top:12px;width:100%;border:1px solid var(--line);border-radius:11px;padding:12px 14px;font:inherit;font-size:14px;
+  background:var(--paper);color:var(--ink);outline:none;min-height:44px;}
+.rs-note:focus{border-color:var(--pitch);}
+.rs-foot{font-size:12px;color:var(--muted);margin-top:10px;}
 /* fixtures */
 .fx{display:flex;align-items:center;gap:12px;padding:13px 4px;border-bottom:1px solid var(--line);}
 .fx:last-child{border-bottom:none;}
@@ -526,7 +596,7 @@ const CSS = `
 .veocard .ext{margin-left:auto;color:rgba(255,255,255,.55);flex-shrink:0;}
 .chip.lnk{text-decoration:none;}
 .wabtn{display:flex;align-items:center;justify-content:center;gap:8px;background:#25D366;color:#fff;
-  border:none;border-radius:13px;padding:12px;font-weight:800;width:100%;font-size:14px;cursor:pointer;
+  border:none;border-radius:18px;padding:12px 16px;font-weight:800;width:100%;font-size:15px;min-height:48px;cursor:pointer;
   text-decoration:none;margin-bottom:14px;}
 .washare{display:inline-flex;align-items:center;gap:6px;background:#25D366;color:#fff;border-radius:999px;
   padding:7px 12px;font-size:12.5px;font-weight:700;text-decoration:none;}
@@ -930,7 +1000,7 @@ export default function App() {
           </div>
         )}
 
-        {screen === "home" && <HomeTab {...{ data, stats, next, pname, setModal, viewer, onOpen: push }} />}
+        {screen === "home" && <HomeTab {...{ data, stats, next, setModal, viewer, me, isCoach, onOpen: push, onTab: goTab }} />}
         {screen === "calendar" && <CalendarTab {...{ data, isCoach, setModal }} />}
         {screen === "results" && <FixturesTab {...{ data, isCoach, pname, setModal, persist }} />}
         {screen === "squad" && <SquadTab {...{ data, stats, isCoach, setModal, persist }} />}
@@ -960,46 +1030,143 @@ export default function App() {
           close={() => setModal(null)}
         />
       ) : modal ? (
-        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet }} />
+        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast }} />
       ) : null}
     </div>
   );
 }
 
-/* ---------------- HOME ---------------- */
-function HomeTab({ data, stats, next, pname, setModal, onOpen }) {
-  const avail = next?.availability || {};
-  const activePlayers = next ? data.players.filter(p => activeOn(p, next.dateISO)) : [];
-  const counts = next ? activePlayers.reduce((c, p) => {
-    const s = avail[p.id]?.status;
-    if (s === "in") c.in++; else if (s === "out") c.out++; else c.nr++;
-    return c;
-  }, { in: 0, out: 0, nr: 0 }) : null;
-  const week = upcomingItems(data, isoLocal(new Date()), 7);
-  const bdays = nextBirthdays(data, isoLocal(new Date()), 2);
-  const weekCounts = (av, iso) => data.players.filter(p => activeOn(p, iso)).reduce((c, p) => {
-    const st = av?.[p.id]?.status; if (st === "in") c.in++; else if (st === "out") c.out++; else c.nr++; return c;
-  }, { in: 0, out: 0, nr: 0 });
+/* ---------------- HOME (S2, Direction C) ---------------- */
+// "Sam Smith" -> "Sam S." (row names, birthdays); firstName() lives above with the app helpers.
+const shortName = (name) => {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : (parts[0] || "");
+};
+const monthLong = (d) => d.toLocaleDateString("en-AU", { month: "long" });
+// "SAT 13 JUNE" (uppercased by CSS) for the match-up centre.
+const matchDate = (iso) => { if (!iso) return "Date TBC"; const d = new Date(iso + "T00:00:00"); return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${monthLong(d)}`; };
+// "Thu, 18 June" for birthday rows.
+const bdayDate = (iso) => { const d = new Date(iso + "T00:00:00"); return `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${monthLong(d)}`; };
+const weekdayLong = (iso) => iso ? new Date(iso + "T00:00:00").toLocaleDateString("en-AU", { weekday: "long" }) : "";
+// In / out / no reply over the players active on that date.
+const replyCounts = (players, av, iso) => players.filter(p => activeOn(p, iso)).reduce((c, p) => {
+  const st = av?.[p.id]?.status; if (st === "in") c.in++; else if (st === "out") c.out++; else c.nr++; return c;
+}, { in: 0, out: 0, nr: 0 });
+
+// The one narrow RSVP write the Home reply sheet uses: optimistic patch of the
+// fixture's availability (patchLocal — never the whole document), the same
+// /api/rsvp body MatchSheet sends, reverted with a toast when the route refuses.
+async function sendGameReply({ fixture, playerId, status, reason, by, first, patchLocal, showToast }) {
+  const prev = fixture.availability || {};
+  const nextAv = { ...prev };
+  const cleanReason = status === "out" ? (reason || "Away") : undefined;
+  if (status == null) delete nextAv[playerId];
+  else nextAv[playerId] = { status, ...(cleanReason ? { reason: cleanReason } : {}), by, at: Date.now() };
+  const setAv = (av) => patchLocal(d => ({ ...d, fixtures: (d.fixtures || []).map(x => x.id === fixture.id ? { ...x, availability: av } : x) }));
+  setAv(nextAv);
+  const day = weekdayLong(fixture.dateISO) || "the game";
+  showToast(status === "in" ? `${first}'s in for ${day}` : status === "out" ? `${first}'s out for ${day}` : `${first}'s reply cleared`);
+  try {
+    const res = await fetch("/api/rsvp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "game", id: fixture.id, playerId, status, reason: cleanReason })
+    });
+    if (!res.ok) throw new Error("rsvp " + res.status);
+  } catch (e) {
+    console.error("Could not save availability:", e);
+    setAv(prev);
+    showToast(`Couldn't save ${first}'s reply — try again.`);
+  }
+}
+
+function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoach }) {
+  const todayISO = isoLocal(new Date());
+  const account = !!me;
+  // Whose replies this viewer owns: the account's children (account mode) or
+  // the per-device identity (legacy). Coaches reply from the match sheet.
+  const ownIds = isCoach ? [] : account ? (me.role === "parent" ? (me.playerIds || []) : []) : (viewer?.kind === "parent" && viewer.pid ? [viewer.pid] : []);
+  const own = ownIds.map(id => data.players.find(p => p.id === id)).filter(Boolean);
+  const feats = teamFeatures(data.team);
+  const week = upcomingItems(data, todayISO, 7);
+  const bdays = nextBirthdays(data, todayISO, 2);
+  const playerName = (id) => data.players.find(p => p.id === id)?.name || null;
+  const oppCrest = next ? crestFor(next.opponent) : null;
+  const nextCounts = next ? replyCounts(data.players, next.availability, next.dateISO) : null;
+  const openMatch = (f) => setModal({ type: "match", payload: f });
+  const openReply = (p) => setModal({ type: "reply", payload: { fixture: next, playerId: p.id } });
+  // Status pill(s) for a game/training row: the parent's own children, or the
+  // team-wide tally for coaches and viewers.
+  const pillsFor = (av, iso) => {
+    if (own.length === 0) { const c = replyCounts(data.players, av, iso); return [{ cls: "nr", label: `${c.in} in · ${c.nr} to reply` }]; }
+    return own.map(p => {
+      const st = av?.[p.id]?.status, first = firstName(p.name);
+      return st === "in" ? { cls: "in", label: `${first}'s in` } : st === "out" ? { cls: "out", label: `${first}'s out` }
+        : { cls: "nr", label: own.length > 1 ? `${first}: no reply` : "No reply" };
+    });
+  };
+  const miniRoos = /^U[6-9]$/i.test(String(data.team.ageGroup || "").trim());
+  const duties = next ? [
+    feats.fruitDuty && { cls: "fruit", Icon: Apple, label: "Fruit duty", who: playerName(next.fruit) },
+    feats.gkDuty && { cls: "gk", Icon: ShieldCheck, label: "In goal", who: playerName(next.gk) },
+    feats.jerseyDuty && { cls: "jersey", Icon: Shirt, label: "Jerseys", who: playerName(next.jersey) }
+  ].filter(Boolean) : [];
+
   return (
     <>
       {next ? (
-        <div className="hero">
-          <div className="topline">
-            <span className="ha">{next.homeAway === "H" ? "Home" : "Away"} · Round {next.round}</span>
-            <span className="cd"><Clock size={12} />{countdown(next.dateISO, next.time)}</span>
+        <div className="card nextgame">
+          <div className="ng-head">
+            <span className="ng-label">Next game{next.round ? ` · Round ${next.round}` : ""} · {next.homeAway === "H" ? "Home" : "Away"}</span>
+            {next.dateISO && <span className="ng-cd"><Clock size={12} />{countdown(next.dateISO, next.time)}</span>}
           </div>
           <div className="matchup">
-            <div className="side"><div className="nm">{next.homeAway === "H" ? data.team.name : next.opponent}</div></div>
-            <div className="vs">VS</div>
-            <div className="side"><div className="nm">{next.homeAway === "H" ? next.opponent : data.team.name}</div></div>
+            <div className="mu-side">
+              <img className="mu-crest ours" src={data.team.logo || OUR_CREST} alt=""
+                onError={(e) => { const el = e.currentTarget; if (el.getAttribute("src") !== OUR_CREST) el.src = OUR_CREST; else el.style.visibility = "hidden"; }} />
+              <span className="mu-name ours">{data.team.name}</span>
+            </div>
+            <div className="mu-centre">
+              <div className="mu-time">{next.time || "TBC"}</div>
+              <div className="mu-date">{matchDate(next.dateISO)}</div>
+            </div>
+            <div className="mu-side">
+              {oppCrest
+                ? <img className="mu-crest" src={oppCrest} alt="" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} />
+                : <span className="mu-disc">{initials(next.opponent)}</span>}
+              <span className="mu-name">{next.opponent}</span>
+            </div>
           </div>
-          <div className="meta">
-            <span><CalendarDays size={13} />{fmtDate(next.dateISO)} · {next.time}</span>
-            <span><MapPin size={13} />{next.venue}</span>
+          <div className="ng-venue">
+            <span className="ng-place"><MapPin size={12} /><span>{next.venue || "Venue to be confirmed"}</span></span>
+            <button className="softpill" onClick={() => openMatch(next)}>Details</button>
           </div>
-          {recentChanges(next).length > 0 && (
-            <div style={{ position: "relative", textAlign: "center", marginTop: 10 }}>
-              <span className="updtag" style={{ fontSize: 10, padding: "4px 10px" }}>⚠ Schedule updated — tap fixture for details</span>
+          {own.length > 0 ? (
+            <div className="replyrows">
+              {own.map(p => {
+                const st = next.availability?.[p.id]?.status || null;
+                return (
+                  <div className="replyrow" key={p.id}>
+                    <span className="avatar">{initials(p.name)}</span>
+                    <div className="rr-body">
+                      <div className="rr-name">{shortName(p.name)}</div>
+                      <div className="rr-hint">{st ? "Tap to change" : `Reply for ${firstName(p.name)}`}</div>
+                    </div>
+                    <button className={"rr-btn" + (st ? " " + st : "")} onClick={() => openReply(p)}>
+                      {st === "in" ? "In" : st === "out" ? "Out" : "Reply"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="ng-counts">
+              <div className="cpills">
+                <span className="cpill in">{nextCounts.in} in</span>
+                <span className="cpill out">{nextCounts.out} out</span>
+                <span className="cpill">{nextCounts.nr} no reply</span>
+              </div>
+              {isCoach && <button className="ghostlink" onClick={() => openMatch(next)}>Who's in ›</button>}
             </div>
           )}
         </div>
@@ -1007,163 +1174,130 @@ function HomeTab({ data, stats, next, pname, setModal, onOpen }) {
         <div className="card"><div className="empty"><div className="disp">No upcoming match</div><div className="note">Add fixtures under Results.</div><button className="ghostlink" style={{ marginTop: 10 }} onClick={() => onOpen("duties")}>Duties ›</button></div></div>
       )}
 
-      {next && (() => {
-        // Duty tiles honour the team's feature flags (wizard/Settings).
-        const feats = teamFeatures(data.team);
-        const tiles = [
-          feats.fruitDuty && { cls: "fruit", Icon: Apple, label: "Fruit duty", who: pname(next.fruit) },
-          feats.gkDuty && { cls: "gk", Icon: ShieldCheck, label: "In goal", who: pname(next.gk) },
-          feats.jerseyDuty && { cls: "fruit", Icon: Shirt, label: "Jerseys", who: pname(next.jersey) }
-        ].filter(Boolean);
-        if (!tiles.length) return null;
-        return (
-          <div className="duties" role="button" tabIndex={0} aria-label="Duties" style={{ cursor: "pointer" }}
-            onClick={() => onOpen("duties")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen("duties"); } }}>
-            {tiles.map(({ cls, Icon, label, who }) => (
-              <div className={"duty " + cls} key={label}>
-                <div className="ic"><Icon size={18} /></div>
-                <div className="label">{label}</div>
-                <div className="who">{who}</div>
-                <div className="rnd">Round {next.round}</div>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
-
-      {next && counts && activePlayers.length > 0 && (
-        <div className="card" onClick={() => setModal({ type: "match", payload: next })} style={{ cursor: "pointer" }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 10 }}>
-            {crestFor(next.opponent) && <img className="crest" src={crestFor(next.opponent)} alt="" style={{ marginTop: 2 }} />}
-            <div style={{ minWidth: 0 }}>
-              <div className="label">Who's playing?</div>
-              <div style={{ fontWeight: 800, fontSize: 16, marginTop: 3 }}>
-                Round {next.round} {next.homeAway === "H" ? "vs" : "@"} {next.opponent}
-              </div>
-              <div className="note" style={{ marginTop: 2, display: "flex", flexWrap: "wrap", gap: "2px 10px" }}>
-                <span><CalendarDays size={12} style={{ verticalAlign: "-2px" }} /> {fmtDate(next.dateISO)} · {next.time}</span>
-                {next.venue && <span><MapPin size={12} style={{ verticalAlign: "-2px" }} /> {next.venue}</span>}
-                {next.strip && <span style={{ fontWeight: 800, color: next.strip === "Blue" ? "#2563a8" : "var(--pitch)" }}>👕 {next.strip} strip</span>}
-              </div>
-            </div>
-            <ChevronRight size={15} color="var(--muted)" style={{ marginLeft: "auto", flexShrink: 0, marginTop: 3 }} />
-          </div>
-          <div className="avsum" style={{ marginBottom: 0 }}>
-            <span className="avpill in"><Check size={13} />{counts.in} in</span>
-            <span className="avpill out"><X size={13} />{counts.out} out</span>
-            <span className="avpill nr">{counts.nr} no reply</span>
-          </div>
-          {counts.nr > 0 && <div className="note" style={{ marginTop: 8 }}>Tap to mark your player in or out.</div>}
-        </div>
-      )}
-
-      {week.length > 0 && (
-        <div className="card">
-          <div className="label" style={{ marginBottom: 4 }}>Next 7 days</div>
-          {week.map(it => {
-            const isGame = it.kind === "game";
-            const isBday = it.kind === "birthday";
-            const av = isGame ? it.ref.availability : (it.ref.availability && it.ref.availability[it.occ]);
-            const c = isBday ? null : weekCounts(av, it.dateISO);
-            const d = new Date(it.dateISO + "T00:00:00");
-            const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()];
-            const Ic = isGame ? Trophy : isBday ? Cake : it.kind === "event" ? Star : Dumbbell;
-            const place = isGame ? it.ref.venue : isBday ? "" : it.ref.location;
-            const title = isGame ? ((it.ref.homeAway === "H" ? "vs " : "@ ") + it.ref.opponent) : it.title;
-            const cancelled = isGame && it.ref.status === "cancelled";
-            const open = () => isGame ? setModal({ type: "match", payload: it.ref })
-              : isBday ? setModal({ type: "playerView", payload: it.ref })
-              : setModal({ type: "session", payload: it.ref, occ: it.occ });
-            return (
-              <div key={it.key}
-                onClick={open}
-                style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 0", borderTop: "1px solid var(--line)", cursor: "pointer" }}>
-                <div style={{ width: 36, textAlign: "center", flexShrink: 0 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>{dow}</div>
-                  <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1 }}>{d.getDate()}</div>
+      {duties.length > 0 && (
+        <div className="card dutycard" role="button" tabIndex={0} aria-label="Duties"
+          onClick={() => onOpen("duties")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen("duties"); } }}>
+          {duties.map(({ cls, Icon, label, who }, i) => (
+            <React.Fragment key={label}>
+              {i > 0 && <div className="dc-div" />}
+              <div className="dc-slot">
+                <span className={"dc-ic " + cls}><Icon size={16} /></span>
+                <div className="dc-txt">
+                  <div className="dc-label">{label}</div>
+                  <div className={"dc-val" + (who ? "" : " none")}>{who || "Not assigned yet"}</div>
                 </div>
-                <div className="ic" style={{ width: 32, height: 32, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: isGame ? "#fdeaec" : isBday ? "#fde7f3" : it.kind === "event" ? "#e6f0ff" : "#fff1da", color: isGame ? "var(--pitch)" : isBday ? "#d6409f" : it.kind === "event" ? "#2563a8" : "#b3760a" }}>
-                  <Ic size={16} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: cancelled ? "line-through" : "none", color: cancelled ? "var(--muted)" : "inherit" }}>{title}</div>
-                  {isBday ? (
-                    <div className="note" style={{ fontSize: 11.5, marginTop: 1 }}>Birthday 🎂</div>
-                  ) : (<>
-                    <div className="note" style={{ fontSize: 11.5, marginTop: 1 }}>{it.time || "Time TBC"}{place ? " · " + place : ""}</div>
-                    {cancelled
-                      ? <div style={{ fontSize: 11, marginTop: 3, fontWeight: 800, color: "var(--red)" }}>Cancelled</div>
-                      : <div style={{ fontSize: 11, marginTop: 3, display: "flex", gap: 9, fontWeight: 700 }}>
-                        <span style={{ color: "#1f8a4c" }}>{c.in} in</span>
-                        <span style={{ color: "var(--red)" }}>{c.out} out</span>
-                        <span style={{ color: "var(--muted)" }}>{c.nr} no reply</span>
-                      </div>}
-                  </>)}
-                </div>
-                <ChevronRight size={15} color="var(--muted)" style={{ flexShrink: 0 }} />
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {bdays.length > 0 && (
-        <div className="card">
-          <div className="label" style={{ marginBottom: 4 }}>Upcoming birthdays</div>
-          {bdays.map(({ p, iso, age }) => (
-            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 0", borderTop: "1px solid var(--line)" }}>
-              <div style={{ width: 32, height: 32, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "#fde7f3", fontSize: 16 }}>🎂</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}{age != null ? ` turns ${age}` : ""}</div>
-                <div className="note" style={{ fontSize: 11.5, marginTop: 1 }}>{fmtDate(iso)}</div>
-              </div>
-            </div>
+            </React.Fragment>
           ))}
-        </div>
-      )}
-
-      {next && teamFeatures(data.team).focus && <FocusCard f={next} />}
-
-      <div className="card">
-        <div className="label" style={{ marginBottom: 12 }}>Season so far</div>
-        <div className="statgrid">
-          {[[stats.w, "Won"], [stats.dr, "Drew"], [stats.l, "Lost"], [stats.pts, "Pts"]].map(([v, k]) => (
-            <div className="stat" key={k}><div className="v">{v}</div><div className="k">{k}</div></div>
-          ))}
-        </div>
-        <div className="statgrid" style={{ marginTop: 8 }}>
-          {[[stats.played, "Played"], [stats.gf, "For"], [stats.ga, "Against"], [stats.gf - stats.ga >= 0 ? "+" + (stats.gf - stats.ga) : stats.gf - stats.ga, "Diff"]].map(([v, k]) => (
-            <div className="stat" key={k}><div className="v">{v}</div><div className="k">{k}</div></div>
-          ))}
-        </div>
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <button className="ghostlink" onClick={() => onOpen("stats")}>All stats ›</button>
-        </div>
-        {stats.form.length > 0 && (<>
-          <div className="label" style={{ marginTop: 14 }}>Recent form</div>
-          <div className="form">{stats.form.map((r, i) => <div key={i} className={"fp " + r}>{r}</div>)}</div>
-        </>)}
-      </div>
-
-      {stats.scorers[0] && (
-        <div className="card">
-          <div className="label" style={{ marginBottom: 10 }}>Top scorer</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
-            <div className="pnum" style={{ background: "var(--amber)" }}><Trophy size={20} /></div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 17 }}>{stats.scorers[0].name}</div>
-              <div className="note">#{stats.scorers[0].number} · {stats.scorers[0].position}</div>
-            </div>
-            <div className="disp" style={{ fontSize: 30 }}>{stats.scorers[0].goals}<span style={{ fontSize: 13, color: "var(--muted)" }}> goals</span></div>
-          </div>
+          <ChevronRight size={15} color="#9AA3A6" style={{ flexShrink: 0 }} />
         </div>
       )}
 
       {data.team.whatsapp && (
         <a className="wabtn" href={data.team.whatsapp} target="_blank" rel="noopener noreferrer">
-          Team WhatsApp group
+          <MessageSquare size={16} />Team WhatsApp group
         </a>
       )}
+
+      <div className="card week">
+        <div className="wk-head">
+          <span className="label">Next 7 days</span>
+          <button className="ghostlink" onClick={() => onTab("calendar")}>Calendar ›</button>
+        </div>
+        {week.length === 0 && <div className="note wk-empty">Nothing in the next 7 days. Enjoy the rest.</div>}
+        {week.map(it => {
+          const d = new Date(it.dateISO + "T00:00:00");
+          const isGame = it.kind === "game", isBday = it.kind === "birthday", isEvent = it.kind === "event";
+          const kind = isGame ? "game" : isBday ? "birthday" : isEvent ? "event" : "training";
+          const Ic = isGame ? Trophy : isBday ? Cake : isEvent ? Calendar : ClipboardList;
+          const cancelled = isGame && it.ref.status === "cancelled";
+          const place = isGame ? it.ref.venue : isBday ? "" : it.ref.location;
+          const age = isBday && it.ref.dob && parseInt(it.ref.dob.slice(0, 4), 10) > 1990 ? d.getFullYear() - parseInt(it.ref.dob.slice(0, 4), 10) : null;
+          const title = isBday ? (age ? `${shortName(it.ref.name)} turns ${age}` : `${shortName(it.ref.name)}'s birthday`) : it.title;
+          const meta = isBday ? "Birthday" : `${it.time || "Time TBC"}${place ? " · " + place : ""}`;
+          const av = isGame ? it.ref.availability : it.ref.availability?.[it.occ];
+          const pills = isBday ? [] : cancelled ? [{ cls: "out", label: "Cancelled" }] : pillsFor(av, it.dateISO);
+          const open = isBday ? null : isGame ? () => openMatch(it.ref) : () => setModal({ type: "session", payload: it.ref, occ: it.occ });
+          return (
+            <div key={it.key} className={"wk-row" + (open ? "" : " static")} role={open ? "button" : undefined} tabIndex={open ? 0 : undefined}
+              onClick={open || undefined} onKeyDown={open ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } : undefined}>
+              <div className="wk-day"><div className="wk-dow">{WEEKDAYS[d.getDay()]}</div><div className="wk-num">{d.getDate()}</div></div>
+              <span className={"wk-ic " + kind}><Ic size={15} /></span>
+              <div className="wk-body">
+                <div className={"wk-title" + (cancelled ? " off" : "")}>{title}</div>
+                <div className="wk-meta">{meta}</div>
+              </div>
+              {pills.map((pl, i) => <span key={i} className={"wk-pill " + pl.cls}>{pl.label}</span>)}
+              <ChevronRight size={15} color="#9AA3A6" style={{ flexShrink: 0, visibility: open ? "visible" : "hidden" }} />
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="card season">
+        <div className="wk-head" style={{ marginBottom: 10 }}>
+          <span className="label">Season so far</span>
+          <button className="ghostlink" onClick={() => onOpen("stats")}>All stats ›</button>
+        </div>
+        <div className="tiles">
+          {[[stats.played, "Played"], [stats.w, "Won"], [stats.dr, "Drawn"], [stats.pts, "Pts"]].map(([v, k]) => (
+            <div className={"tile" + (k === "Pts" ? " pts" : "")} key={k}><div className="v">{v}</div><div className="k">{k}</div></div>
+          ))}
+        </div>
+        <div className="formrow">
+          {stats.form.length > 0 && <span className="label">Form</span>}
+          {stats.form.map((r, i) => <span key={i} className={"pip " + r}>{r}</span>)}
+          <span className="fa">{stats.gf} for · {stats.ga} against</span>
+        </div>
+        {miniRoos && <div className="footnote">MiniRoos doesn't publish ladders at {String(data.team.ageGroup).toUpperCase()} — these are just our own numbers.</div>}
+      </div>
+
+      {bdays.length > 0 && (
+        <div className="card bdays">
+          <div className="label">Birthdays coming up</div>
+          {bdays.map(({ p, iso, age }) => (
+            <div className="bd-row" key={p.id}>
+              <span className="wk-ic birthday"><Cake size={16} /></span>
+              <div className="wk-body">
+                <div className="wk-title">{age != null ? `${shortName(p.name)} turns ${age}` : `${shortName(p.name)}'s birthday`}</div>
+                <div className="wk-meta">{bdayDate(iso)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// Reply sheet (D1: 1a sheets for parents). Big In / Out, an optional note
+// (sent as the Out reason), closes once the reply is sent. Tapping the value
+// already chosen clears it.
+function ReplySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast, close }) {
+  const fixture = (data.fixtures || []).find(x => x.id === payload.fixture?.id) || payload.fixture;
+  const player = data.players.find(p => p.id === payload.playerId);
+  const first = firstName(player?.name) || "your player";
+  const cur = fixture?.availability?.[payload.playerId]?.status || null;
+  const [note, setNote] = useState("");
+  const staff = getStaff(data.team);
+  const head = staff.find(s => /head coach/i.test(s.role || "")) || staff[0];
+  const coachFirst = head?.name ? firstName(head.name) : null;
+  const by = isCoach ? "Coach" : me ? (player?.name || "Parent") : (viewer?.label || "you");
+  const choose = (val) => {
+    const status = cur === val ? null : val;
+    sendGameReply({ fixture, playerId: payload.playerId, status, reason: note.trim(), by, first, patchLocal, showToast });
+    close();
+  };
+  return (
+    <>
+      <div className="rs-title">Reply for {first}</div>
+      <div className="rs-sub">vs {fixture.opponent} · {fmtDate(fixture.dateISO)}{fixture.time ? ` · ${fixture.time}` : ""}</div>
+      <div className="rs-grid">
+        <button className={"rs-btn in" + (cur === "in" ? " sel" : "")} onClick={() => choose("in")}><Check size={18} />In</button>
+        <button className={"rs-btn out" + (cur === "out" ? " sel" : "")} onClick={() => choose("out")}><X size={18} />Out</button>
+      </div>
+      <input className="rs-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note for coach (optional)" aria-label="Note for coach" />
+      <div className="rs-foot">{coachFirst ? `Coach ${coachFirst} sees` : "The coach sees"} replies straight away. You can change it any time before kick-off.</div>
     </>
   );
 }
@@ -2123,7 +2257,7 @@ function LineupRulesCard({ team, patchLocal }) {
 /* ============================================================
    MODALS
 ============================================================ */
-function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet }) {
+function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast }) {
   const close = () => setModal(null);
   return (
     <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) close(); }}>
@@ -2133,6 +2267,7 @@ function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach
         {modal.type === "pin" && <PinSheet {...{ data, setIsCoach, close }} />}
         {modal.type === "signin" && !me && <SignInSheet {...{ data, viewer, setViewer, close }} />}
         {modal.type === "fixture" && <FixtureSheet {...{ data, persist, payload: modal.payload, close }} />}
+        {modal.type === "reply" && <ReplySheet {...{ data, payload: modal.payload, isCoach, viewer, me, patchLocal, showToast, close }} />}
         {modal.type === "match" && <MatchSheet {...{ data, persist, payload: modal.payload, isCoach, viewer, me, setModal, close }} />}
         {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, me, setModal, close }} />}
         {modal.type === "sessionEdit" && <SessionEditSheet {...{ data, persist, payload: modal.payload, close }} />}
