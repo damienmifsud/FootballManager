@@ -269,6 +269,109 @@ describe("parentsSee — what parents see of match day", () => {
   });
 });
 
+describe("staff emails — coach-level login from the staff list", () => {
+  const stored = () => getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b", calendarKey: "key-b" }]);
+
+  it("POST stores staff emails (lower-cased) and a custom title", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: {
+      name: "Wiz H", password: "rapid-eagle-28",
+      staff: [
+        { role: "Head coach", name: "Byron", mobile: "0400 111 222", email: "  Byron@Club.COM " },
+        { role: "Manager", name: "Alex", email: "not-an-email" },
+        { role: "Goalkeeper coach", name: "Sam", email: "sam@club.com" }
+      ]
+    } }));
+    expect(res.status).toBe(200);
+    const [, doc] = setData.mock.calls[0];
+    expect(doc.team.staff).toEqual([
+      { role: "Head coach", name: "Byron", mobile: "0400111222", email: "byron@club.com", photo: "" },
+      { role: "Manager", name: "Alex", mobile: "", email: "", photo: "" },
+      { role: "Goalkeeper coach", name: "Sam", mobile: "", email: "sam@club.com", photo: "" }
+    ]);
+  });
+
+  it("PATCH from a client that omits emails keeps the stored email for the same-named row", async () => {
+    stored();
+    getData.mockResolvedValue({
+      team: { name: "Wiz B", staff: [
+        { role: "Head coach", name: "Byron", mobile: "", email: "byron@club.com", photo: "data:image/jpeg;base64,PIC" },
+        { role: "Manager", name: "Alex", mobile: "", email: "alex@club.com", photo: "" }
+      ] },
+      players: []
+    });
+    const { PATCH } = await asAdmin();
+    // Older wizard payload: role/name/mobile only, and Alex renamed away.
+    const res = await PATCH(fakeRequest({ body: { slug: "wiz-b", staff: [
+      { role: "Head coach", name: "Byron", mobile: "0400111222" },
+      { role: "Manager", name: "Alexandra" }
+    ] } }));
+    expect(res.status).toBe(200);
+    const [, doc] = setData.mock.calls[0];
+    expect(doc.team.staff).toEqual([
+      { role: "Head coach", name: "Byron", mobile: "0400111222", email: "byron@club.com", photo: "data:image/jpeg;base64,PIC" },
+      { role: "Manager", name: "Alexandra", mobile: "", email: "", photo: "" } // no same-named row to inherit from
+    ]);
+  });
+
+  it("PATCH with a new email replaces the stored one, and an explicit empty email clears it", async () => {
+    stored();
+    getData.mockResolvedValue({
+      team: { name: "Wiz B", staff: [
+        { role: "Head coach", name: "Byron", mobile: "", email: "byron@club.com", photo: "" },
+        { role: "Manager", name: "Alex", mobile: "", email: "alex@club.com", photo: "" }
+      ] },
+      players: []
+    });
+    const { PATCH } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "wiz-b", staff: [
+      { role: "Head coach", name: "Byron", email: "NEW@club.com" },
+      { role: "Manager", name: "Alex", email: "" }
+    ] } }));
+    expect(res.status).toBe(200);
+    const [, doc] = setData.mock.calls[0];
+    expect(doc.team.staff.map((s) => [s.name, s.email])).toEqual([["Byron", "new@club.com"], ["Alex", ""]]);
+  });
+
+  it("PATCH round-trips a custom-titled row alongside the standard ones", async () => {
+    stored();
+    getData.mockResolvedValue({
+      team: { name: "Wiz B", staff: [{ role: "Goalkeeper coach", name: "Sam", mobile: "", email: "sam@club.com", photo: "data:image/jpeg;base64,SAM" }] },
+      players: []
+    });
+    const { PATCH } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "wiz-b", staff: [
+      { role: "Goalkeeper coach", name: "Sam", mobile: "", email: "sam@club.com" },
+      { role: "Head coach", name: "Byron", mobile: "", email: "byron@club.com" }
+    ] } }));
+    expect(res.status).toBe(200);
+    const [, doc] = setData.mock.calls[0];
+    expect(doc.team.staff).toEqual([
+      { role: "Goalkeeper coach", name: "Sam", mobile: "", email: "sam@club.com", photo: "data:image/jpeg;base64,SAM" },
+      { role: "Head coach", name: "Byron", mobile: "", email: "byron@club.com", photo: "" }
+    ]);
+  });
+
+  it("GET exposes staff emails (not photos) to the super admin", async () => {
+    stored();
+    getData.mockImplementation(async (slug) => (slug === "wiz-b" ? {
+      team: { name: "Wiz B", staff: [
+        { role: "Head coach", name: "Byron", mobile: "0400111222", email: "byron@club.com", photo: "data:image/jpeg;base64,PIC" },
+        { role: "Goalkeeper coach", name: "Sam", mobile: "", email: "sam@club.com", photo: "" }
+      ] },
+      players: []
+    } : null));
+    const { GET } = await asAdmin();
+    const body = await (await GET()).json();
+    const bySlug = Object.fromEntries(body.teams.map((t) => [t.slug, t]));
+    expect(bySlug["wiz-b"].staff).toEqual([
+      { role: "Head coach", name: "Byron", mobile: "0400111222", email: "byron@club.com" },
+      { role: "Goalkeeper coach", name: "Sam", mobile: "", email: "sam@club.com" }
+    ]);
+    expect(bySlug["env-a"].staff).toEqual([]); // no doc
+  });
+});
+
 describe("DELETE", () => {
   it("removes a stored team but refuses env teams", async () => {
     getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b" }]);

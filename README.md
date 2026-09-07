@@ -6,7 +6,8 @@ squad, stats, match video) with the things the chat artifact could **not** do:
 1. **Server-stored shared data** for everyone on the team.
 2. **A live, subscribable calendar feed** that Google Calendar and Outlook/Microsoft 365
    keep in sync automatically.
-3. **One shared password** protecting the whole site.
+3. **One shared password** protecting the whole site — or, optionally, account
+   login (Google / Microsoft / magic-link) with real roles.
 
 The dashboard UI is reused unchanged in `components/Dashboard.jsx` (only a `"use client";`
 line was added). A shim (`lib/clientStorage.js`) gives it a server-backed `window.storage`.
@@ -15,16 +16,27 @@ The colour scheme is set with the CSS variables at the top of `components/Dashbo
 
 ---
 
-## Access model (what you asked for)
+## Access model
 
-- **One shared site code** (`SITE_PASSWORD`) — everyone types the same thing to get in.
-  No accounts, no roles. Set it once; share it with the parents; rotate it any time by
-  changing the env var.
-- **Editing:** anyone signed in can edit (you said no need to separate). If you'd rather
-  parents not change scores by accident, set a **Coach PIN** in the dashboard's in-app
-  Settings — that hides the edit controls behind a PIN while still letting everyone view.
-- **Calendar feed** uses its own secret key in the URL (calendar apps can't send the
-  login cookie), so the feed works without anyone logging in.
+The site runs in one of two modes, chosen by whether `AUTH_SECRET` is set.
+
+**Team-code mode (default — `AUTH_SECRET` not set).** One shared code per team
+(`SITE_PASSWORD`, or each team's `password` in `TEAMS`) — everyone types the same thing
+to get in. There are **no accounts and no roles**: everyone with the code reads and
+writes everything. The **Coach PIN** in the in-app Settings only hides the edit controls
+behind a PIN in the browser — it is a client-side courtesy toggle, not access control.
+Rotate the code any time by changing the env var.
+
+**Account mode (`AUTH_SECRET` set + at least one sign-in provider).** People sign in
+with Google, Microsoft or a magic link, and what they can see and do depends on their
+role: super admin, club admin, coach or parent, with optional per-person overrides. The
+full ladder, how each role is assigned and what it can do is in
+[Account login and roles](#account-login-and-roles-google--microsoft--magic-link)
+below. **Set `ADMIN_EMAILS` before you enable `AUTH_SECRET`** — it is the only way to
+reach `/admin`; without it the site has no super admin.
+
+In both modes the **calendar feed** uses its own secret key in the URL (calendar apps
+can't send the login cookie), so the feed works without anyone logging in.
 
 ---
 
@@ -92,23 +104,23 @@ schedule). Rotate `CALENDAR_KEY` if it leaks.
 
 ---
 
-## Shared password vs. Google / Microsoft login
+## Team-code mode vs. account mode
 
-You're on the **shared password** now — simplest, no accounts, fits a junior team.
+Both are built in; `AUTH_SECRET` picks between them.
 
-If you later want **Google / Microsoft sign-in** instead, the trade is:
-
-| | Shared password (current) | Google / Microsoft (OAuth) |
+| | Team-code mode | Account mode |
 |---|---|---|
-| Parent effort | type one code | sign in with existing Google/MS account |
-| New passwords | one, shared | none |
-| Real access control | rotate code if it leaks | per-parent **email allowlist** (revoke individuals) |
-| Per-parent features | no | yes (identity, "your duty") |
-| Setup | 1 env var | register an OAuth app in Google Cloud **and** Azure AD, add NextAuth, maintain an email allowlist |
+| Parent effort | type one code | sign in with Google / Microsoft, or click a magic link |
+| Roles | none — everyone reads and writes everything | super admin, club admin, coach, parent, plus per-person overrides |
+| Revoking access | rotate the code (everyone re-enters it) | remove the email from the roster, staff list or `/admin`; or block it with an override |
+| Per-parent features | no | yes — bound to their own children for RSVPs, redacted view, "Viewing as" hats |
+| Club-wide view | no | yes — club admins see every team, super admins coach every team |
+| Setup | 1 env var | `AUTH_SECRET`, one provider's keys, `ADMIN_EMAILS`, emails on player records |
 
-Recommendation: keep the shared code unless you specifically need to allow/deny
-individual parents or show per-parent info. If you do, the build is NextAuth with Google
-and Microsoft Entra providers + an allowlist check — ask and it can be added.
+Recommendation: the shared code is enough for a single junior team where everyone is
+trusted to edit. Switch to account mode when you need to allow or deny individuals, keep
+ratings and coach notes away from parents, or run several teams under one club login.
+The switch is one env var and is reversible — until `AUTH_SECRET` is set nothing changes.
 
 ---
 
@@ -147,14 +159,14 @@ extract — use a text PDF or paste the text).
 
 ---
 
-## Parent & coach login (Google / Microsoft / magic-link)
+## Account login and roles (Google / Microsoft / magic-link)
 
 Set `AUTH_SECRET` to switch the site from team-code mode to account login. Each
-provider activates only when its keys are present, so you can start with one.
-After signing in, a person sees a **Your teams** list built from the resolver:
-parents are matched by the emails on their child's record, coaches via a
-`coachEmails` array on the team. Picking a team drops them straight in — for a
-parent, already bound to their child for attendance (no kid-picking).
+provider activates only when its keys are present, so you can start with one. Until
+`AUTH_SECRET` is set, nothing changes — the team-code login stays. This is a beta of
+Auth.js v5; test on a preview deploy before switching the live site.
+
+### Providers
 
 **Magic-link (easiest first step):** add `AUTH_RESEND_KEY` + `AUTH_EMAIL_FROM`
 (Resend account, verified domain). Parents type their email, click the link, done.
@@ -167,10 +179,96 @@ Requires the Upstash adapter (already wired) to store the one-time tokens.
 `https://YOUR-DOMAIN/api/auth/callback/microsoft-entra-id`. Set the three
 `AUTH_MICROSOFT_ENTRA_ID_*` vars.
 
-Prerequisites: parent emails must be on the player records (the Majestri import
-captures them; or add them in the player editor), and `AUTH_URL` should be your
-site URL. Until `AUTH_SECRET` is set, nothing changes — the team-code login stays.
-This is a beta of Auth.js v5; test on a preview deploy before switching the live site.
+`AUTH_URL` should be your site URL.
+
+### Roles
+
+Roles exist only in account mode. They are resolved from the signed-in email in
+`lib/directory.js`, from most to least access:
+
+- **Super admin** — the emails in `ADMIN_EMAILS` (comma-separated, no quotes). A super
+  admin is a coach on every team, including teams added later, and is the only role
+  that can open `/admin`: club access control, the team wizard, league sync, managing
+  club admins, setting per-person per-team overrides, and **View as** any user
+  (read-only, marked by an orange banner). Super admins are immune to overrides.
+  **Set this before enabling `AUTH_SECRET`** — with no `ADMIN_EMAILS` nobody can
+  reach `/admin`.
+- **Club admin** — the emails in `CLUB_ADMIN_EMAILS`, or added at `/admin`. View-only
+  on every team: reads everything, writes nothing. Typical use: the club's technical
+  director.
+- **Coach** — either listed in the team's `coachEmails` (in the `TEAMS` JSON or set in
+  the `/admin` wizard), **or** any row on the team's staff list that has an email.
+  Head coach, Assistant coach and Manager are titles shown in the app; the rights are
+  the same coach-level access.
+- **Parent** — the emails on their child's player record (Majestri import, the wizard
+  roster, or the Squad tab). Parents read the team with redactions — no ratings, lineup
+  rules, coach notes or other families' contacts, and game plans / match records only
+  as far as the coach's **Parents can see** switches allow — and write only their own
+  children's RSVPs.
+- **Overrides** (`/admin`) — per email, per team, force coach, parent, viewer or
+  blocked. Overrides never apply to super admins.
+
+### Who can do what
+
+The same table is shown on `/admin` (data in `lib/roleMatrix.js`). "Coach" covers
+assistant coaches and managers on the staff list too. The last column is team-code
+mode, where there are no accounts.
+
+| Feature | Super admin | Club admin | Coach | Parent | Team code |
+|---|---|---|---|---|---|
+| **See** | | | | | |
+| Fixtures, results, calendar, training, duties | Yes | Yes | Yes | Yes | Yes |
+| Squad list, positions, photos, goals and assists | Yes | Yes | Yes | Yes | Yes |
+| Parents' contact details and family PINs | Yes | No | Yes | Own children | Yes |
+| Player ratings and coach notes | Yes | No | Yes | No | Yes |
+| Lineup rules and the coach PIN | Yes | No | Yes | No | Yes |
+| Game plan before kick-off | Yes | If the coach allows | Yes | If the coach allows | Yes |
+| Live lineup and clock on game day | Yes | If the coach allows | Yes | If the coach allows | Yes |
+| Match record and minutes played | Yes | If the coach allows | Yes | If the coach allows | Yes |
+| Ask the team assistant | Yes | Yes | Yes | Yes | Yes |
+| Calendar subscribe link | Yes | Yes | Yes | Yes | Yes |
+| **Do** | | | | | |
+| Reply In or Out for games and training | Anyone | No | Anyone | Own children | Anyone |
+| Edit fixtures, scores, duties, squad, staff, team details | Yes | No | Yes | No | Yes |
+| Set the game plan and run the live match | Yes | No | Yes | No | Yes |
+| Settings: parents can see, match format, home shape, lineup rules | Yes | No | Yes | No | Yes |
+| Rate players and write coach notes | Yes | No | Yes | No | Yes |
+| Sync fixtures from Squadi now | Yes | No | Yes | No | Yes |
+| Add web pages and PDFs to the assistant's knowledge | Yes | No | Yes | No | Yes |
+| League page setup | Yes | No | Yes | No | Yes |
+| Switch team or role, sign out | Yes | Yes | Yes | Yes | Yes |
+| **Club** | | | | | |
+| Open `/admin` | Yes | No | No | No | Not available |
+| Create and edit teams (the wizard) | Yes | No | No | No | Not available |
+| Add or remove club admins | Yes | No | No | No | Not available |
+| Per-person per-team overrides | Yes | No | No | No | Not available |
+| View as any user (read only) | Yes | No | No | No | Not available |
+
+"If the coach allows" follows the team's **Parents can see** switches in Settings. A
+coach who is also a parent gets exactly the Parent column while wearing the parent hat.
+Every visit still refreshes fixtures quietly for everyone; only the manual "sync now" is
+coach-level.
+
+### Hats: several roles, several teams
+
+One email can hold more than one role on the same team (a coach whose child plays
+there) and belong to several teams. On first sign-in, a person with a real choice picks
+the team and the hat — "Viewing as Coach" or "Viewing as Parent of Leo" — and a header
+chip shows the current hat and switches it. The choice is stored in the `team_slug` and
+`act_as` cookies and re-validated on every request: a cookie can only narrow what the
+person is entitled to, never widen it. Someone with a single team and a single hat never
+sees the picker.
+
+**Sign out** is the bottom-left button (in both modes). **Switch team or role** is also
+bottom-left, shown only when there is a choice.
+
+### Prerequisites and notes
+
+- Parent emails must be on the player records (the Majestri import captures them; or
+  add them in the wizard roster or the Squad tab).
+- Coaches need an email in `coachEmails` or on the team's staff list.
+- **Env teams taken over by the wizard:** editing an env-defined team in `/admin`
+  stores a copy in the data store; from then on the stored copy wins for that slug.
 
 ---
 
@@ -238,4 +336,5 @@ fails closed (no writes, error logged) rather than guessing.
 This site holds kids' names, locations, schedules and video links. The shared code keeps it
 off the open web, but anyone with the code (or the calendar key) can see everything. Keep
 both to the team, don't index the site publicly, and align with your club's consent policy.
-For revocable per-parent access, use the Google/Microsoft option above.
+For revocable per-person access and parent redactions, use account mode (see
+"Account login and roles" above).

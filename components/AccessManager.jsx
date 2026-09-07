@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import TeamWizard from "@/components/TeamWizard";
+import RoleMatrix from "@/components/RoleMatrix";
 
 const C = { red: "#C8102E", ink: "#1d1417", muted: "#7a6f72", line: "#eee", soft: "#f6f2f3" };
 const card = { background: "#fff", borderRadius: 16, padding: 18, marginBottom: 16, boxShadow: "0 10px 26px rgba(40,0,8,.18)", color: C.ink };
@@ -77,6 +78,14 @@ export default function AccessManager({ adminEmail }) {
         </div>
 
         {err && <div style={{ ...card, background: "#fff4f4", color: C.red, fontWeight: 700, fontSize: 14 }}>{err}</div>}
+
+        <details style={{ ...card, padding: 0, overflow: "hidden" }}>
+          <summary style={{ ...label, cursor: "pointer", padding: 18, marginBottom: 0, listStyle: "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>Who can do what</span>
+            <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>every role, every feature</span>
+          </summary>
+          <div style={{ padding: "0 18px 18px" }}><RoleMatrix /></div>
+        </details>
 
         {!state ? (
           <div style={{ ...card, textAlign: "center", color: C.muted }}>Loading…</div>

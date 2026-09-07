@@ -39,8 +39,20 @@ const BLANK = {
   features: { ...DEFAULT_FEATURES },
   parentsSee: { ...DEFAULT_PARENTS_SEE },
   logo: "", hasLogo: false, coachPin: "",
-  staff: STAFF_ROLES.map((role) => ({ role, name: "", mobile: "" }))
+  staff: STAFF_ROLES.map((role) => ({ role, name: "", mobile: "", email: "", custom: false }))
 };
+
+// Staff rows: an email on a row gives that person a coach-level login, with the
+// row's title shown in the app. On edit we keep EVERY existing row (including
+// titles the coach added in the dashboard) so an admin save never drops them or
+// wipes their emails, then make sure the three standard slots always show.
+// Rows outside STAFF_ROLES are "custom": free-text title, removable.
+const staffRow = (s = {}) => ({ role: s.role || "", name: s.name || "", mobile: s.mobile || "", email: s.email || "" });
+function staffForEdit(existing) {
+  const rows = (Array.isArray(existing) ? existing : []).map((s) => ({ ...staffRow(s), custom: !STAFF_ROLES.includes(s.role) }));
+  for (const role of STAFF_ROLES) if (!rows.some((r) => r.role === role)) rows.push({ ...staffRow({ role }), custom: false });
+  return rows;
+}
 
 export default function TeamWizard() {
   const [teams, setTeams] = useState(null);
@@ -78,10 +90,7 @@ export default function TeamWizard() {
       features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
       parentsSee: { ...DEFAULT_PARENTS_SEE, ...(t.parentsSee || {}) },
       logo: "", hasLogo: !!t.hasLogo, coachPin: t.coachPin || "",
-      staff: STAFF_ROLES.map((role) => {
-        const s = (t.staff || []).find((x) => x.role === role) || {};
-        return { role, name: s.name || "", mobile: s.mobile || "" };
-      })
+      staff: staffForEdit(t.staff)
     });
   };
 
@@ -133,7 +142,7 @@ export default function TeamWizard() {
       name: form.name, ageGroup: form.ageGroup, password: form.password.trim(),
       coachEmails: form.coachEmails, ...(squadi ? { squadi } : {}),
       division: form.division, whatsapp: form.whatsapp, features: form.features, parentsSee: form.parentsSee,
-      staff: form.staff.filter((s) => s.name.trim()),
+      staff: form.staff.filter((s) => s.name.trim()).map(({ role, name, mobile, email }) => ({ role, name, mobile, email })),
       coachPin: form.coachPin,
       ...(form.logo ? { logo: form.logo } : {}), // only when a new file was chosen
       ...(!editSlug && imported.players.length ? { players: imported.players } : {}),
@@ -271,9 +280,13 @@ export default function TeamWizard() {
             </button>
           )}
 
-          <span style={fieldLb}>4 · Coach / manager emails (optional — for account login)</span>
-          <input style={inp} placeholder="coach@example.com, manager@example.com" value={form.coachEmails}
+          <span style={fieldLb}>4 · Extra coach logins (optional)</span>
+          <input style={inp} placeholder="coach@example.com, another@example.com" value={form.coachEmails}
             onChange={(e) => setForm((f) => ({ ...f, coachEmails: e.target.value }))} />
+          <div style={hint}>
+            Emails here get coach-level access. Anyone on the staff list {editSlug ? "below" : "in step 10"} with an
+            email gets it too, with their title shown in the app.
+          </div>
 
           <span style={fieldLb}>5 · Squadi sync (optional — fill in when FQ publishes the draw)</span>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -392,15 +405,35 @@ export default function TeamWizard() {
             </label>
             <span style={{ fontSize: 11.5, color: C.muted }}>shown on the header, login and calendar</span>
           </div>
-          {form.staff.map((s, i) => (
-            <div key={s.role} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
-              <span style={{ width: 110, fontSize: 12, fontWeight: 700, color: C.muted }}>{s.role}</span>
-              <input style={{ ...inp, flex: "2 1 140px" }} placeholder="Name" value={s.name}
-                onChange={(e) => setForm((f) => ({ ...f, staff: f.staff.map((r, k) => k === i ? { ...r, name: e.target.value } : r) }))} />
-              <input style={{ ...inp, flex: "1 1 120px" }} placeholder="Mobile (optional)" inputMode="tel" value={s.mobile}
-                onChange={(e) => setForm((f) => ({ ...f, staff: f.staff.map((r, k) => k === i ? { ...r, mobile: e.target.value } : r) }))} />
-            </div>
-          ))}
+          <div style={{ ...hint, marginTop: 8 }}>
+            Staff with an email get coach-level login, with their title shown in the app. Add anyone else on the
+            bench with their own title.
+          </div>
+          {form.staff.map((s, i) => {
+            const set = (patch) => setForm((f) => ({ ...f, staff: f.staff.map((r, k) => (k === i ? { ...r, ...patch } : r)) }));
+            return (
+              <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+                {s.custom
+                  ? <input style={{ ...inp, flex: "1 1 110px" }} placeholder="Title (e.g. Goalkeeper coach)" value={s.role}
+                      onChange={(e) => set({ role: e.target.value })} />
+                  : <span style={{ width: 110, fontSize: 12, fontWeight: 700, color: C.muted }}>{s.role}</span>}
+                <input style={{ ...inp, flex: "2 1 140px" }} placeholder="Name" value={s.name}
+                  onChange={(e) => set({ name: e.target.value })} />
+                <input style={{ ...inp, flex: "1 1 120px" }} placeholder="Mobile (optional)" inputMode="tel" value={s.mobile}
+                  onChange={(e) => set({ mobile: e.target.value })} />
+                <input type="email" style={{ ...inp, flex: "2 1 180px" }} placeholder="Email (gives coach-level login)" inputMode="email" autoComplete="off" value={s.email}
+                  onChange={(e) => set({ email: e.target.value })} />
+                {s.custom && (
+                  <button aria-label="Remove staff member" style={{ background: "none", border: "none", color: C.red, fontWeight: 700, cursor: "pointer" }}
+                    onClick={() => setForm((f) => ({ ...f, staff: f.staff.filter((_, k) => k !== i) }))}>✕</button>
+                )}
+              </div>
+            );
+          })}
+          <button style={{ ...ghost, marginTop: 8, padding: "6px 11px", fontSize: 12 }}
+            onClick={() => setForm((f) => ({ ...f, staff: [...f.staff, { role: "", name: "", mobile: "", email: "", custom: true }] }))}>
+            Add staff member
+          </button>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
             <span style={{ width: 110, fontSize: 12, fontWeight: 700, color: C.muted }}>Coach PIN</span>
             <input style={{ ...inp, width: 120 }} inputMode="numeric" placeholder="e.g. 2468" value={form.coachPin}

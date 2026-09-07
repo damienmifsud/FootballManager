@@ -1,8 +1,11 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import DashboardHost from "@/components/DashboardHost";
+import { teamsFor, hatsFor, hasChoice } from "@/lib/hats";
 
 const AUTH_ON = !!process.env.AUTH_SECRET;
+
+const splash = { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "system-ui,sans-serif", background: "linear-gradient(160deg,#C8102E,#7A0A1B)", color: "#fff", textAlign: "center" };
 
 export default async function Page() {
   // Legacy team-code mode: middleware already gated entry; just show the dashboard.
@@ -27,11 +30,25 @@ export default async function Page() {
   const va = cookieStore.get("view_as")?.value;
   const impersonating = va && isAdminEmail(realEmail) ? decodeURIComponent(va) : null;
   const email = impersonating || realEmail;
+  const emailLabel = impersonating ? `${email} (viewing as)` : email;
 
   const { memberships } = await membershipsForEmail(email);
   if (memberships.length === 0) {
+    // A brand-new club: the super admin has no memberships because there are
+    // no teams yet. Point them at club admin instead of a dead end.
+    if (!impersonating && isAdminEmail(realEmail)) {
+      return (
+        <div style={splash}>
+          <div style={{ maxWidth: 360 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>No teams yet</div>
+            <div style={{ fontSize: 14, opacity: .9, marginBottom: 16 }}>You're the club's super admin. Create the first team to get started.</div>
+            <a href="/admin" style={{ display: "inline-block", background: "#fff", color: "#7A0A1B", borderRadius: 12, padding: "10px 16px", fontWeight: 700, textDecoration: "none" }}>Open club admin</a>
+          </div>
+        </div>
+      );
+    }
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "system-ui,sans-serif", background: "linear-gradient(160deg,#C8102E,#7A0A1B)", color: "#fff", textAlign: "center" }}>
+      <div style={splash}>
         <div style={{ maxWidth: 360 }}>
           <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>No team linked to {email}</div>
           <div style={{ fontSize: 14, opacity: .9 }}>
@@ -44,9 +61,27 @@ export default async function Page() {
     );
   }
 
-  const slug = cookieStore.get("team_slug")?.value;
-  const current = memberships.find((m) => m.teamSlug === slug);
-  if (!current) return <TeamPicker memberships={memberships} email={impersonating ? `${email} (viewing as)` : email} />;
+  // Which team: the team_slug cookie if it names a team this email belongs to;
+  // a lone team needs no choice; otherwise the picker.
+  const teams = teamsFor(memberships);
+  const slugCookie = cookieStore.get("team_slug")?.value;
+  const slug = teams.some((t) => t.teamSlug === slugCookie)
+    ? slugCookie
+    : (teams.length === 1 ? teams[0].teamSlug : null);
+  if (!slug) return <TeamPicker memberships={memberships} email={emailLabel} />;
 
-  return <DashboardHost canSwitch={memberships.length > 1} />;
+  // Which hat: one login can hold several roles on one team (a coach whose
+  // child plays there is coach AND parent). The act_as cookie carries the hat
+  // the session wears; lib/viewer.js re-validates it on every request and a
+  // value the email doesn't hold falls back to the strongest hat, so the
+  // cookie can only narrow. A multi-hat person with no valid act_as yet is
+  // asked once (picker preselected on their team); a single-hat person never
+  // is — there's nothing to choose.
+  const hats = hatsFor(memberships, slug);
+  const actAs = cookieStore.get("act_as")?.value;
+  if (hats.length > 1 && !hats.some((h) => h.role === actAs)) {
+    return <TeamPicker memberships={memberships} email={emailLabel} preselect={slug} />;
+  }
+
+  return <DashboardHost canSwitch={hasChoice(memberships)} />;
 }

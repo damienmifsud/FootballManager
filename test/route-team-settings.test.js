@@ -7,15 +7,15 @@ import { fakeRequest } from "./helpers/fakeRequest";
 // the settings screen survives their save. Coach-gated in account mode; any
 // code holder in legacy mode. AUTH_ON is module-load state, so each block
 // re-imports the route.
-const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, isCoachForTeam, viewingAs } = vi.hoisted(() => ({
+const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, viewingAs } = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(),
   teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(),
-  membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn(), viewingAs: vi.fn()
+  membershipsForEmail: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/store", () => ({ getData, setData }));
 vi.mock("@/lib/teams", () => ({ teamBySlug, teamFromCookieHeader }));
-vi.mock("@/lib/directory", () => ({ membershipsForEmail, isCoachForTeam, viewingAs }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail, viewingAs }));
 
 const PARENTS_SEE = { planBeforeKickoff: true, liveScore: false };
 const DATA = () => ({
@@ -63,11 +63,26 @@ async function loadRoute({ authOn }) {
   return import("@/app/api/team-settings/route");
 }
 
+// The worn hat decides what a login may do (real lib/viewer + lib/hats over
+// the mocked directory), so a session's intent lives in its membership roles.
 function coachSession() {
   auth.mockResolvedValue({ user: { email: "coach@a.com" } });
   membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "coach" }] });
   teamBySlug.mockReturnValue({ slug: "a" });
-  isCoachForTeam.mockResolvedValue(true);
+}
+function parentSession() {
+  auth.mockResolvedValue({ user: { email: "mum@a.com" } });
+  membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "parent", playerId: "p1", playerName: "Sam" }] });
+  teamBySlug.mockReturnValue({ slug: "a" });
+}
+// A coach whose child plays on the same team: two hats, act_as picks one.
+function coachParentSession() {
+  auth.mockResolvedValue({ user: { email: "coach@a.com" } });
+  membershipsForEmail.mockResolvedValue({ memberships: [
+    { teamSlug: "a", role: "coach" },
+    { teamSlug: "a", role: "parent", playerId: "p1", playerName: "Sam" }
+  ] });
+  teamBySlug.mockReturnValue({ slug: "a" });
 }
 
 // The untouched parts of the document must come back byte-identical.
@@ -127,13 +142,23 @@ describe("POST /api/team-settings — account mode", () => {
   });
 
   it("403s a parent (non-coach)", async () => {
-    coachSession();
-    isCoachForTeam.mockResolvedValue(false);
+    parentSession();
     const { POST } = await loadRoute({ authOn: true });
     const res = await POST(fakeRequest({ body: { parentsSee: PARENTS_SEE } }));
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: "forbidden" });
     expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("403s a coach-parent who is acting as the parent (the worn hat decides)", async () => {
+    coachParentSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { parentsSee: PARENTS_SEE }, cookies: { act_as: "parent" } }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "forbidden" });
+    expect(setData).not.toHaveBeenCalled();
+    // Without the act_as cookie the same login wears the coach hat and may write.
+    expect((await POST(fakeRequest({ body: { parentsSee: PARENTS_SEE } }))).status).toBe(200);
   });
 
   it("403s a write while a super admin is viewing as someone else", async () => {
@@ -155,7 +180,6 @@ describe("POST /api/team-settings — account mode", () => {
     const res = await POST(fakeRequest({ body: { parentsSee: PARENTS_SEE }, cookies: { team_slug: "b" } }));
     expect(res.status).toBe(200);
     expect(teamBySlug).toHaveBeenCalledWith("b");
-    expect(isCoachForTeam).toHaveBeenCalledWith("coach@a.com", "b");
     expect(getData).toHaveBeenCalledWith("b");
     expect(setData.mock.calls[0][0]).toBe("b");
   });
@@ -168,7 +192,6 @@ describe("POST /api/team-settings — legacy team-code mode", () => {
     const res = await POST(fakeRequest({ body: { parentsSee: PARENTS_SEE }, headers: { cookie: "site_auth=code" } }));
     expect(res.status).toBe(200);
     expect(auth).not.toHaveBeenCalled();
-    expect(isCoachForTeam).not.toHaveBeenCalled();
     expect(teamFromCookieHeader).toHaveBeenCalledWith("site_auth=code");
     expect(setData.mock.calls[0][1].team.parentsSee).toMatchObject({ planBeforeKickoff: true, liveScore: false });
   });

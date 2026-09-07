@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
 import { getData, setData } from "@/lib/store";
-import { teamBySlug, teamFromCookieHeader } from "@/lib/teams";
-import { auth } from "@/auth";
-import { membershipsForEmail, isCoachForTeam, viewingAs } from "@/lib/directory";
+import { resolveViewer, viewerError } from "@/lib/viewer";
 import { sanitizeParentsSee, sanitizeMatchFormat, sanitizeRules } from "@/lib/teamSetup";
 
 export const dynamic = "force-dynamic";
-
-const AUTH_ON = !!process.env.AUTH_SECRET;
 
 // Narrow team-settings endpoint: writes ONLY the named team.* fields (what
 // parents see, the match format, the match-day rules) and nothing else. The
@@ -36,25 +32,12 @@ export async function POST(req) {
     return NextResponse.json({ error: "bad request" }, { status: 400 });
   }
 
-  let team = null;
-  if (AUTH_ON) {
-    const session = await auth();
-    const email = session?.user?.email;
-    if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    if (viewingAs(req, email)) return NextResponse.json({ error: "You're viewing as another user — read only. Exit view-as to make changes." }, { status: 403 });
-    const { memberships } = await membershipsForEmail(email);
-    if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    const wanted = req.cookies.get("team_slug")?.value;
-    const chosen = memberships.find((m) => m.teamSlug === wanted) || memberships[0];
-    team = await teamBySlug(chosen.teamSlug);
-    if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    if (!(await isCoachForTeam(email, team.slug))) {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
-  } else {
-    team = await teamFromCookieHeader(req.headers.get("cookie"));
-    if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const v = await resolveViewer(req, { write: true });
+  if (v.error) return viewerError(v);
+  if (v.mode === "account" && v.hat.role !== "coach") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  const team = v.team;
 
   const data = await getData(team.slug);
   if (!data) return NextResponse.json({ error: "no data" }, { status: 404 });

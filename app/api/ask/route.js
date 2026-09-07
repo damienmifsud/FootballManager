@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getData } from "@/lib/store";
-import { teamFromCookieHeader, teamBySlug } from "@/lib/teams";
+import { teamFromCookieHeader } from "@/lib/teams";
 import { rulesAsText } from "@/lib/rulesData";
 
 export const dynamic = "force-dynamic";
@@ -32,21 +32,16 @@ async function pickModel() {
   return "claude-sonnet-4-20250514";
 }
 
+// Who is asking, on which team. A read: any hat may ask (parents, viewers and
+// club admins included), and a super admin "viewing as" someone gets that
+// person's team. Returns the viewer, or { error, message } to send back.
 async function resolveTeam(req) {
   if (AUTH_ON) {
-    const { auth } = await import("@/auth");
-    const { membershipsForEmail, viewingAs } = await import("@/lib/directory");
-    const session = await auth();
-    const realEmail = session?.user?.email;
-    if (!realEmail) return null;
-    const email = viewingAs(req, realEmail) || realEmail;
-    const { memberships } = await membershipsForEmail(email);
-    if (!memberships.length) return null;
-    const m = req.cookies.get("team_slug")?.value;
-    const chosen = memberships.find((x) => x.teamSlug === m) || memberships[0];
-    return await teamBySlug(chosen.teamSlug);
+    const { resolveViewer } = await import("@/lib/viewer");
+    return await resolveViewer(req);
   }
-  return await teamFromCookieHeader(req.headers.get("cookie"));
+  const team = await teamFromCookieHeader(req.headers.get("cookie"));
+  return team ? { mode: "code", team } : { error: 401, message: "unauthorized" };
 }
 
 function gameSummary(data) {
@@ -67,8 +62,9 @@ function gameSummary(data) {
 }
 
 export async function POST(req) {
-  const team = await resolveTeam(req);
-  if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const v = await resolveTeam(req);
+  if (v.error) return NextResponse.json({ error: v.message }, { status: v.error });
+  const team = v.team;
   if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: "The assistant isn't configured yet (no API key set)." }, { status: 503 });
 
   let body;

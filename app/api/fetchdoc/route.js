@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
-import { teamFromCookieHeader } from "@/lib/teams";
+import { resolveViewer, viewerError } from "@/lib/viewer";
 
 export const dynamic = "force-dynamic";
 
-const AUTH_ON = !!process.env.AUTH_SECRET;
-
+// Who may make the server fetch a URL on their behalf? This is a proxy, so it
+// is gated like a write: in account mode it needs the WORN coach hat on a
+// team (a signed-in account with no team, or a parent/viewer hat, is refused
+// — 401 / 403); a super admin "viewing as" someone is refused; legacy
+// team-code mode trusts anyone holding the code, as it always has. Returns
+// the viewer, or { error, message } to send back.
 async function authorized(req) {
-  if (AUTH_ON) {
-    const { auth } = await import("@/auth");
-    const session = await auth();
-    return !!session?.user?.email;
-  }
-  return !!(await teamFromCookieHeader(req.headers.get("cookie")));
+  const v = await resolveViewer(req, { write: true });
+  if (v.error) return v;
+  if (v.mode === "account" && v.hat?.role !== "coach") return { error: 403, message: "forbidden" };
+  return v;
 }
 
 // Very small HTML→text: drop scripts/styles/nav noise, strip tags, tidy whitespace.
@@ -29,7 +31,8 @@ function htmlToText(html) {
 }
 
 export async function POST(req) {
-  if (!(await authorized(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const v = await authorized(req);
+  if (v.error) return viewerError(v);
   let body;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "bad json" }, { status: 400 }); }
   const url = String(body.url || "").trim();

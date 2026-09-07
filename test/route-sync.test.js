@@ -2,21 +2,23 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { fakeRequest } from "./helpers/fakeRequest";
 
 // /api/sync has three auth lanes: a cron/pinger secret (syncs every team), a
-// signed-in coach in account mode (syncs only their team; parents refused),
+// signed-in account (syncs only their team: the throttled ?ifStale=1
+// sync-on-visit is open to any hat, a manual sync needs the WORN coach hat),
 // and — in legacy team-code mode — anyone holding the code (drives the
 // sync-on-visit and the /league Sync button). The Squadi fetch/apply is
 // mocked so no network is touched. AUTH_ON is read at module load, so each
-// test re-imports the route with the right env.
+// test re-imports the route with the right env. lib/viewer is the real
+// module — only its dependencies are mocked.
 const m = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(), getMeta: vi.fn(), setMeta: vi.fn(),
   fetchSquadi: vi.fn(), applySync: vi.fn(), getTeams: vi.fn(), teamBySlug: vi.fn(),
-  teamFromCookieHeader: vi.fn(), membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn(), viewingAs: vi.fn()
+  teamFromCookieHeader: vi.fn(), membershipsForEmail: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth: m.auth }));
 vi.mock("@/lib/store", () => ({ getData: m.getData, setData: m.setData, getMeta: m.getMeta, setMeta: m.setMeta }));
 vi.mock("@/lib/squadiSync", () => ({ fetchSquadi: m.fetchSquadi, applySync: m.applySync }));
 vi.mock("@/lib/teams", () => ({ getTeams: m.getTeams, teamBySlug: m.teamBySlug, teamFromCookieHeader: m.teamFromCookieHeader }));
-vi.mock("@/lib/directory", () => ({ membershipsForEmail: m.membershipsForEmail, isCoachForTeam: m.isCoachForTeam, viewingAs: m.viewingAs }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail: m.membershipsForEmail, viewingAs: m.viewingAs }));
 
 const TEAM = { slug: "a", name: "Team A", squadi: { competitionId: "1", divisionId: "2", teamId: 3 } };
 let savedSecret, savedAuthSecret;
@@ -98,26 +100,57 @@ describe("account mode — signed-in lane", () => {
     expect(res.status).toBe(401);
   });
 
-  it("403s a parent (non-coach) trying to trigger a sync", async () => {
+  const PARENT = { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam" };
+  const COACH = { teamSlug: "a", teamName: "Team A", role: "coach" };
+
+  it("403s a parent (non-coach) trying to trigger a manual sync", async () => {
     m.auth.mockResolvedValue({ user: { email: "mum@a.com" } });
-    m.membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "parent" }] });
+    m.membershipsForEmail.mockResolvedValue({ memberships: [PARENT] });
     m.teamBySlug.mockReturnValue(TEAM);
-    m.isCoachForTeam.mockResolvedValue(false);
     const { GET } = await loadRoute({ authOn: true });
     const res = await GET(fakeRequest({ url: "https://x.test/api/sync" }));
     expect(res.status).toBe(403);
     expect(m.fetchSquadi).not.toHaveBeenCalled();
   });
 
+  it("lets a parent's visit run the throttled ifStale sync (keeps fixtures near-live for everyone)", async () => {
+    m.auth.mockResolvedValue({ user: { email: "mum@a.com" } });
+    m.membershipsForEmail.mockResolvedValue({ memberships: [PARENT] });
+    m.teamBySlug.mockReturnValue(TEAM);
+    const { GET } = await loadRoute({ authOn: true });
+    const res = await GET(fakeRequest({ url: "https://x.test/api/sync?ifStale=1" }));
+    expect(res.status).toBe(200);
+    expect((await res.json())).toMatchObject({ ok: true, team: "a" });
+    expect(m.fetchSquadi).toHaveBeenCalledWith(TEAM.squadi);
+  });
+
   it("syncs just the coach's own team", async () => {
     m.auth.mockResolvedValue({ user: { email: "coach@a.com" } });
-    m.membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "coach" }] });
+    m.membershipsForEmail.mockResolvedValue({ memberships: [COACH] });
     m.teamBySlug.mockReturnValue(TEAM);
-    m.isCoachForTeam.mockResolvedValue(true);
     const { GET } = await loadRoute({ authOn: true });
     const res = await GET(fakeRequest({ url: "https://x.test/api/sync" }));
     expect(res.status).toBe(200);
     expect((await res.json())).toMatchObject({ ok: true, team: "a" });
+  });
+
+  it("403s a coach-parent who has chosen to act as the parent (manual sync)", async () => {
+    m.auth.mockResolvedValue({ user: { email: "both@a.com" } });
+    m.membershipsForEmail.mockResolvedValue({ memberships: [COACH, PARENT] });
+    m.teamBySlug.mockReturnValue(TEAM);
+    const { GET } = await loadRoute({ authOn: true });
+    const res = await GET(fakeRequest({ url: "https://x.test/api/sync", cookies: { act_as: "parent" } }));
+    expect(res.status).toBe(403);
+    expect(m.fetchSquadi).not.toHaveBeenCalled();
+  });
+
+  it("409s a member of several teams with no team chosen", async () => {
+    m.auth.mockResolvedValue({ user: { email: "both@a.com" } });
+    m.membershipsForEmail.mockResolvedValue({ memberships: [COACH, { teamSlug: "b", teamName: "Team B", role: "coach" }] });
+    const { GET } = await loadRoute({ authOn: true });
+    const res = await GET(fakeRequest({ url: "https://x.test/api/sync" }));
+    expect(res.status).toBe(409);
+    expect(m.fetchSquadi).not.toHaveBeenCalled();
   });
 });
 
@@ -139,14 +172,14 @@ describe("legacy team-code mode", () => {
   });
 });
 
-describe("account mode — view as blocks manual sync", () => {
-  it("403s while impersonating", async () => {
+describe("account mode — view as blocks any sync", () => {
+  it("403s while impersonating (manual and sync-on-visit alike — a sync writes)", async () => {
     m.getTeams.mockReturnValue([TEAM]);
     m.auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
     m.viewingAs.mockReturnValue("mum@a.com");
     const { GET } = await loadRoute({ authOn: true });
-    const res = await GET(fakeRequest({ url: "https://x.test/api/sync" }));
-    expect(res.status).toBe(403);
+    expect((await GET(fakeRequest({ url: "https://x.test/api/sync" }))).status).toBe(403);
+    expect((await GET(fakeRequest({ url: "https://x.test/api/sync?ifStale=1" }))).status).toBe(403);
     expect(m.fetchSquadi).not.toHaveBeenCalled();
   });
 });

@@ -5,11 +5,16 @@ import { fakeRequest } from "./helpers/fakeRequest";
 // Anthropic API. We mock the team resolution, the store and global fetch so we
 // can assert the gate behaviour and inspect exactly what prompt gets sent
 // (model selection, system prompt, doc budget, game summary, question slice).
-const { teamFromCookieHeader, teamBySlug, getData } = vi.hoisted(() => ({
-  teamFromCookieHeader: vi.fn(), teamBySlug: vi.fn(), getData: vi.fn()
+// Account mode goes through the real lib/viewer, so its dependencies (auth,
+// directory) are mocked too; the default is legacy team-code mode.
+const { teamFromCookieHeader, teamBySlug, getData, auth, membershipsForEmail, viewingAs } = vi.hoisted(() => ({
+  teamFromCookieHeader: vi.fn(), teamBySlug: vi.fn(), getData: vi.fn(),
+  auth: vi.fn(), membershipsForEmail: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/lib/teams", () => ({ teamFromCookieHeader, teamBySlug }));
 vi.mock("@/lib/store", () => ({ getData }));
+vi.mock("@/auth", () => ({ auth }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail, viewingAs }));
 
 async function loadRoute() {
   vi.resetModules();
@@ -64,6 +69,41 @@ describe("POST /api/ask — gates", () => {
   it("409s when the team has no data", async () => {
     getData.mockResolvedValue(null);
     expect((await ask({ question: "hi" })).status).toBe(409);
+  });
+});
+
+describe("POST /api/ask — account mode", () => {
+  beforeEach(() => { process.env.AUTH_SECRET = "test-secret"; });
+
+  it("lets a parent hat ask (any hat may read)", async () => {
+    auth.mockResolvedValue({ user: { email: "mum@a.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam" }] });
+    teamBySlug.mockResolvedValue({ slug: "a", name: "Team A" });
+    const res = await ask({ question: "When is training?" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ answer: "Here is your answer." });
+    expect(teamFromCookieHeader).not.toHaveBeenCalled();
+    expect(getData).toHaveBeenCalledWith("a");
+  });
+
+  it("401s when signed out or with no memberships", async () => {
+    auth.mockResolvedValue(null);
+    expect((await ask({ question: "hi" })).status).toBe(401);
+    auth.mockResolvedValue({ user: { email: "x@y.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships: [] });
+    expect((await ask({ question: "hi" })).status).toBe(401);
+  });
+
+  it("409s (pick a team) for a member of several teams with no team chosen", async () => {
+    auth.mockResolvedValue({ user: { email: "mum@a.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships: [
+      { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam" },
+      { teamSlug: "b", teamName: "Team B", role: "parent", playerId: "p2", playerName: "Leo" }
+    ] });
+    const res = await ask({ question: "hi" });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/pick a team/i);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
