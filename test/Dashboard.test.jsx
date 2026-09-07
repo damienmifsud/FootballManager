@@ -534,10 +534,13 @@ describe("App — per-team feature flags (duties)", () => {
     expect(screen.getByText("Jerseys")).toBeTruthy();
     expect(screen.queryByText("Fruit duty")).toBeNull();
     expect(screen.queryByText("In goal")).toBeNull();
-    // The Duties screen (pushed from the Home strip) shows only the jersey section.
+    // The Duties screen (pushed from the Home strip) shows only the jersey slot.
     fireEvent.click(screen.getByRole("button", { name: "Duties" }));
-    expect(await screen.findByText("Jersey washing")).toBeTruthy();
-    expect(screen.queryByText("Goalkeeper")).toBeNull();
+    expect(await screen.findByText("One job each week: a family washes the jerseys.")).toBeTruthy();
+    expect(screen.getByText("Jerseys")).toBeTruthy();
+    expect(screen.queryByText("Fruit duty")).toBeNull();
+    expect(screen.queryByText("In goal")).toBeNull();
+    expect(headerKicker()).toBe("Jersey rota");
   });
 });
 
@@ -1195,7 +1198,7 @@ describe("S1 shell — header, nav, back stack, toast", () => {
     render(<App />);
     await waitForLoaded();
     fireEvent.click(screen.getByRole("button", { name: "Duties" }));
-    expect(await screen.findByText("Roster")).toBeTruthy(); // DutiesTab, unchanged
+    expect(await screen.findByText(/Two jobs each week/)).toBeTruthy(); // DutiesTab
     expect(headerTitle()).toBe("Duties");
     expect(headerKicker()).toBe("Fruit and goalkeeper rota");
     expect(document.querySelector(".head img.hcrest")).toBeNull();
@@ -1397,17 +1400,22 @@ describe("S2 Home — Direction C cards", () => {
     expect(screen.queryByText("Who's in ›")).toBeNull();
   });
 
-  it("duties card: player names for assigned slots, 'Not assigned yet' otherwise; tapping pushes Duties", async () => {
-    await load(makeData({ players: kids, fixtures: [game({ fruit: "p1" })] }));
+  it("duties card: the family for fruit, the player in goal, 'Not assigned yet' otherwise; tapping pushes Duties", async () => {
+    await load(makeData({ players: kids, fixtures: [game({ fruit: "p1", gk: "p3" })] }));
     const card = screen.getByRole("button", { name: "Duties" });
     expect(within(card).getByText("Fruit duty")).toBeTruthy();
-    expect(within(card).getByText("Sam Smith")).toBeTruthy();
+    expect(within(card).getByText("Sam S.'s family")).toBeTruthy();
     expect(within(card).getByText("In goal")).toBeTruthy();
-    expect(within(card).getByText("Not assigned yet")).toBeTruthy();
+    expect(within(card).getByText("Milo P.")).toBeTruthy();
+    expect(within(card).queryByText("Sam Smith")).toBeNull();
     expect(within(card).queryByText("—")).toBeNull();
     fireEvent.click(card);
-    expect(await screen.findByText("Roster")).toBeTruthy();
+    expect(await screen.findByText(/Two jobs each week/)).toBeTruthy();
     expect(headerTitle()).toBe("Duties");
+    cleanup();
+    await load(makeData({ players: kids, fixtures: [game()] }));
+    const empty = screen.getByRole("button", { name: "Duties" });
+    expect(within(empty).getAllByText("Not assigned yet")).toHaveLength(2);
   });
 
   it("next 7 days lists training and the game with the parent's pills; the training row opens the session sheet", async () => {
@@ -1489,7 +1497,8 @@ describe("S2 Home — Direction C cards", () => {
     expect(screen.getByText("Nothing in the next 7 days. Enjoy the rest.")).toBeTruthy();
     expect(screen.getByText("Season so far")).toBeTruthy();
     fireEvent.click(screen.getByText("Duties ›"));
-    expect(await screen.findByText("Roster")).toBeTruthy();
+    expect(await screen.findByText(/Two jobs each week/)).toBeTruthy();
+    expect(screen.getByText("No games on the calendar yet.")).toBeTruthy();
   });
 });
 
@@ -1633,11 +1642,11 @@ describe("S3 Results + Match detail", () => {
     expect(screen.getByText("Blue kit").className).toBe("mpill kit");
     expect(screen.getByText("Arrive 08:30").className).toBe("mpill");
     const duties = screen.getByRole("button", { name: "Duties" });
-    expect(within(duties).getByText("Alex Smith")).toBeTruthy();
+    expect(within(duties).getByText("Alex S.'s family")).toBeTruthy();
     expect(within(duties).getByText("Not assigned yet")).toBeTruthy();
     expect(screen.getByText("This week's focus")).toBeTruthy();
     fireEvent.click(duties);
-    expect(await screen.findByText("Roster")).toBeTruthy();
+    expect(await screen.findByText(/Two jobs each week/)).toBeTruthy();
   });
 
   it("cancelled hero reads 'Cancelled' / 'Called off' in red, with no Who's in, duties or Match day card", async () => {
@@ -2778,5 +2787,310 @@ describe("S6 Availability — Direction C", () => {
     expect(document.querySelectorAll(".av-seg")).toHaveLength(3);
     expect(screen.getByRole("button", { name: "Nudge the 3 who haven't replied" })).toBeTruthy();
     expect(screen.getByText("As coach you can reply for anyone.")).toBeTruthy();
+  });
+});
+
+describe("S7 Duties — Direction C", () => {
+  const fmt = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
+
+  // Account mode with a working /api/duty; `duty` overrides what the route answers.
+  const meFetch = (me, duty = { ok: true, json: { ok: true } }) => {
+    fetch.mockImplementation((url) => {
+      if (String(url).includes("/api/me")) return Promise.resolve({ ok: true, json: async () => me });
+      if (String(url).includes("/api/duty")) return Promise.resolve({ ok: duty.ok, status: duty.status, json: async () => duty.json });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+  };
+  const account = (role, playerIds = [], playerNames = []) => {
+    const hat = { role, playerIds, playerNames };
+    return {
+      mode: "account", email: "x@a.com", admin: false, clubAdmin: false, teamSlug: "a", teamName: "Test FC", role, playerIds, playerNames,
+      hats: [hat], teams: [{ teamSlug: "a", teamName: "Test FC", hats: [hat] }], canSwitch: false, memberships: []
+    };
+  };
+  const kids = [
+    { id: "p1", name: "Sam Smith", number: 7, position: "FWD", guardians: [{ name: "Jo Smith", mobile: "0400 000 000" }] },
+    { id: "p2", name: "Alex Smith", number: 8, position: "MID" },
+    { id: "p3", name: "Milo Park", number: 9, position: "DEF" }
+  ];
+  const r5ISO = daysFromNow(-14), r7ISO = daysFromNow(6), r8ISO = daysFromNow(13);
+  const played = (over = {}) => ({ id: "r5", round: 5, status: "played", dateISO: r5ISO, time: "09:00", opponent: "Rovers", homeAway: "A", venue: "X", us: 3, them: 1, availability: {}, fruit: "p2", gk: "p1", ...over });
+  const game = (over = {}) => ({ id: "r7", round: 7, status: "upcoming", dateISO: r7ISO, time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park", availability: {}, ...over });
+  const later = (over = {}) => ({ id: "r8", round: 8, status: "upcoming", dateISO: r8ISO, time: "10:30", opponent: "Lions", homeAway: "A", venue: "Lion Park", availability: {}, ...over });
+  const team = (features) => ({ name: "Test FC", division: "Div 1", ageGroup: "U8", coachPin: "", headCoach: "Byron", ...(features ? { features } : {}) });
+  const data = (over = {}) => makeData({ team: team(), players: kids, fixtures: [game(), played(), later()], ...over });
+  const load = (d) => { storage.get.mockResolvedValue({ value: JSON.stringify(d) }); render(<App />); return waitForLoaded(); };
+  // Home's Duties card pushes the Duties screen.
+  const toDuties = async () => { fireEvent.click(await screen.findByRole("button", { name: "Duties" })); await screen.findByText(/each week:/); };
+  const cards = () => [...document.querySelectorAll(".ducard")];
+  const cardOf = (round) => cards().find((c) => c.querySelector(".du-round").textContent === `R${round}`);
+  const slotOf = (card, label) => within(card).getByText(label).closest(".du-slot");
+  const valueOf = (card, label) => slotOf(card, label).querySelector(".du-val").textContent;
+  const sheet = () => within(document.querySelector(".sheet"));
+  const toast = () => document.querySelector(".toast")?.textContent;
+  const dutyBodies = () => fetch.mock.calls.filter((c) => String(c[0]).includes("/api/duty")).map((c) => JSON.parse(c[1].body));
+
+  it("intro line and header kicker follow the team's duties; no duties gives the turned-off card", async () => {
+    await load(data());
+    await toDuties();
+    expect(document.querySelector(".du-intro").textContent).toBe("Two jobs each week: a family brings half-time fruit, and one player takes a turn in goal.");
+    expect(headerKicker()).toBe("Fruit and goalkeeper rota");
+    cleanup();
+    await load(data({ team: team({ fruitDuty: true, gkDuty: true, jerseyDuty: true }) }));
+    await toDuties();
+    expect(document.querySelector(".du-intro").textContent).toBe("Three jobs each week: a family brings half-time fruit, one player takes a turn in goal, and a family washes the jerseys.");
+    expect(headerKicker()).toBe("Fruit, goalkeeper and jersey rota");
+    expect(cardOf(7).querySelectorAll(".du-slot")).toHaveLength(3);
+    expect(within(cardOf(7)).getByText("Jerseys")).toBeTruthy();
+    cleanup();
+    await load(data({ team: team({ fruitDuty: true, gkDuty: false, jerseyDuty: false }) }));
+    await toDuties();
+    expect(document.querySelector(".du-intro").textContent).toBe("One job each week: a family brings half-time fruit.");
+    expect(headerKicker()).toBe("Fruit rota");
+    expect(cardOf(7).querySelectorAll(".du-slot")).toHaveLength(1);
+    cleanup();
+    await load(data({ team: team({ fruitDuty: false, gkDuty: false, jerseyDuty: false }), fixtures: [] }));
+    fireEvent.click(screen.getByText("Duties ›"));
+    expect(await screen.findByText("Duties are turned off")).toBeTruthy();
+    expect(document.querySelector(".du-intro")).toBeNull();
+    expect(headerKicker()).toBe("Turned off for this team");
+  });
+
+  it("one card per fixture in round order with the head row; past rounds fade; values are the family, the player, or 'Not assigned yet'", async () => {
+    await load(data({ fixtures: [later(), game({ fruit: "p1", gk: "p3" }), played()] }));
+    await toDuties();
+    expect(cards().map((c) => c.querySelector(".du-round").textContent)).toEqual(["R5", "R7", "R8"]);
+    expect(cards().map((c) => c.classList.contains("past"))).toEqual([true, false, false]);
+    const r7 = cardOf(7);
+    expect(r7.querySelector(".du-opp").textContent).toBe("vs Wests");
+    expect(r7.querySelector(".du-date").textContent).toBe(fmt(r7ISO));
+    expect(valueOf(r7, "Fruit duty")).toBe("Sam S.'s family");
+    expect(valueOf(r7, "In goal")).toBe("Milo P.");
+    expect(slotOf(r7, "In goal").querySelector(".du-val").className).toBe("du-val");
+    const r8 = cardOf(8);
+    expect(valueOf(r8, "Fruit duty")).toBe("Not assigned yet");
+    expect(slotOf(r8, "Fruit duty").querySelector(".du-val").className).toBe("du-val none");
+    expect(valueOf(cardOf(5), "Fruit duty")).toBe("Alex S.'s family");
+    expect(valueOf(cardOf(5), "In goal")).toBe("Sam S.");
+    expect(screen.queryByText("Sam Smith")).toBeNull();
+  });
+
+  it("a parent with one child: 'I'll do it' claims fruit at once — POST, optimistic value, toast, then 'Yours'", async () => {
+    meFetch(account("parent", ["p1"], ["Sam Smith"]));
+    await load(data());
+    await expectChip("Parent of Sam");
+    await toDuties();
+    const r7 = cardOf(7);
+    const fruit = slotOf(r7, "Fruit duty");
+    expect(within(fruit).getByText("Tap to volunteer")).toBeTruthy();
+    fireEvent.click(within(fruit).getByRole("button", { name: "I'll do it" }));
+    expect(valueOf(r7, "Fruit duty")).toBe("Sam S.'s family");
+    expect(toast()).toBe("Sam S.'s family on fruit for Round 7");
+    await waitFor(() => expect(dutyBodies()).toEqual([{ fixtureId: "r7", duty: "fruit", playerId: "p1" }]));
+    expect(within(fruit).queryByText("I'll do it")).toBeNull();
+    expect(within(fruit).getByText("Yours")).toBeTruthy();
+    expect(within(fruit).queryByText("Tap to volunteer")).toBeNull();
+    expect(document.querySelector(".sheet")).toBeNull();
+    expect(storage.set).not.toHaveBeenCalled(); // never a whole-document write
+    // The other upcoming round still offers the claim; the past one never did.
+    expect(within(cardOf(8)).getByRole("button", { name: "I'll do it" })).toBeTruthy();
+    expect(cardOf(5).querySelector(".du-claim")).toBeNull();
+  });
+
+  it("a parent with two children picks whose family in the sheet; the whole slot row is tappable", async () => {
+    meFetch(account("parent", ["p1", "p2"], ["Sam Smith", "Alex Smith"]));
+    await load(data());
+    await expectChip("Parent of Sam & Alex");
+    await toDuties();
+    fireEvent.click(slotOf(cardOf(7), "Fruit duty")); // the row, not the pill
+    expect(sheet().getByText("Fruit duty · Round 7")).toBeTruthy();
+    expect(sheet().getByText(`vs Wests · ${fmt(r7ISO)}`)).toBeTruthy();
+    expect(sheet().getByText("Half-time fruit for 3 kids — oranges or watermelon go down well. We'll let Coach Byron know it's sorted.")).toBeTruthy();
+    const chips = sheet().getAllByRole("radio");
+    expect(chips.map((c) => c.textContent)).toEqual(["Sam S.'s family", "Alex S.'s family"]);
+    expect(chips.map((c) => c.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+    fireEvent.click(chips[1]);
+    fireEvent.click(sheet().getByRole("button", { name: "Yes, I'll bring fruit" }));
+    expect(document.querySelector(".sheet")).toBeNull();
+    expect(valueOf(cardOf(7), "Fruit duty")).toBe("Alex S.'s family");
+    expect(toast()).toBe("Alex S.'s family on fruit for Round 7");
+    await waitFor(() => expect(dutyBodies()).toEqual([{ fixtureId: "r7", duty: "fruit", playerId: "p2" }]));
+    expect(dutyBodies()).toHaveLength(1);
+  });
+
+  it("jersey duty reads as a family duty for a parent: sheet copy, button and toast", async () => {
+    meFetch(account("parent", ["p1", "p2"], ["Sam Smith", "Alex Smith"]));
+    await load(data({ team: team({ fruitDuty: false, gkDuty: true, jerseyDuty: true }) }));
+    await expectChip("Parent of Sam & Alex");
+    await toDuties();
+    fireEvent.click(within(slotOf(cardOf(7), "Jerseys")).getByRole("button", { name: "I'll do it" }));
+    expect(sheet().getByText("Jerseys · Round 7")).toBeTruthy();
+    expect(sheet().getByText("Take the jerseys home after the game and bring them back washed for the next one. We'll let Coach Byron know it's sorted.")).toBeTruthy();
+    fireEvent.click(sheet().getByRole("button", { name: "Yes, I'll wash the jerseys" }));
+    expect(valueOf(cardOf(7), "Jerseys")).toBe("Sam S.'s family");
+    expect(toast()).toBe("Sam S.'s family on jerseys for Round 7");
+    await waitFor(() => expect(dutyBodies()).toEqual([{ fixtureId: "r7", duty: "jersey", playerId: "p1" }]));
+  });
+
+  it("a parent gets no control on the keeper slot, nor on a slot another family holds", async () => {
+    meFetch(account("parent", ["p1"], ["Sam Smith"]));
+    await load(data({ fixtures: [game({ fruit: "p3" }), later()] }));
+    await expectChip("Parent of Sam");
+    await toDuties();
+    const r7 = cardOf(7);
+    const gk = slotOf(r7, "In goal");
+    expect(gk.querySelector(".softpill, .du-claim")).toBeNull();
+    expect(gk.getAttribute("role")).toBeNull();
+    expect(within(gk).queryByText(/Tap to/)).toBeNull();
+    const fruit = slotOf(r7, "Fruit duty");
+    expect(valueOf(r7, "Fruit duty")).toBe("Milo P.'s family");
+    expect(fruit.querySelector(".softpill, .du-claim")).toBeNull();
+    expect(within(fruit).queryByText(/Tap to/)).toBeNull();
+    // Round 8's fruit is free: exactly one control on the whole screen.
+    expect(document.querySelectorAll(".du-claim, .softpill")).toHaveLength(1);
+    fireEvent.click(gk);
+    expect(document.querySelector(".sheet")).toBeNull();
+  });
+
+  it("'Yours' opens the sheet; 'Can't do it after all' releases the claim — POST \"\" and the cleared toast", async () => {
+    meFetch(account("parent", ["p1"], ["Sam Smith"]));
+    await load(data({ fixtures: [game({ fruit: "p1" })] }));
+    await expectChip("Parent of Sam");
+    await toDuties();
+    const r7 = cardOf(7);
+    expect(valueOf(r7, "Fruit duty")).toBe("Sam S.'s family");
+    fireEvent.click(within(slotOf(r7, "Fruit duty")).getByText("Yours"));
+    expect(sheet().getByText("Fruit duty · Round 7")).toBeTruthy();
+    expect(sheet().getByText("Your family is on fruit this round. Thanks!")).toBeTruthy();
+    expect(sheet().queryByText(/Yes, I'll/)).toBeNull();
+    fireEvent.click(sheet().getByRole("button", { name: "Can't do it after all" }));
+    expect(document.querySelector(".sheet")).toBeNull();
+    expect(valueOf(r7, "Fruit duty")).toBe("Not assigned yet");
+    expect(toast()).toBe("Fruit duty cleared for Round 7");
+    await waitFor(() => expect(dutyBodies()).toEqual([{ fixtureId: "r7", duty: "fruit", playerId: "" }]));
+    expect(within(slotOf(r7, "Fruit duty")).getByRole("button", { name: "I'll do it" })).toBeTruthy();
+  });
+
+  it("a refused write is undone and the server's reason is toasted; a plain failure gets the generic line", async () => {
+    meFetch(account("parent", ["p1"], ["Sam Smith"]), { ok: false, status: 403, json: { error: "That duty is already taken." } });
+    await load(data());
+    await expectChip("Parent of Sam");
+    await toDuties();
+    const r7 = cardOf(7);
+    fireEvent.click(within(slotOf(r7, "Fruit duty")).getByRole("button", { name: "I'll do it" }));
+    expect(valueOf(r7, "Fruit duty")).toBe("Sam S.'s family"); // optimistic
+    await waitFor(() => expect(toast()).toBe("That duty is already taken."));
+    expect(valueOf(r7, "Fruit duty")).toBe("Not assigned yet");
+    expect(within(slotOf(r7, "Fruit duty")).getByRole("button", { name: "I'll do it" })).toBeTruthy();
+    cleanup();
+    meFetch(account("parent", ["p1"], ["Sam Smith"]), { ok: false, status: 500, json: { error: "boom" } });
+    await load(data());
+    await expectChip("Parent of Sam");
+    await toDuties();
+    fireEvent.click(within(slotOf(cardOf(7), "Fruit duty")).getByRole("button", { name: "I'll do it" }));
+    await waitFor(() => expect(toast()).toBe("Couldn't save — your change was undone."));
+    expect(valueOf(cardOf(7), "Fruit duty")).toBe("Not assigned yet");
+  });
+
+  it("coach: 'Assign' opens a list of families for fruit and of players with '#7 · FWD' for the keeper; a tap assigns, posts and toasts", async () => {
+    meFetch(account("coach"));
+    await load(data());
+    await expectChip("Coach");
+    await toDuties();
+    const r7 = cardOf(7);
+    const fruit = slotOf(r7, "Fruit duty");
+    expect(within(fruit).getByText("Tap to assign")).toBeTruthy();
+    fireEvent.click(within(fruit).getByText("Assign"));
+    expect(sheet().getByText("Fruit duty · Round 7")).toBeTruthy();
+    expect(sheet().getByText(`vs Wests · ${fmt(r7ISO)}`)).toBeTruthy();
+    const rows = () => [...document.querySelectorAll(".ds-row")];
+    expect(rows().map((r) => r.querySelector(".ds-name").textContent)).toEqual(["Sam Smith's family", "Alex Smith's family", "Milo Park's family"]);
+    expect(rows().map((r) => r.querySelector(".ds-sub").textContent)).toEqual(["Jo", "No contact", "No contact"]);
+    expect(rows()[0].querySelector(".ds-disc").textContent).toBe("SS");
+    expect(sheet().queryByLabelText("Assigned")).toBeNull();
+    expect(sheet().queryByText("Clear")).toBeNull();
+    fireEvent.click(rows()[0]);
+    expect(document.querySelector(".sheet")).toBeNull();
+    expect(valueOf(r7, "Fruit duty")).toBe("Sam S.'s family");
+    expect(toast()).toBe("Sam S.'s family on fruit for Round 7");
+    expect(within(slotOf(r7, "Fruit duty")).getByText("Change")).toBeTruthy();
+
+    fireEvent.click(within(slotOf(r7, "In goal")).getByText("Assign"));
+    expect(sheet().getByText("In goal · Round 7")).toBeTruthy();
+    expect(rows().map((r) => r.querySelector(".ds-name").textContent)).toEqual(["Sam Smith", "Alex Smith", "Milo Park"]);
+    expect(rows().map((r) => r.querySelector(".ds-sub").textContent)).toEqual(["#7 · FWD", "#8 · MID", "#9 · DEF"]);
+    fireEvent.click(rows()[2]);
+    expect(valueOf(r7, "In goal")).toBe("Milo P.");
+    expect(toast()).toBe("Milo P. in goal for Round 7");
+    await waitFor(() => expect(dutyBodies()).toEqual([
+      { fixtureId: "r7", duty: "fruit", playerId: "p1" },
+      { fixtureId: "r7", duty: "gk", playerId: "p3" }
+    ]));
+    expect(storage.set).not.toHaveBeenCalled();
+  });
+
+  it("coach: 'Change' marks the holder and offers Clear, which posts \"\" and toasts the cleared line", async () => {
+    meFetch(account("coach"));
+    await load(data({ fixtures: [game({ gk: "p1", fruit: "p2" })] }));
+    await expectChip("Coach");
+    await toDuties();
+    const r7 = cardOf(7);
+    fireEvent.click(within(slotOf(r7, "In goal")).getByText("Change"));
+    const marked = sheet().getByLabelText("Assigned").closest(".ds-row");
+    expect(marked.querySelector(".ds-name").textContent).toBe("Sam Smith");
+    expect(sheet().getAllByLabelText("Assigned")).toHaveLength(1);
+    fireEvent.click(sheet().getByRole("button", { name: "Clear" }));
+    expect(document.querySelector(".sheet")).toBeNull();
+    expect(valueOf(r7, "In goal")).toBe("Not assigned yet");
+    expect(toast()).toBe("In goal cleared for Round 7");
+    await waitFor(() => expect(dutyBodies()).toEqual([{ fixtureId: "r7", duty: "gk", playerId: "" }]));
+    expect(within(slotOf(r7, "In goal")).getByText("Assign")).toBeTruthy();
+    // The fruit slot was left alone.
+    expect(valueOf(r7, "Fruit duty")).toBe("Alex S.'s family");
+  });
+
+  it("legacy coach mode gets the same controls as a coach hat", async () => {
+    fetch.mockImplementation((url) => Promise.resolve(String(url).includes("/api/duty") ? { ok: true, status: 200, json: async () => ({ ok: true }) } : { ok: false, json: async () => ({}) }));
+    await load(data());
+    await enterCoachMode();
+    await toDuties();
+    fireEvent.click(within(slotOf(cardOf(8), "In goal")).getByText("Assign"));
+    fireEvent.click(sheet().getByText("Alex Smith").closest(".ds-row"));
+    expect(valueOf(cardOf(8), "In goal")).toBe("Alex S.");
+    expect(toast()).toBe("Alex S. in goal for Round 8");
+    await waitFor(() => expect(dutyBodies()).toEqual([{ fixtureId: "r8", duty: "gk", playerId: "p2" }]));
+  });
+
+  it("a viewer sees every card and no controls or hints; a past round has none even for the coach", async () => {
+    meFetch(account("viewer"));
+    await load(data({ fixtures: [game({ fruit: "p1" }), played(), later()] }));
+    await expectChip("View only");
+    await toDuties();
+    expect(cards()).toHaveLength(3);
+    expect(document.querySelectorAll(".du-claim, .softpill, .du-hint, .du-slot[role=button]")).toHaveLength(0);
+    fireEvent.click(slotOf(cardOf(7), "Fruit duty"));
+    expect(document.querySelector(".sheet")).toBeNull();
+    cleanup();
+    meFetch(account("coach"));
+    await load(data());
+    await expectChip("Coach");
+    await toDuties();
+    const r5 = cardOf(5);
+    expect(r5.classList.contains("past")).toBe(true);
+    expect(r5.querySelectorAll(".du-claim, .softpill, .du-hint, .du-slot[role=button]")).toHaveLength(0);
+    expect(valueOf(r5, "Fruit duty")).toBe("Alex S.'s family");
+    expect(cardOf(7).querySelectorAll(".softpill")).toHaveLength(2);
+  });
+
+  it("the coach's fixture editor no longer carries duty selects — duties are the Duties screen's alone", async () => {
+    meFetch(account("coach"));
+    await load(data());
+    await expectChip("Coach");
+    fireEvent.click(within(screen.getByRole("navigation")).getByText("Results"));
+    fireEvent.click(await screen.findByText("Add fixture"));
+    await screen.findByRole("button", { name: "Save fixture" });
+    expect(sheet().queryByText("Fruit duty")).toBeNull();
+    expect(sheet().queryByText("Goalkeeper")).toBeNull();
+    expect(sheet().queryByText("— none —")).toBeNull();
   });
 });

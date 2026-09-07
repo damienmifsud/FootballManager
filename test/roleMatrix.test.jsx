@@ -56,6 +56,11 @@ describe("lib/roleMatrix — facts the code enforces", () => {
 
   it("a parent replies only for their own children and sees only their own family's contacts", () => {
     expect(byFeature("Reply In or Out for games and training").parent).toBe("own");
+    // Duties (S7): coaches assign and clear everything; parents claim fruit or
+    // jersey duty for their own family; club admins read only.
+    expect(byFeature("Duties: fruit, jerseys and the goalkeeper")).toMatchObject({ coach: "yes", parent: "own", club: "no", code: "yes" });
+    expect(byFeature("Duties: fruit, jerseys and the goalkeeper").note).toMatch(/never the goalkeeper/);
+    expect(byFeature("Edit fixtures, scores, squad, staff, team details").parent).toBe("no");
     expect(byFeature("Parents' contact details and family PINs").parent).toBe("own");
     expect(byFeature("Player ratings and coach notes").parent).toBe("no");
     expect(byFeature("Lineup rules and the coach PIN").parent).toBe("no");

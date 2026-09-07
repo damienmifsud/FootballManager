@@ -580,12 +580,39 @@ const CSS = `
 .grow .gnm{flex:1;font-size:14px;font-weight:600;}
 .empty{text-align:center;padding:34px 16px;color:var(--muted);}
 .empty .disp{font-size:20px;color:var(--ink);margin-bottom:6px;}
-.section-title{display:flex;align-items:center;gap:8px;margin:18px 2px 8px;}
-.section-title .disp{font-size:16px;}
-.dutyrow{display:flex;align-items:center;gap:11px;padding:12px 4px;border-bottom:1px solid var(--line);}
-.dutyrow:last-child{border-bottom:none;}
-.dutyrow .rbadge{width:34px;height:34px;border-radius:10px;background:var(--soft);font-family:'Anton';
-  display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+/* duties (S7): intro line, one card per round, a slot per duty, the duty sheet */
+.duties{display:flex;flex-direction:column;gap:var(--card-gap);}
+.duties>.card{margin-bottom:0;}
+.du-intro{font-size:13px;color:var(--muted);line-height:1.45;padding:0 4px;}
+.ducard{padding:12px 16px 4px;}
+.ducard.past{opacity:.5;}
+.du-head{display:flex;align-items:baseline;gap:8px;}
+.du-round{font-family:'Anton',sans-serif;font-weight:400;font-size:18px;line-height:1;color:var(--pitch);}
+.du-opp{font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.du-date{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowrap;}
+.du-slot{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);}
+.du-head+.du-slot{margin-top:10px;}
+.du-slot.tap{cursor:pointer;}
+.du-body{flex:1;min-width:0;}
+.du-val{font-size:14px;font-weight:800;}
+.du-val.none{color:var(--muted);}
+.du-hint{font-size:11px;color:var(--muted);}
+.du-claim{border:none;border-radius:999px;padding:8px 12px;font:inherit;font-size:12px;font-weight:800;cursor:pointer;min-height:34px;flex-shrink:0;
+  background:var(--pitch);color:#fff;}
+.ds-body{font-size:14px;color:var(--ink);margin-top:14px;line-height:1.5;}
+.ds-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;}
+.ds-chip{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:999px;padding:7px 11px;font:inherit;font-size:12px;font-weight:700;
+  cursor:pointer;min-height:34px;}
+.ds-chip.on{background:var(--pitch);color:#fff;border-color:var(--pitch);}
+.sheet .ds-btn{margin-top:16px;min-height:48px;font-size:15px;font-weight:800;}
+.ds-list{margin-top:8px;}
+.ds-row{width:100%;background:none;border:none;border-bottom:1px solid var(--line);padding:11px 0;display:flex;align-items:center;gap:12px;
+  cursor:pointer;text-align:left;color:var(--ink);font:inherit;min-height:48px;}
+.ds-row:last-child{border-bottom:none;}
+.ds-disc{width:32px;height:32px;border-radius:50%;background:var(--soft);display:inline-flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:800;color:var(--muted);flex-shrink:0;}
+.ds-name{flex:1;min-width:0;font-weight:800;font-size:14px;}
+.ds-sub{font-size:12px;color:var(--muted);white-space:nowrap;}
 .note{font-size:12px;color:var(--muted);line-height:1.5;}
 .playtag{display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:800;padding:2px 6px;
   border-radius:5px;background:#ffe6e6;color:#c0393d;margin-left:6px;vertical-align:middle;}
@@ -896,6 +923,14 @@ const SUB_TITLES = {
   duties: ["Duties", "Fruit and goalkeeper rota"],
   stats: ["Stats", `Season ${SEASON}`]
 };
+// The Duties kicker names the duties this team runs: "Fruit and goalkeeper
+// rota" (the default), "Fruit, goalkeeper and jersey rota", "Fruit rota", …
+const dutiesKicker = (team) => {
+  const words = enabledDuties(team).map((k) => DUTY_DEFS[k].word);
+  if (!words.length) return "Turned off for this team";
+  const s = joinNames(words) + " rota";
+  return s[0].toUpperCase() + s.slice(1);
+};
 
 export default function App() {
   const [data, setData] = useState(null);
@@ -1103,6 +1138,7 @@ export default function App() {
       : whosIn.show === "session" ? `${whosIn.session.s.title} · ${fmtDate(whosIn.session.occ)}${whosIn.session.s.time ? " " + whosIn.session.s.time : ""}`
       : `${roundOf(whosIn.game) ? roundOf(whosIn.game) + " " : ""}vs ${whosIn.game.opponent} · ${fmtDate(whosIn.game.dateISO)}${whosIn.game.time ? " " + whosIn.game.time : ""}`]
     : screen === "player" ? [screenPlayer?.name || "Player", screenPlayer ? [screenPlayer.number ? `#${screenPlayer.number}` : "", screenPlayer.position || ""].filter(Boolean).join(" · ") : ""]
+    : screen === "duties" ? [SUB_TITLES.duties[0], dutiesKicker(data.team)]
     : (SUB_TITLES[screen] || [screen, ""]);
   const chipLabel = account ? hatText : (isCoach ? "Coach" : "Parent");
   // Root kicker: the shown month on Calendar, "n players · m coaches" on Squad,
@@ -1165,7 +1201,7 @@ export default function App() {
         {screen === "squad" && <SquadTab {...{ data, stats, next, isCoach, viewer, me, setModal, openPlayer }} />}
         {screen === "player" && screenPlayer && <PlayerScreen {...{ data, p: screenPlayer, next, persist, patchLocal, isCoach, viewer, me, setModal }} />}
         {screen === "ask" && <AskTab {...{ data, viewer, isCoach, account }} />}
-        {screen === "duties" && <DutiesTab {...{ data, isCoach, pname, setModal }} />}
+        {screen === "duties" && <DutiesTab {...{ data, isCoach, viewer, me, setModal, patchLocal, showToast }} />}
         {screen === "stats" && <StatsTab {...{ data, stats, pname }} />}
         {screen === "settings" && <SettingsTab {...{ data, isCoach, persist, patchLocal, setIsCoach, setModal, account }} />}
       </div>
@@ -1387,16 +1423,63 @@ function ReplyRow({ p, status, onTap, name }) {
   );
 }
 
-// Duties card (S2): one slot per duty feature that's on, the assigned player
-// or "Not assigned yet"; tap → Duties. Shared by Home and Match detail.
+// ---- Duties (S7) -----------------------------------------------------------
+// Duty data stays on the fixture: fixture.fruit / .gk / .jersey hold a player
+// id ("" or absent = nobody). Fruit and jerseys are FAMILY duties ("Sam S.'s
+// family"); in goal is a PLAYER duty ("Sam S."). Every write goes through the
+// narrow /api/duty route (never the whole document), optimistic, undone with a
+// toast when the server refuses.
+const DUTY_DEFS = {
+  fruit: { feat: "fruitDuty", label: "Fruit duty", Icon: Apple, family: true, word: "fruit", job: "a family brings half-time fruit", on: "on fruit", cleared: "Fruit duty cleared", yes: "Yes, I'll bring fruit" },
+  gk: { feat: "gkDuty", label: "In goal", Icon: ShieldCheck, family: false, word: "goalkeeper", job: "one player takes a turn in goal", on: "in goal", cleared: "In goal cleared" },
+  jersey: { feat: "jerseyDuty", label: "Jerseys", Icon: Shirt, family: true, word: "jersey", job: "a family washes the jerseys", on: "on jerseys", cleared: "Jerseys cleared", yes: "Yes, I'll wash the jerseys" }
+};
+const DUTY_ORDER = ["fruit", "gk", "jersey"];
+const enabledDuties = (team) => { const feats = teamFeatures(team); return DUTY_ORDER.filter((k) => feats[DUTY_DEFS[k].feat]); };
+// "Sam S.'s family" (fruit, jerseys) / "Sam S." (in goal) / null when nobody.
+const dutyWho = (data, key, id) => {
+  const p = id ? (data.players || []).find((x) => x.id === id) : null;
+  if (!p) return null;
+  const s = shortName(p.name);
+  return DUTY_DEFS[key].family ? `${s}'s family` : s;
+};
+const roundText = (f) => (f?.round ? `Round ${f.round}` : "this game");
+// Optimistic duty write through /api/duty. D4 on the client too: a newly set
+// keeper also fills the plan's block-1 GK slot when the plan has one, exactly
+// as the server does, so the planner opens on the same keeper.
+async function saveDuty({ fixture, duty, playerId, data, patchLocal, showToast }) {
+  const prevVal = fixture[duty] ?? "";
+  const prevPlan = fixture.plan;
+  const apply = (val, plan) => patchLocal((d) => ({
+    ...d,
+    fixtures: (d.fixtures || []).map((x) => {
+      if (x.id !== fixture.id) return x;
+      const out = { ...x, [duty]: val };
+      if (plan !== undefined) out.plan = plan;
+      return out;
+    })
+  }));
+  const first = Array.isArray(fixture.plan?.assignments) ? fixture.plan.assignments[0] : null;
+  const planNext = duty === "gk" && playerId && first && typeof first === "object" && "GK" in first
+    ? { ...fixture.plan, assignments: fixture.plan.assignments.map((b, i) => (i === 0 ? { ...b, GK: playerId } : b)) }
+    : undefined;
+  apply(playerId, planNext);
+  const who = dutyWho(data, duty, playerId);
+  showToast(playerId && who ? `${who} ${DUTY_DEFS[duty].on} for ${roundText(fixture)}` : `${DUTY_DEFS[duty].cleared} for ${roundText(fixture)}`);
+  try {
+    await fetchJson("/api/duty", { fixtureId: fixture.id, duty, playerId });
+  } catch (e) {
+    console.error("Could not save duty:", e);
+    apply(prevVal, planNext !== undefined ? prevPlan : undefined);
+    showToast(e?.status === 403 && e.message ? e.message : "Couldn't save — your change was undone.");
+  }
+}
+
+// Duties card (S2): one slot per duty feature that's on, who has it ("Sam S.'s
+// family" for the family duties, "Sam S." in goal) or "Not assigned yet"; tap
+// → Duties. Shared by Home and Match detail.
 function DutyCard({ data, f, onOpen }) {
-  const feats = teamFeatures(data.team);
-  const playerName = (id) => data.players.find(p => p.id === id)?.name || null;
-  const duties = f ? [
-    feats.fruitDuty && { cls: "fruit", Icon: Apple, label: "Fruit duty", who: playerName(f.fruit) },
-    feats.gkDuty && { cls: "gk", Icon: ShieldCheck, label: "In goal", who: playerName(f.gk) },
-    feats.jerseyDuty && { cls: "jersey", Icon: Shirt, label: "Jerseys", who: playerName(f.jersey) }
-  ].filter(Boolean) : [];
+  const duties = f ? enabledDuties(data.team).map((key) => ({ cls: key, Icon: DUTY_DEFS[key].Icon, label: DUTY_DEFS[key].label, who: dutyWho(data, key, f[key]) })) : [];
   if (!duties.length) return null;
   return (
     <div className="card dutycard" role="button" tabIndex={0} aria-label="Duties"
@@ -1919,42 +2002,169 @@ function SquadTab({ data, stats, next, isCoach, viewer, me, setModal, openPlayer
   );
 }
 
-/* ---------------- DUTIES ---------------- */
-function DutiesTab({ data, isCoach, pname, setModal }) {
-  const fixtures = [...data.fixtures].sort((a, b) => a.round - b.round);
-  const feats = teamFeatures(data.team);
-  const sections = [
-    feats.fruitDuty && { key: "fruit", label: "Fruit duty", Icon: Apple, color: "var(--amber)" },
-    feats.gkDuty && { key: "gk", label: "Goalkeeper", Icon: ShieldCheck, color: "var(--pitch)" },
-    feats.jerseyDuty && { key: "jersey", label: "Jersey washing", Icon: Shirt, color: "var(--pitch)" }
-  ].filter(Boolean);
-  if (!sections.length) {
+/* ---------------- DUTIES (S7, Direction C) ---------------- */
+// "Two jobs each week: a family brings half-time fruit, and one player takes a
+// turn in goal." — built from the duties this team runs.
+const COUNT_WORDS = ["", "One job", "Two jobs", "Three jobs"];
+const dutiesIntro = (keys) => {
+  const jobs = keys.map((k) => DUTY_DEFS[k].job);
+  const list = jobs.length === 1 ? jobs[0] : `${jobs.slice(0, -1).join(", ")}, and ${jobs[jobs.length - 1]}`;
+  return `${COUNT_WORDS[jobs.length]} each week: ${list}.`;
+};
+
+// One card per round, a slot per duty. Parents claim fruit / jerseys for their
+// own family (never the keeper); coaches assign or clear anything; past rounds
+// fade and lose their controls. The server enforces the same rules (/api/duty).
+function DutiesTab({ data, isCoach, viewer, me, setModal, patchLocal, showToast }) {
+  const keys = enabledDuties(data.team);
+  if (!keys.length) {
     return (
       <div className="card"><div className="empty"><div className="disp">Duties are turned off</div><div className="note">Fruit, jersey and goalkeeper duty can be switched on for this team from the club admin page.</div></div></div>
     );
   }
-  return (
-    <>
-      <div className="card">
-        <div className="label" style={{ marginBottom: 4 }}>Roster</div>
-        <div className="note">{sections.map(s => s.label).join(", ")} by round. {isCoach ? "Tap a round to assign." : "Tap into Coach mode to edit."}</div>
-      </div>
-      {sections.map(({ key, label, Icon, color }) => (
-        <div key={key}>
-          <div className="section-title"><Icon size={16} color={color} /><div className="disp">{label}</div></div>
-          <div className="card" style={{ padding: "6px 14px" }}>
-            {fixtures.map(f => (
-              <div className="dutyrow" key={f.id} onClick={() => isCoach && setModal({ type: "fixture", payload: f })} style={{ cursor: isCoach ? "pointer" : "default" }}>
-                <div className="rbadge">{f.round}</div>
-                <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{pname(f[key])}</div><div className="note">{fmtDate(f.dateISO)} · vs {f.opponent}</div></div>
-                {isCoach && <ChevronRight size={16} color="var(--muted)" />}
-              </div>
-            ))}
-          </div>
+  const fixtures = data.fixtures.filter((f) => f.dateISO && f.status !== "cancelled").sort((a, b) => (a.round || 0) - (b.round || 0));
+  const own = ownPlayers(data, { isCoach, me, viewer });
+  const openSheet = (f, duty) => setModal({ type: "duty", payload: { fixtureId: f.id, duty } });
+
+  const slot = (f, key, past) => {
+    const def = DUTY_DEFS[key];
+    const cur = f[key] || "";
+    const who = dutyWho(data, key, cur);
+    const kids = own.filter((p) => activeOn(p, f.dateISO));
+    const mine = !!cur && kids.some((p) => p.id === cur);
+    let act = null, control = null, hint = null;
+    if (!past && isCoach) {
+      act = () => openSheet(f, key);
+      control = <span className="softpill">{cur ? "Change" : "Assign"}</span>;
+      hint = "Tap to assign";
+    } else if (!past && def.family && kids.length) {
+      if (!cur) {
+        act = kids.length === 1
+          ? () => saveDuty({ fixture: f, duty: key, playerId: kids[0].id, data, patchLocal, showToast })
+          : () => openSheet(f, key);
+        control = <button className="du-claim" onClick={(e) => { e.stopPropagation(); act(); }}>I'll do it</button>;
+        hint = "Tap to volunteer";
+      } else if (mine) {
+        act = () => openSheet(f, key);
+        control = <span className="softpill">Yours</span>;
+      }
+    }
+    return (
+      <div key={key} className={"du-slot" + (act ? " tap" : "")} role={act ? "button" : undefined} tabIndex={act ? 0 : undefined}
+        onClick={act || undefined} onKeyDown={act ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(); } } : undefined}>
+        <span className={"dc-ic " + key}><def.Icon size={15} /></span>
+        <div className="du-body">
+          <div className="dc-label">{def.label}</div>
+          <div className={"du-val" + (who ? "" : " none")}>{who || "Not assigned yet"}</div>
+          {hint && <div className="du-hint">{hint}</div>}
         </div>
-      ))}
-    </>
+        {control}
+      </div>
+    );
+  };
+
+  return (
+    <div className="duties">
+      <div className="du-intro">{dutiesIntro(keys)}</div>
+      {fixtures.length === 0 && <div className="card quiet">No games on the calendar yet.</div>}
+      {fixtures.map((f) => {
+        const past = fixtureState(f).past;
+        return (
+          <div key={f.id} className={"card ducard" + (past ? " past" : "")}>
+            <div className="du-head">
+              <span className="du-round">{f.round ? `R${f.round}` : "—"}</span>
+              <span className="du-opp">vs {f.opponent}</span>
+              <span className="du-date">{fmtDate(f.dateISO)}</span>
+            </div>
+            {keys.map((key) => slot(f, key, past))}
+          </div>
+        );
+      })}
+    </div>
   );
+}
+
+// Duty sheet (1a). Parent: claim fruit / jerseys for their family (pick the
+// child when they have several), or release their own claim. Coach: pick a
+// family (fruit, jerseys) or a player (in goal); Clear when assigned (D6).
+function DutySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast, close }) {
+  const f = (data.fixtures || []).find((x) => x.id === payload?.fixtureId);
+  const key = payload?.duty;
+  const def = DUTY_DEFS[key];
+  const own = ownPlayers(data, { isCoach, me, viewer });
+  const kids = f ? own.filter((p) => activeOn(p, f.dateISO)) : [];
+  const [pick, setPick] = useState(kids[0]?.id || "");
+  if (!f || !def) return null;
+  const cur = f[key] || "";
+  const who = dutyWho(data, key, cur);
+  const mine = !!cur && kids.some((p) => p.id === cur);
+  const players = data.players.filter((p) => activeOn(p, f.dateISO)).sort((a, b) => (a.number || 0) - (b.number || 0));
+  const staff = getStaff(data.team);
+  const head = staff.find((s) => /head coach/i.test(s.role || "")) || staff[0];
+  const coachFirst = head?.name ? firstName(head.name) : null;
+  const write = (playerId) => { saveDuty({ fixture: f, duty: key, playerId, data, patchLocal, showToast }); close(); };
+  const title = `${def.label} · ${f.round ? `Round ${f.round}` : "this game"}`;
+  const sub = `vs ${f.opponent} · ${fmtDate(f.dateISO)}`;
+  const sorted = coachFirst ? `We'll let Coach ${coachFirst} know it's sorted.` : "We'll let the coach know it's sorted.";
+
+  if (isCoach) {
+    return (<>
+      <div className="rs-title">{title}</div>
+      <div className="rs-sub">{sub}</div>
+      <div className="ds-list">
+        {players.map((p) => {
+          const guardian = p.guardians?.[0]?.name || p.parentName || "";
+          return (
+            <button key={p.id} className="ds-row" onClick={() => write(p.id)}>
+              <span className="ds-disc">{initials(p.name)}</span>
+              <span className="ds-name">{def.family ? `${p.name}'s family` : p.name}</span>
+              <span className="ds-sub">{def.family ? (guardian ? firstName(guardian) : "No contact") : [p.number ? `#${p.number}` : "", p.position || ""].filter(Boolean).join(" · ")}</span>
+              {p.id === cur && <Check size={18} color="var(--pitch)" strokeWidth={2.5} aria-label="Assigned" />}
+            </button>
+          );
+        })}
+        {players.length === 0 && <div className="wi-empty">No players on the squad yet.</div>}
+      </div>
+      {cur && <button className="btn danger ds-btn" onClick={() => write("")}>Clear</button>}
+    </>);
+  }
+
+  // Parent view: fruit and jerseys only.
+  if (!def.family || !kids.length) return null;
+  if (mine) {
+    return (<>
+      <div className="rs-title">{title}</div>
+      <div className="rs-sub">{sub}</div>
+      <div className="ds-body">Your family is on {def.word === "jersey" ? "jerseys" : def.word} this round. Thanks!</div>
+      <button className="btn danger ds-btn" onClick={() => write("")}>Can't do it after all</button>
+    </>);
+  }
+  if (cur) {
+    return (<>
+      <div className="rs-title">{title}</div>
+      <div className="rs-sub">{sub}</div>
+      <div className="ds-body">{who} already has this one. Thanks for offering!</div>
+    </>);
+  }
+  const n = players.length;
+  const body = key === "fruit"
+    ? `Half-time fruit for ${n} ${n === 1 ? "kid" : "kids"} — oranges or watermelon go down well. ${sorted}`
+    : `Take the jerseys home after the game and bring them back washed for the next one. ${sorted}`;
+  return (<>
+    <div className="rs-title">{title}</div>
+    <div className="rs-sub">{sub}</div>
+    <div className="ds-body">{body}</div>
+    {kids.length > 1 && (
+      <div className="ds-chips" role="radiogroup" aria-label="Whose family">
+        {kids.map((p) => (
+          <button key={p.id} role="radio" aria-checked={pick === p.id} className={"ds-chip" + (pick === p.id ? " on" : "")} onClick={() => setPick(p.id)}>
+            {shortName(p.name)}'s family
+          </button>
+        ))}
+      </div>
+    )}
+    <button className="btn ds-btn" onClick={() => write(pick || kids[0].id)}>{def.yes}</button>
+  </>);
 }
 
 /* ---------------- STATS ---------------- */
@@ -2597,6 +2807,7 @@ function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach
         {modal.type === "signin" && !me && <SignInSheet {...{ data, viewer, setViewer, close }} />}
         {modal.type === "fixture" && <FixtureSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "reply" && <ReplySheet {...{ data, payload: modal.payload, isCoach, viewer, me, patchLocal, showToast, close: closeReply }} />}
+        {modal.type === "duty" && <DutySheet {...{ data, payload: modal.payload, isCoach, viewer, me, patchLocal, showToast, close }} />}
         {modal.type === "day" && <DaySheet {...{ data, iso: modal.payload?.iso, isCoach, viewer, me, setModal, openMatch, openPlayer, close }} />}
         {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, me, setModal, onOpen, close }} />}
         {modal.type === "sessionEdit" && <SessionEditSheet {...{ data, persist, payload: modal.payload, close }} />}
@@ -2756,6 +2967,10 @@ function SignInSheet({ data, viewer, setViewer, close }) {
 }
 
 
+// Duties (fruit, gk, jersey) are not edited here: they are written through
+// /api/duty from the Duties screen (or the planner's keeper write-back) and
+// lib/protect.js keeps the whole-document save from touching them. The blank
+// template still carries empty slots so a new fixture starts "nobody yet".
 function FixtureSheet({ data, persist, payload, close }) {
   const blank = { id: uid(), round: data.fixtures.length + 1, dateISO: "", time: "09:00", opponent: "", venue: "", homeAway: "H", status: "upcoming", us: null, them: null, fruit: "", gk: "", goals: [], assists: [], notes: "", video: "", chapters: [], manual: true };
   const [f, setF] = useState(payload ? JSON.parse(JSON.stringify(payload)) : blank);
@@ -2797,27 +3012,6 @@ function FixtureSheet({ data, persist, payload, close }) {
         <div className="field"><label>Their score</label><input className="inp" type="number" value={f.them ?? ""} onChange={e => setF({ ...f, them: e.target.value === "" ? null : +e.target.value })} /></div>
       </div>
     )}
-
-    {(() => {
-      const feats = teamFeatures(data.team);
-      const duties = [
-        feats.fruitDuty && ["fruit", "Fruit duty"],
-        feats.gkDuty && ["gk", "Goalkeeper"],
-        feats.jerseyDuty && ["jersey", "Jerseys"]
-      ].filter(Boolean);
-      if (!duties.length) return null;
-      return (
-        <div className="row2" style={duties.length === 3 ? { gridTemplateColumns: "1fr 1fr 1fr" } : undefined}>
-          {duties.map(([key, label]) => (
-            <div className="field" key={key}><label>{label}</label>
-              <select className="inp" value={f[key] || ""} onChange={e => setF({ ...f, [key]: e.target.value })}>
-                <option value="">— none —</option>{players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-          ))}
-        </div>
-      );
-    })()}
 
     {f.status === "played" && players.length > 0 && (
       <div className="field"><label>Goals & assists</label>
