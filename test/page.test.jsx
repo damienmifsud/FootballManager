@@ -3,11 +3,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // app/page.jsx is an async server component: call the default export and
 // inspect the element tree it returns. Which of TeamPicker / DashboardHost it
 // picks (and with what props) is the whole team-and-hat routing decision.
-const { auth, membershipsForEmail, isAdminEmail, redirect, cookieJar } = vi.hoisted(() => ({
-  auth: vi.fn(), membershipsForEmail: vi.fn(), isAdminEmail: vi.fn(), redirect: vi.fn(), cookieJar: { values: {} }
+const { auth, membershipsForEmail, isAdminEmail, isClubAdminEmail, redirect, cookieJar } = vi.hoisted(() => ({
+  auth: vi.fn(), membershipsForEmail: vi.fn(), isAdminEmail: vi.fn(), isClubAdminEmail: vi.fn(), redirect: vi.fn(), cookieJar: { values: {} }
 }));
 vi.mock("@/auth", () => ({ auth }));
-vi.mock("@/lib/directory", () => ({ membershipsForEmail, isAdminEmail }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail, isAdminEmail, isClubAdminEmail }));
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({ get: (name) => (name in cookieJar.values ? { name, value: cookieJar.values[name] } : undefined) })
@@ -24,6 +24,7 @@ beforeEach(() => {
   cookieJar.values = {};
   auth.mockResolvedValue({ user: { email: "me@a.com" } });
   isAdminEmail.mockReturnValue(false);
+  isClubAdminEmail.mockResolvedValue(false);
 });
 afterEach(() => {
   if (savedSecret === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = savedSecret;
@@ -129,6 +130,18 @@ describe("app/page (account mode)", () => {
     const link = findEl(el, (n) => n.type === "a" && n.props.href === "/admin");
     expect(link).toBeTruthy();
     expect(textOf(link)).toBe("Open club admin");
+  });
+
+  it("empty club + club admin -> the same create-first-team page, worded for a club admin", async () => {
+    auth.mockResolvedValue({ user: { email: "td@club.com" } });
+    isClubAdminEmail.mockResolvedValue(true);
+    membershipsForEmail.mockResolvedValue({ memberships: [] });
+    const Page = await loadPage();
+    const el = await Page();
+    const text = textOf(el);
+    expect(text).toContain("No teams yet");
+    expect(text).toContain("You're a club admin. Create the first team to get started.");
+    expect(findEl(el, (n) => n.type === "a" && n.props.href === "/admin")).toBeTruthy();
   });
 
   it("empty memberships for a plain user keeps the 'No team linked' message", async () => {

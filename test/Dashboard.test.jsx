@@ -3,6 +3,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import App from "@/components/Dashboard";
 import { isoLocal } from "@/lib/dashboardData";
+import { signOut } from "next-auth/react";
+
+// The context bar's Sign out calls Auth.js's signOut; under test it just records the call.
+vi.mock("next-auth/react", () => ({ signOut: vi.fn().mockResolvedValue(undefined) }));
 
 // Component-level tests for the Dashboard App: data loading via window.storage,
 // the sample-data fallback, tab navigation, and the coach-mode PIN gate. These
@@ -114,7 +118,7 @@ describe("App — account-mode roles (/api/me)", () => {
     const hats = over.hats || [coachHat];
     const worn = hats.find((h) => h.role === (over.role || "coach")) || hats[0];
     return {
-      mode: "account", email: "x@a.com", admin: false, teamSlug: "a", teamName: "Test FC", role: "coach",
+      mode: "account", email: "x@a.com", admin: false, clubAdmin: false, teamSlug: "a", teamName: "Test FC", role: "coach",
       playerIds: worn.playerIds, playerNames: worn.playerNames, hats,
       teams: [{ teamSlug: "a", teamName: "Test FC", hats }], canSwitch: false, memberships: [], ...over
     };
@@ -132,13 +136,18 @@ describe("App — account-mode roles (/api/me)", () => {
     const k = c.split("=")[0].trim();
     if (k) document.cookie = `${k}=; path=/; max-age=0`;
   });
+  // The hat shown in the context bar: the static text next to the "Viewing as" label.
+  const hatShown = async () => {
+    const lbl = await screen.findByText("Viewing as", { selector: "label" });
+    return lbl.closest(".fld").querySelector(".static").textContent;
+  };
 
   it("hides the coach toggle entirely for a parent, and shows the parent chip instead of the legacy sign-in", async () => {
     meFetch(account({ email: "mum@a.com", role: "parent", hats: [parentHat(["p1"], ["Sam Smith"])] }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await screen.findByText(/Div 1 · U8/);
-    expect(await screen.findByText("Viewing as Parent of Sam")).toBeTruthy();
+    expect(await hatShown()).toBe("Parent of Sam");
     expect(screen.queryByRole("button", { name: /View/ })).toBeNull();
     expect(screen.queryByText("Settings")).toBeNull();
     expect(screen.queryByText(/Sign in to respond/)).toBeNull();
@@ -149,7 +158,7 @@ describe("App — account-mode roles (/api/me)", () => {
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await screen.findByText(/Div 1 · U8/);
-    expect(await screen.findByText("Viewing as Club admin (view only)")).toBeTruthy();
+    expect(await hatShown()).toBe("Club admin (view only)");
     expect(screen.queryByRole("button", { name: /View/ })).toBeNull();
     expect(screen.queryByText(/Sign in to respond/)).toBeNull();
   });
@@ -166,16 +175,20 @@ describe("App — account-mode roles (/api/me)", () => {
     expect(await screen.findByText("Settings")).toBeTruthy();
   });
 
-  it("shows a plain 'Viewing as Coach' chip (not a button) when there is nothing to switch to", async () => {
+  it("shows a static 'Viewing as Coach' (no hat select) when there is one hat, but always a Team select", async () => {
     meFetch(account({ email: "coach@a.com" }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
-    const chip = await screen.findByText("Viewing as Coach");
-    expect(chip.closest("button")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Switch team or role" })).toBeNull();
+    expect(await hatShown()).toBe("Coach");
+    expect(screen.queryByRole("combobox", { name: "Viewing as" })).toBeNull();
+    const team = screen.getByRole("combobox", { name: "Team" });
+    expect(team.querySelectorAll("option")).toHaveLength(1);
+    expect(team.value).toBe("a");
+    expect(screen.getByText("Test FC", { selector: "option" })).toBeTruthy();
+    expect(document.querySelector(".whoami")).toBeNull();
   });
 
-  it("canSwitch: the chip is a button that opens the hats sheet; picking a hat sets the team_slug and act_as cookies", async () => {
+  it("two hats: the 'Viewing as' select lists them; picking a hat sets the team_slug and act_as cookies", async () => {
     clearCookies();
     const hats = [coachHat, parentHat(["p1"], ["Sam Smith"])];
     meFetch(account({
@@ -184,32 +197,118 @@ describe("App — account-mode roles (/api/me)", () => {
     }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
-    const chip = await screen.findByRole("button", { name: "Switch team or role" });
-    expect(chip.textContent).toContain("Viewing as Coach");
-    fireEvent.click(chip);
+    const hat = await screen.findByRole("combobox", { name: "Viewing as" });
+    expect(hat.value).toBe("coach");
+    const labels = Array.from(hat.querySelectorAll("option")).map((o) => o.textContent);
+    expect(labels).toEqual(["Coach", "Parent of Sam"]);
+    expect(screen.queryByRole("button", { name: "Switch team or role" })).toBeNull();
 
-    expect(await screen.findByRole("heading", { name: "Viewing as" })).toBeTruthy();
-    // Two "Coach" rows: this team's (worn) and Bees FC's.
-    const coachRows = screen.getAllByRole("button", { name: "Coach" });
-    expect(coachRows).toHaveLength(2);
-    expect(coachRows[0].getAttribute("aria-current")).toBe("true");
-    expect(coachRows[1].getAttribute("aria-current")).toBeNull();
-    const parentRow = screen.getByRole("button", { name: "Parent of Sam" });
-    expect(parentRow.getAttribute("aria-current")).toBeNull();
-    expect(screen.getByText("Other teams")).toBeTruthy();
-    expect(screen.getByText("Bees FC")).toBeTruthy();
-
-    fireEvent.click(parentRow);
+    fireEvent.change(hat, { target: { value: "parent" } });
     expect(document.cookie).toContain("team_slug=a");
     expect(document.cookie).toContain("act_as=parent");
     clearCookies();
+  });
+
+  it("the Team select lists every team; switching lands in that team's strongest hat and drops its legacy identity cookie", async () => {
+    clearCookies();
+    document.cookie = "whoami_b=parent-device; path=/";
+    const hats = [coachHat, parentHat(["p1"], ["Sam Smith"])];
+    meFetch(account({
+      email: "both@a.com", hats, canSwitch: true,
+      teams: [{ teamSlug: "a", teamName: "Test FC", hats }, { teamSlug: "b", teamName: "Bees FC", hats: [parentHat(["p9"], ["Kai Lee"]), { role: "viewer", playerIds: [], playerNames: [] }] }]
+    }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    const team = await screen.findByRole("combobox", { name: "Team" });
+    expect(Array.from(team.querySelectorAll("option")).map((o) => o.textContent)).toEqual(["Test FC", "Bees FC"]);
+    expect(team.value).toBe("a");
+    expect(document.cookie).toContain("whoami_b=parent-device");
+
+    fireEvent.change(team, { target: { value: "b" } });
+    expect(document.cookie).toContain("team_slug=b");
+    expect(document.cookie).toContain("act_as=parent"); // strongest hat on Bees FC is parent, not viewer
+    expect(document.cookie).not.toContain("whoami_b=");
+    clearCookies();
+  });
+
+  it("admins see 'Create a team…' in the Team select and a Club admin link in the account menu", async () => {
+    meFetch(account({ email: "admin@club.com", admin: true }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    const team = await screen.findByRole("combobox", { name: "Team" });
+    expect(screen.getByText("Create a team…", { selector: "option" }).value).toBe("__new");
+    expect(team.querySelectorAll("option")).toHaveLength(2);
+    const summary = screen.getByText("admin@club.com").closest("summary");
+    expect(summary.getAttribute("aria-label")).toBe("Account menu");
+    fireEvent.click(summary);
+    const link = screen.getByRole("link", { name: /Club admin/ });
+    expect(link.getAttribute("href")).toBe("/admin");
+    expect(link.closest(".ctxbar .menu")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Sign out/ }).closest(".menu")).toBeTruthy();
+    // The header sub-line no longer carries the link.
+    expect(document.querySelector(".head .sub").textContent).not.toContain("Club admin");
+  });
+
+  it("a club admin (not super admin) also gets the create-team option and the Club admin link", async () => {
+    meFetch(account({ email: "club@club.com", clubAdmin: true }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await screen.findByRole("combobox", { name: "Team" });
+    expect(screen.getByText("Create a team…", { selector: "option" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Club admin/ }).getAttribute("href")).toBe("/admin");
+  });
+
+  it("a plain coach sees neither 'Create a team…' nor the Club admin link", async () => {
+    meFetch(account({ email: "coach@a.com" }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await screen.findByRole("combobox", { name: "Team" });
+    expect(screen.queryByText("Create a team…")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Club admin/ })).toBeNull();
+    expect(screen.getByText("coach@a.com").closest("summary")).toBeTruthy();
+  });
+
+  it("Sign out in the account menu clears the hat cookies, POSTs /api/logout and calls next-auth signOut", async () => {
+    clearCookies();
+    document.cookie = "team_slug=a; path=/";
+    document.cookie = "act_as=coach; path=/";
+    document.cookie = "whoami_a=device; path=/";
+    meFetch(account({ email: "coach@a.com" }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await screen.findByRole("combobox", { name: "Team" });
+    signOut.mockClear();
+    fireEvent.click(screen.getByText("coach@a.com").closest("summary"));
+    fireEvent.click(screen.getByRole("button", { name: /Sign out/ }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledWith({ callbackUrl: "/login" }));
+    expect(fetch).toHaveBeenCalledWith("/api/logout", { method: "POST" });
+    expect(document.cookie).not.toContain("team_slug=");
+    expect(document.cookie).not.toContain("act_as=");
+    expect(document.cookie).not.toContain("whoami_a=");
+    clearCookies();
+  });
+
+  it("legacy mode (no account): the bar offers 'Sign in to respond' and a Sign out menu item; no floating chip", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await waitForLoaded();
+    const signin = await screen.findByRole("button", { name: "Sign in to respond" });
+    expect(signin.closest(".ctxbar")).toBeTruthy();
+    expect(document.querySelector(".whoami")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Sign out/ }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/logout", { method: "POST" }));
+    expect(document.querySelector(".head .sub").textContent).not.toContain("Club admin");
   });
 
   it("a coach-parent wearing the parent hat gets the parent experience: no coach toggle, In/Out for both of their kids only", async () => {
     meFetch(account({ email: "both@a.com", role: "parent", hats: [coachHat, parentHat(["p1", "p2"], ["Sam Smith", "Alex Smith"])], canSwitch: true }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players: threeKids })) });
     render(<App />);
-    expect(await screen.findByText("Viewing as Parent of Sam & Alex")).toBeTruthy();
+    // Two hats, so the hat field is a select showing the worn one.
+    const hat = await screen.findByRole("combobox", { name: "Viewing as" });
+    expect(hat.value).toBe("parent");
+    expect(hat.selectedOptions[0].textContent).toBe("Parent of Sam & Alex");
     expect(screen.queryByRole("button", { name: /View/ })).toBeNull();
     await openMatch();
     expect(screen.getAllByRole("button", { name: "In" })).toHaveLength(2);
@@ -226,7 +325,7 @@ describe("App — account-mode roles (/api/me)", () => {
     meFetch(account({ email: "td@club.com", role: "viewer", hats: [viewerHat] }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players: threeKids })) });
     render(<App />);
-    await screen.findByText("Viewing as Club admin (view only)");
+    expect(await hatShown()).toBe("Club admin (view only)");
     await openMatch();
     expect(screen.queryByRole("button", { name: "In" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Out" })).toBeNull();

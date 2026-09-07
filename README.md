@@ -194,8 +194,9 @@ Roles exist only in account mode. They are resolved from the signed-in email in
   **Set this before enabling `AUTH_SECRET`** — with no `ADMIN_EMAILS` nobody can
   reach `/admin`.
 - **Club admin** — the emails in `CLUB_ADMIN_EMAILS`, or added at `/admin`. View-only
-  on every team: reads everything, writes nothing. Typical use: the club's technical
-  director.
+  on every team: reads everything, writes nothing to team data. Can open `/admin` to
+  create and edit teams in the wizard (not delete them, and no access control). Typical
+  use: the club's technical director.
 - **Coach** — either listed in the team's `coachEmails` (in the `TEAMS` JSON or set in
   the `/admin` wizard), **or** any row on the team's staff list that has an email.
   Head coach, Assistant coach and Manager are titles shown in the app; the rights are
@@ -238,8 +239,8 @@ mode, where there are no accounts.
 | League page setup | Yes | No | Yes | No | Yes |
 | Switch team or role, sign out | Yes | Yes | Yes | Yes | Yes |
 | **Club** | | | | | |
-| Open `/admin` | Yes | No | No | No | Not available |
-| Create and edit teams (the wizard) | Yes | No | No | No | Not available |
+| Open `/admin` | Yes | Yes (wizard and this table) | No | No | Not available |
+| Create and edit teams (the wizard) | Yes | Yes | No | No | Not available |
 | Add or remove club admins | Yes | No | No | No | Not available |
 | Per-person per-team overrides | Yes | No | No | No | Not available |
 | View as any user (read only) | Yes | No | No | No | Not available |

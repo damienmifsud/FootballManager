@@ -13,7 +13,7 @@ export default async function Page() {
 
   // Auth mode: resolve the signed-in email to their team(s).
   const { auth } = await import("@/auth");
-  const { membershipsForEmail, isAdminEmail } = await import("@/lib/directory");
+  const { membershipsForEmail, isAdminEmail, isClubAdminEmail } = await import("@/lib/directory");
   const TeamPicker = (await import("@/components/TeamPicker")).default;
 
   const session = await auth();
@@ -36,12 +36,14 @@ export default async function Page() {
   if (memberships.length === 0) {
     // A brand-new club: the super admin has no memberships because there are
     // no teams yet. Point them at club admin instead of a dead end.
-    if (!impersonating && isAdminEmail(realEmail)) {
+    // Super admins and club admins can create the first team themselves.
+    const superAdmin = isAdminEmail(realEmail);
+    if (!impersonating && (superAdmin || (await isClubAdminEmail(realEmail)))) {
       return (
         <div style={splash}>
           <div style={{ maxWidth: 360 }}>
             <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>No teams yet</div>
-            <div style={{ fontSize: 14, opacity: .9, marginBottom: 16 }}>You're the club's super admin. Create the first team to get started.</div>
+            <div style={{ fontSize: 14, opacity: .9, marginBottom: 16 }}>{superAdmin ? "You're the club's super admin." : "You're a club admin."} Create the first team to get started.</div>
             <a href="/admin" style={{ display: "inline-block", background: "#fff", color: "#7A0A1B", borderRadius: 12, padding: "10px 16px", fontWeight: 700, textDecoration: "none" }}>Open club admin</a>
           </div>
         </div>

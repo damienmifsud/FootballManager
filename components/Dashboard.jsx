@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon, Star, Goal, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, ExternalLink, Download, Target,
   Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt, Flag, GripVertical,
-  ChevronDown, Eye, User
+  ChevronDown, Eye, User, LogOut
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LabelList
@@ -29,6 +29,7 @@ import {
 import { shapeCall } from "@/lib/shapes";
 import { downscaleImage } from "@/lib/clientImage";
 import { hatLabel, joinNames as joinKidNames } from "@/lib/hats";
+import { signOut } from "next-auth/react";
 
 /* ============================================================
    STORAGE
@@ -273,7 +274,7 @@ const CSS = `
 .head{background:linear-gradient(160deg,var(--pitch) 0%,var(--pitch-d) 100%);color:#fff;
   padding:18px 20px 22px;position:sticky;top:0;z-index:20;
   border-bottom:3px solid var(--lime);}
-.head .htop{display:flex;align-items:center;gap:12px;}
+.head .htop{display:flex;align-items:center;gap:12px;padding-right:84px;}
 .head .hlogo{width:46px;height:46px;object-fit:contain;flex-shrink:0;
   filter:drop-shadow(0 2px 6px rgba(0,0,0,.35));}
 .head .kicker{font-size:11px;letter-spacing:.18em;color:var(--lime);text-transform:uppercase;font-weight:700;}
@@ -283,9 +284,30 @@ const CSS = `
   background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;
   padding:7px 11px;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;}
 .coachbtn.on{background:var(--lime);color:var(--pitch-d);border-color:var(--lime);}
-.whoami{position:absolute;top:52px;right:18px;display:flex;align-items:center;gap:5px;
-  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;
-  padding:5px 10px;border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;}
+.head .ctxbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px -20px -22px;padding:8px 20px;
+  background:rgba(0,0,0,.22);border-top:1px solid rgba(255,255,255,.12);font-size:12px;}
+.ctxbar .fld{display:flex;align-items:center;gap:6px;min-width:0;}
+.ctxbar label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:rgba(255,255,255,.65);white-space:nowrap;}
+.ctxbar select{appearance:none;-webkit-appearance:none;background:rgba(255,255,255,.14);color:#fff;
+  border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:5px 26px 5px 10px;font:inherit;font-size:12px;font-weight:700;
+  max-width:220px;text-overflow:ellipsis;cursor:pointer;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='white' stroke-width='1.6' fill='none'/></svg>");
+  background-repeat:no-repeat;background-position:right 10px center;}
+.ctxbar select option{color:#1A1012;}
+.ctxbar .static{font-weight:700;color:#fff;}
+.ctxbar .pill{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);color:#fff;
+  padding:5px 10px;border-radius:999px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;}
+.ctxbar .spacer{flex:1;}
+.ctxbar details{position:relative;}
+.ctxbar summary{list-style:none;display:flex;align-items:center;gap:6px;cursor:pointer;background:rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:5px 10px;font-weight:700;max-width:220px;}
+.ctxbar summary::-webkit-details-marker{display:none;}
+.ctxbar summary span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ctxbar .menu{position:absolute;right:0;top:calc(100% + 6px);background:#fff;color:var(--ink);border-radius:12px;
+  box-shadow:0 10px 30px rgba(20,6,10,.35);min-width:180px;padding:6px;z-index:40;}
+.ctxbar .menu a,.ctxbar .menu button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:none;
+  font:inherit;font-size:13px;font-weight:600;color:var(--ink);padding:9px 10px;border-radius:8px;cursor:pointer;text-decoration:none;}
+.ctxbar .menu a:hover,.ctxbar .menu button:hover{background:var(--soft);}
 .wrap{padding:16px 16px 8px;}
 .banner{background:#fff8e6;border:1px solid #f3dca0;color:#7a5a12;border-radius:14px;
   padding:11px 13px;font-size:12.5px;display:flex;gap:9px;align-items:flex-start;margin-bottom:14px;}
@@ -771,6 +793,26 @@ export default function App() {
     ? ((me.hats || []).find((h) => h.role === me.role) || { role: me.role, playerNames: me.playerNames, staffRole: me.staffRole, admin: me.admin })
     : null;
   const hatText = me ? (me.role || !me.admin ? hatLabel(currentHat) : "Super admin") : "";
+  const isAdmin = !!(me && (me.admin || me.clubAdmin));
+  // Wear a hat (account mode): the choice lives in two plain cookies the server
+  // validates on every request — a cookie can only narrow what the login holds.
+  const wear = (slug, role) => {
+    const maxAge = 60 * 60 * 24 * 180;
+    document.cookie = `team_slug=${encodeURIComponent(slug)}; path=/; max-age=${maxAge}; samesite=lax`;
+    document.cookie = `act_as=${encodeURIComponent(role)}; path=/; max-age=${maxAge}; samesite=lax`;
+    // The legacy per-device identity must not outlive a hat change.
+    document.cookie = `whoami_${slug}=; path=/; max-age=0; samesite=lax`;
+    window.location.href = "/";
+  };
+  // Hats are strongest-first, so switching team lands straight in the best hat there.
+  const strongestRoleOf = (team) => team?.hats?.[0]?.role;
+  const signOutEverywhere = async () => {
+    const expire = (k) => { document.cookie = `${k}=; path=/; max-age=0; samesite=lax`; };
+    expire("team_slug"); expire("act_as");
+    document.cookie.split(";").map((c) => c.split("=")[0].trim()).filter((k) => k.startsWith("whoami_")).forEach(expire);
+    try { await fetch("/api/logout", { method: "POST" }); } catch {}
+    try { await signOut({ callbackUrl: "/login" }); } catch { window.location.href = "/login"; }
+  };
   const toggleCoach = () => {
     if (isCoach) { setIsCoach(false); return; }
     if (me) { if (me.role === "coach") setIsCoach(true); return; } // verified server-side, no PIN
@@ -808,11 +850,7 @@ export default function App() {
               const hc = st.find(s => /head/i.test(s.role))?.name || data.team.headCoach;
               const ac = st.find(s => /assist/i.test(s.role))?.name || data.team.assistantCoach;
               return [hc && `Coach ${hc}`, ac && `Asst ${ac}`].filter(Boolean).join(" · ");
-            })()}{me?.admin && (
-              <a href="/admin" style={{ color: "inherit", fontWeight: 700, marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 3, textDecoration: "none", borderBottom: "1px solid rgba(255,255,255,.4)" }}>
-                <SettingsIcon size={11} />Club admin
-              </a>
-            )}</div>
+            })()}</div>
           </div>
         </div>
         {canCoach && (
@@ -820,21 +858,49 @@ export default function App() {
             {isCoach ? <Unlock size={13} /> : <Lock size={13} />}{isCoach ? "Coach" : "View"}
           </button>
         )}
-        {account ? (
-          me.canSwitch ? (
-            <button className="whoami" aria-label="Switch team or role" onClick={() => setModal({ type: "hats" })}>
-              <User size={12} /><span>Viewing as {hatText}</span><ChevronDown size={12} />
-            </button>
-          ) : (
-            <span className="whoami" style={{ cursor: "default" }}>
-              <User size={12} /><span>Viewing as {hatText}</span>
-            </span>
-          )
-        ) : (me === null && !isCoach && (
-          <button className="whoami" onClick={() => setModal({ type: "signin" })}>
-            {viewer.kind === "parent" ? <><User size={12} />{viewer.label}</> : "Sign in to respond"}
-          </button>
-        ))}
+        {me !== undefined && (
+          <div className="ctxbar">
+            {account ? (<>
+              <div className="fld">
+                <label htmlFor="ctx-team">Team</label>
+                <select id="ctx-team" aria-label="Team" value={me.teamSlug || ""}
+                  onChange={(e) => {
+                    const slug = e.target.value;
+                    if (slug === "__new") { window.location.href = "/admin"; return; }
+                    const team = (me.teams || []).find((t) => t.teamSlug === slug);
+                    wear(slug, strongestRoleOf(team) || me.role);
+                  }}>
+                  {(me.teams || []).map((t) => <option key={t.teamSlug} value={t.teamSlug}>{t.teamName}</option>)}
+                  {isAdmin && <option value="__new">Create a team…</option>}
+                </select>
+              </div>
+              <div className="fld">
+                <label htmlFor={(me.hats || []).length > 1 ? "ctx-hat" : undefined}>Viewing as</label>
+                {(me.hats || []).length > 1 ? (
+                  <select id="ctx-hat" aria-label="Viewing as" value={me.role || ""} onChange={(e) => wear(me.teamSlug, e.target.value)}>
+                    {me.hats.map((h) => <option key={h.role} value={h.role}>{hatLabel(h)}</option>)}
+                  </select>
+                ) : (
+                  <span className="static">{hatText}</span>
+                )}
+              </div>
+            </>) : (me === null && !isCoach && (
+              <button className="pill" onClick={() => setModal({ type: "signin" })}>
+                {viewer.kind === "parent" ? <><User size={12} />{viewer.label}</> : "Sign in to respond"}
+              </button>
+            ))}
+            <span className="spacer" />
+            <details>
+              <summary aria-label="Account menu">
+                <User size={12} /><span>{account ? me.email : "Account"}</span><ChevronDown size={12} />
+              </summary>
+              <div className="menu">
+                {isAdmin && <a href="/admin"><SettingsIcon size={14} />Club admin</a>}
+                <button onClick={signOutEverywhere}><LogOut size={14} />Sign out</button>
+              </div>
+            </details>
+          </div>
+        )}
       </div>
 
       <div className="wrap">
@@ -2047,7 +2113,6 @@ function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach
       <div className="sheet">
         {modal.type === "pin" && <PinSheet {...{ data, setIsCoach, close }} />}
         {modal.type === "signin" && !me && <SignInSheet {...{ data, viewer, setViewer, close }} />}
-        {modal.type === "hats" && me && <HatsSheet {...{ me, close }} />}
         {modal.type === "fixture" && <FixtureSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "match" && <MatchSheet {...{ data, persist, payload: modal.payload, isCoach, viewer, me, setModal, close }} />}
         {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, me, setModal, close }} />}
@@ -2162,43 +2227,6 @@ function SignInSheet({ data, viewer, setViewer, close }) {
   </>);
 }
 
-// Account mode: pick which hat to wear (coach / parent / viewer) on this team,
-// or jump to another team. The choice lives in two plain cookies the server
-// validates on every request — a cookie can only narrow what the login holds.
-function HatsSheet({ me, close }) {
-  const wear = (slug, role) => {
-    const maxAge = 60 * 60 * 24 * 180;
-    document.cookie = `team_slug=${encodeURIComponent(slug)}; path=/; max-age=${maxAge}; samesite=lax`;
-    document.cookie = `act_as=${encodeURIComponent(role)}; path=/; max-age=${maxAge}; samesite=lax`;
-    // The legacy per-device identity must not outlive a hat change.
-    document.cookie = `whoami_${slug}=; path=/; max-age=0; samesite=lax`;
-    window.location.href = "/";
-  };
-  const rowStyle = { width: "100%", background: "none", border: "none", borderBottom: "1px solid var(--line)", textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit" };
-  const row = (slug, hat, current) => (
-    <button key={slug + ":" + hat.role} className="avrow" style={rowStyle} aria-current={current ? "true" : undefined} onClick={() => wear(slug, hat.role)}>
-      <div className="avname">{hatLabel(hat)}</div>
-      {current ? <Check size={16} color="#1E9E57" /> : <ChevronRight size={15} color="var(--muted)" />}
-    </button>
-  );
-  const others = (me.teams || []).filter((t) => t.teamSlug !== me.teamSlug);
-  return (<>
-    <SheetHead title="Viewing as" close={close} />
-    <div className="label" style={{ marginBottom: 8 }}>{me.teamName}</div>
-    <div className="card" style={{ padding: "4px 12px" }}>
-      {(me.hats || []).map((h) => row(me.teamSlug, h, h.role === me.role))}
-    </div>
-    {others.length > 0 && (<>
-      <div className="label" style={{ marginBottom: 8 }}>Other teams</div>
-      {others.map((t) => (
-        <div className="card" key={t.teamSlug} style={{ padding: "4px 12px" }}>
-          <div style={{ fontWeight: 800, fontSize: 14, padding: "8px 2px 2px" }}>{t.teamName}</div>
-          {(t.hats || []).map((h) => row(t.teamSlug, h, false))}
-        </div>
-      ))}
-    </>)}
-  </>);
-}
 
 function FixtureSheet({ data, persist, payload, close }) {
   const blank = { id: uid(), round: data.fixtures.length + 1, dateISO: "", time: "09:00", opponent: "", venue: "", homeAway: "H", status: "upcoming", us: null, them: null, fruit: "", gk: "", goals: [], assists: [], notes: "", video: "", chapters: [], manual: true };

@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { getStoredTeams, setStoredTeams, getData, setData } from "@/lib/store";
 import { getTeams, clearTeamsCache } from "@/lib/teams";
 import { auth } from "@/auth";
-import { isAdminEmail } from "@/lib/directory";
+import { isAdminEmail, isClubAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
 import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE } from "@/lib/teamSetup";
@@ -14,7 +14,8 @@ const AUTH_ON = !!process.env.AUTH_SECRET;
 const norm = (e) => (e || "").trim().toLowerCase();
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,39}$/;
 
-// Team management for the /admin wizard, super admin only. Wizard-created
+// Team management for the /admin wizard. Super admins and club admins can
+// list, create and edit teams; only super admins can delete one. Wizard-created
 // teams live in the store (club:teams) and are live immediately — no env
 // edits, no restarts. Env-defined teams are listed read-only here (except
 // that an edit "takes them over" into the store, which wins on slug).
@@ -25,6 +26,15 @@ async function requireAdmin() {
   if (!email) return { error: "unauthorized", status: 401 };
   if (!isAdminEmail(email)) return { error: "forbidden", status: 403 };
   return { email };
+}
+async function requireTeamManager() {
+  if (!AUTH_ON) return { error: "Team management needs account login (set AUTH_SECRET).", status: 400 };
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return { error: "unauthorized", status: 401 };
+  if (isAdminEmail(email)) return { email };
+  if (await isClubAdminEmail(email)) return { email, clubAdmin: true };
+  return { error: "forbidden", status: 403 };
 }
 
 const slugify = (name) => String(name || "")
@@ -64,7 +74,7 @@ async function clash(field, value, exceptSlug) {
 // plus the doc-held fields the wizard can edit (division, WhatsApp, features,
 // what parents can see).
 export async function GET() {
-  const gate = await requireAdmin();
+  const gate = await requireTeamManager();
   if (gate.error) return NextResponse.json({ error: gate.error }, { status: gate.status });
   clearTeamsCache(); // admin view should never be stale
   const teams = await getTeams();
@@ -92,7 +102,7 @@ export async function GET() {
 // match-format default) so the team opens ready to use rather than as sample
 // data.
 export async function POST(req) {
-  const gate = await requireAdmin();
+  const gate = await requireTeamManager();
   if (gate.error) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
   let body;
@@ -151,7 +161,7 @@ export async function POST(req) {
 // "takes it over" into the store (stored wins on slug), so coach emails or a
 // rotated code no longer need an env change + restart. Slug is immutable.
 export async function PATCH(req) {
-  const gate = await requireAdmin();
+  const gate = await requireTeamManager();
   if (gate.error) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
   let body;

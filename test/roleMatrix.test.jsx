@@ -11,6 +11,7 @@ afterEach(cleanup);
 
 const allRows = ROLE_MATRIX.flatMap((g) => g.rows.map((r) => ({ ...r, group: g.group })));
 const marks = Object.keys(MARKS);
+const byFeature = (f) => allRows.find((r) => r.feature === f);
 
 describe("lib/roleMatrix — shape", () => {
   it("every row has a mark for every role, and every mark is a known one", () => {
@@ -31,14 +32,19 @@ describe("lib/roleMatrix — shape", () => {
 });
 
 describe("lib/roleMatrix — facts the code enforces", () => {
-  const byFeature = (f) => allRows.find((r) => r.feature === f);
 
-  it("a super admin can do everything; club features are super-admin only", () => {
+  it("a super admin can do everything; club features need account mode and are closed to coaches and parents", () => {
     expect(allRows.every((r) => ["yes", "any"].includes(r.admin))).toBe(true);
     for (const r of allRows.filter((r) => r.group === "Club")) {
-      expect([r.club, r.coach, r.parent]).toEqual(["no", "no", "no"]);
+      expect([r.coach, r.parent]).toEqual(["no", "no"]);
       expect(r.code).toBe("na"); // needs account mode
     }
+    // Club admins may run the team wizard but never touch access control.
+    expect(byFeature("Open /admin").club).toBe("yes");
+    expect(byFeature("Create and edit teams (the wizard)").club).toBe("yes");
+    expect(byFeature("Add or remove club admins").club).toBe("no");
+    expect(byFeature("Per-person per-team overrides (coach, parent, viewer, blocked)").club).toBe("no");
+    expect(byFeature("View as any user (read only)").club).toBe("no");
   });
 
   it("a club admin reads but never writes team data", () => {
