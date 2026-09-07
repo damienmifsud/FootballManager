@@ -11,7 +11,7 @@ const inp = { width: "100%", padding: "12px 14px", borderRadius: 12, border: "2p
 function LoginLogo() {
   const [ok, setOk] = useState(true);
   return ok
-    ? <img src="/logo.png" alt="" onError={() => setOk(false)}
+    ? <img src="/crests/olympic-fc.png" alt="" onError={() => setOk(false)}
         style={{ width: 72, height: 72, objectFit: "contain", margin: "0 auto 14px", display: "block", filter: "drop-shadow(0 3px 8px rgba(0,0,0,.35))" }} />
     : <div style={{ width: 64, height: 64, borderRadius: 18, background: "#fff", color: "#C8102E", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontWeight: 800, fontSize: 26 }}>⚽</div>;
 }

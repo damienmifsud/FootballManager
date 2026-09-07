@@ -3,7 +3,7 @@ import { isPublicPath, legacyPasswords, decideAccess } from "@/lib/access";
 
 describe("isPublicPath", () => {
   it("allows the public entries and their subpaths", () => {
-    for (const p of ["/login", "/login/reset", "/api/auth", "/api/auth/callback/google", "/api/login", "/api/calendar", "/api/sync"]) {
+    for (const p of ["/login", "/login/reset", "/api/auth", "/api/auth/callback/google", "/api/login", "/api/calendar", "/api/sync", "/crests", "/crests/olympic-fc.png"]) {
       expect(isPublicPath(p)).toBe(true);
     }
   });

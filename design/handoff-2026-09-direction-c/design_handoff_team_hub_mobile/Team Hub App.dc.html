@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,800&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#E9E7E6;font-family:'DM Sans',system-ui,sans-serif;color:#1A1012}
+a{color:#C8102E}a:hover{color:#7A0A1B}
+button,input,textarea{font-family:inherit}
+div::-webkit-scrollbar{display:none}
+@keyframes rise{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+@keyframes toastin{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+</style>
+</helmet>
+<div style="display:flex;justify-content:center;padding:20px 12px">
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" keyboard="{{ kb }}" hint-size="402px,874px">
+<div data-screen-label="Team Hub" style="position:relative;height:100%;overflow:hidden;background:#F4F4F3;color:#1A1012;font-family:'DM Sans',system-ui,sans-serif;font-size:15px;line-height:1.4">
+<div ref="{{ scrollRef }}" onScroll="{{ onScroll }}" style="position:absolute;inset:0;overflow-y:auto;overflow-x:hidden">
+<sc-if value="{{ chrome }}" hint-placeholder-val="{{ true }}">
+<div style="position:sticky;top:0;z-index:5;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border-bottom:1px solid #E7E3E3;padding:64px 16px 10px;display:flex;align-items:center;gap:10px">
+<sc-if value="{{ isRoot }}" hint-placeholder-val="{{ true }}">
+<img src="https://olympicfc.com.au/wp-content/uploads/2024/01/ROUND-GRADIENT-OFC-LOGO.png" data-fallback="assets/crests/olympic-red.png" onError="{{ imgFallback }}" alt="" style="width:30px;height:31px;object-fit:contain;flex-shrink:0">
+</sc-if>
+<sc-if value="{{ isSub }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ back }}" aria-label="Back" style="width:36px;height:36px;border-radius:12px;border:none;background:#F1EDEE;color:#1A1012;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-left:-4px;padding:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"></path></svg></button>
+</sc-if>
+<div style="flex:1;min-width:0">
+<sc-if value="{{ s.home }}" hint-placeholder-val="{{ true }}">
+<div style="font-weight:800;font-size:14px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Olympic FC U8 Kangaroos White</div>
+<sc-if value="{{ notCondensed }}" hint-placeholder-val="{{ true }}"><div style="font-size:11px;color:#6B5A5D;font-weight:600;margin-top:2px">Kangaroos K1 Central Hub · U8</div></sc-if>
+</sc-if>
+<sc-if value="{{ notHome }}" hint-placeholder-val="{{ false }}">
+<div style="font-weight:800;font-size:15px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ hdrTitle }}</div>
+<sc-if value="{{ notCondensed }}" hint-placeholder-val="{{ true }}"><div style="font-size:11px;color:#6B5A5D;font-weight:600;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ hdrKicker }}</div></sc-if>
+</sc-if>
+</div>
+<button onClick="{{ openHat }}" style="background:#FDEAEC;color:#C8102E;border:none;border-radius:999px;padding:6px 10px;font-size:10.5px;font-weight:800;min-height:32px;cursor:pointer;flex-shrink:0;white-space:nowrap">{{ hatLabel }}</button>
+</div>
+</sc-if>
+<div style="padding:14px 16px 130px;display:flex;flex-direction:column;gap:14px">
+
+<sc-if value="{{ s.home }}" hint-placeholder-val="{{ true }}">
+<div data-screen-label="Home" style="display:flex;flex-direction:column;gap:14px">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:16px 16px 14px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px">
+<span style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#C8102E;white-space:nowrap">Next game · Round 7 · Home</span>
+<span style="font-size:12px;color:#6B5A5D;font-weight:600;display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>1d 23h</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px">
+<div style="display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center">
+<img src="https://olympicfc.com.au/wp-content/uploads/2024/01/ROUND-GRADIENT-OFC-LOGO.png" data-fallback="assets/crests/olympic-red.png" onError="{{ imgFallback }}" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;box-shadow:0 0 0 2px #C8102E">
+<span style="font-size:12px;font-weight:800;line-height:1.25">Olympic FC U8<br>Kangaroos White</span>
+</div>
+<div style="text-align:center;padding:0 6px">
+<div style="font-family:Anton,sans-serif;font-weight:400;font-size:30px;line-height:1;color:#C8102E">08:00</div>
+<div style="font-size:10px;color:#6B5A5D;font-weight:700;letter-spacing:.08em;margin-top:5px">SAT 13 JUNE</div>
+</div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center">
+<img src="assets/crests/oxley-united.png" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover">
+<span style="font-size:12px;font-weight:600;line-height:1.25;color:#6B5A5D">Oxley United FC<br>U8 Eagles</span>
+</div>
+</div>
+<div style="border-top:1px solid #E7E3E3;margin-top:14px;padding-top:11px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+<span style="font-size:12px;color:#6B5A5D;display:inline-flex;align-items:center;gap:5px;min-width:0"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">J F O'Grady Memorial Park – Field 4C</span></span>
+<button onClick="{{ openNext }}" style="background:#F1EDEE;color:#1A1012;border:none;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:800;cursor:pointer;min-height:32px;flex-shrink:0">Details</button>
+</div>
+<sc-if value="{{ isParent }}" hint-placeholder-val="{{ true }}">
+<div style="margin-top:10px;position:relative;border-radius:12px;overflow:hidden;background:{{ me.sw.bg }};touch-action:pan-y;user-select:none">
+<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:12px;font-weight:800;color:#fff;opacity:{{ me.sw.op }}"><span>In</span><span>Out</span></div>
+<div onPointerDown="{{ me.sw.down }}" onPointerMove="{{ me.sw.move }}" onPointerUp="{{ me.sw.up }}" onPointerCancel="{{ me.sw.up }}" style="position:relative;background:#fff;display:flex;align-items:center;gap:10px;padding:8px 0 2px;transform:translateX({{ me.sw.dx }}px);transition:{{ me.sw.tr }}">
+<span style="width:34px;height:34px;border-radius:50%;background:#F1EDEE;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#6B5A5D;flex-shrink:0">LH</span>
+<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px">Levi H.</div><div style="font-size:12px;color:#6B5A5D">{{ me.hint }}</div></div>
+<sc-if value="{{ me.showSeg }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;background:#F1EDEE;border-radius:12px;padding:3px;gap:2px;flex-shrink:0">
+<button onClick="{{ me.setIn }}" style="border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ me.segIn.bg }};color:{{ me.segIn.fg }}">In</button>
+<button onClick="{{ me.setOut }}" style="border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ me.segOut.bg }};color:{{ me.segOut.fg }}">Out</button>
+</div>
+</sc-if>
+<sc-if value="{{ me.showBtn }}" hint-placeholder-val="{{ true }}">
+<button onClick="{{ me.openSheet }}" style="border:none;border-radius:999px;padding:9px 14px;font-size:12px;font-weight:800;cursor:pointer;min-height:36px;flex-shrink:0;background:{{ me.btnBg }};color:{{ me.btnFg }}">{{ me.btnLabel }}</button>
+</sc-if>
+<sc-if value="{{ me.showPill }}" hint-placeholder-val="{{ false }}">
+<span style="border-radius:999px;padding:6px 11px;font-size:12px;font-weight:800;flex-shrink:0;background:{{ me.pill.bg }};color:{{ me.pill.fg }}">{{ me.pill.label }}</span>
+</sc-if>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ isCoach }}" hint-placeholder-val="{{ false }}">
+<div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+<span style="border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;background:#E6F6EC;color:#1F8A4C">{{ nextCounts.in }} in</span>
+<span style="border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;background:#FDEAEC;color:#C0393D">{{ nextCounts.out }} out</span>
+<span style="border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;background:#F1EDEE;color:#6B5A5D">{{ nextCounts.none }} no reply</span>
+</div>
+<button onClick="{{ goAvail }}" style="background:none;border:none;color:#C8102E;font-size:13px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:2px;padding:6px 0;min-height:36px;white-space:nowrap">Who's in<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"></path></svg></button>
+</div>
+</sc-if>
+</div>
+
+<button onClick="{{ goDuties }}" style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;width:100%;color:#1A1012">
+<div style="display:flex;align-items:center;gap:9px;flex:1;min-width:0">
+<span style="width:30px;height:30px;border-radius:9px;background:#FFF1DA;color:#B3760A;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"></path><path d="M10 2c1 .5 2 2 2 5"></path></svg></span>
+<div style="min-width:0"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Fruit duty</div><div style="font-size:12px;font-weight:800;margin-top:2px;white-space:nowrap;color:{{ dutyNext.fruitFg }}">{{ dutyNext.fruit }}</div></div>
+</div>
+<div style="width:1px;align-self:stretch;background:#E7E3E3"></div>
+<div style="display:flex;align-items:center;gap:9px;flex:1;min-width:0">
+<span style="width:30px;height:30px;border-radius:9px;background:#FDEAEC;color:#C8102E;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></svg></span>
+<div style="min-width:0"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">In goal</div><div style="font-size:12px;font-weight:800;margin-top:2px;white-space:nowrap;color:{{ dutyNext.gkFg }}">{{ dutyNext.gk }}</div></div>
+</div>
+</button>
+
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 4px">
+<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Next 7 days</span><button onClick="{{ goCalendar }}" style="background:none;border:none;color:#C8102E;font-size:12px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:2px;padding:4px 0;min-height:32px">Calendar<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"></path></svg></button></div>
+<sc-for list="{{ weekRows }}" as="row" hint-placeholder-count="3">
+<div style="position:relative;overflow:hidden;background:{{ row.sw.bg }};touch-action:pan-y;user-select:none;border-bottom:1px solid #E7E3E3">
+<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:12px;font-weight:800;color:#fff;opacity:{{ row.sw.op }}"><span>In</span><span>Out</span></div>
+<div onClick="{{ row.tap }}" onPointerDown="{{ row.sw.down }}" onPointerMove="{{ row.sw.move }}" onPointerUp="{{ row.sw.up }}" onPointerCancel="{{ row.sw.up }}" style="position:relative;background:#fff;display:flex;align-items:center;gap:12px;padding:11px 0;cursor:pointer;transform:translateX({{ row.sw.dx }}px);transition:{{ row.sw.tr }}">
+<div style="width:34px;text-align:center;flex-shrink:0"><div style="font-size:9px;font-weight:700;letter-spacing:.08em;color:#6B5A5D">{{ row.dw }}</div><div style="font-family:Anton,sans-serif;font-weight:400;font-size:20px;line-height:1;margin-top:1px">{{ row.n }}</div></div>
+<span style="width:32px;height:32px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:{{ row.icBg }};color:{{ row.icFg }}">
+<sc-if value="{{ row.isGame }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path></svg></sc-if>
+<sc-if value="{{ row.isTraining }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="M12 11h4"></path><path d="M12 16h4"></path><path d="M8 11h.01"></path><path d="M8 16h.01"></path></svg></sc-if>
+<sc-if value="{{ row.isBday }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"></path><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"></path><path d="M2 21h20"></path><path d="M7 8v3"></path><path d="M12 8v3"></path><path d="M17 8v3"></path></svg></sc-if>
+</span>
+<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ row.title }}</div><div style="font-size:12px;color:#6B5A5D;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ row.meta }}</div></div>
+<sc-if value="{{ row.hasReplies }}" hint-placeholder-val="{{ true }}"><span style="font-size:11px;font-weight:800;border-radius:999px;padding:4px 8px;flex-shrink:0;white-space:nowrap;color:{{ row.myFg }};background:{{ row.myBg }}">{{ row.myLabel }}</span></sc-if>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9AA3A6" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><path d="m9 18 6-6-6-6"></path></svg>
+</div>
+<sc-if value="{{ row.open }}" hint-placeholder-val="{{ false }}">
+<div style="padding:0 0 12px 46px;display:flex;flex-direction:column;gap:8px;background:#fff">
+<div style="font-size:12px;color:#6B5A5D">{{ row.replies }}</div>
+<sc-if value="{{ row.canReply }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:10px"><div style="flex:1;font-size:13px;font-weight:700">Is Levi coming?</div>
+<div style="display:flex;background:#F1EDEE;border-radius:12px;padding:3px;gap:2px;flex-shrink:0">
+<button onClick="{{ row.me.setIn }}" style="border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ row.me.segIn.bg }};color:{{ row.me.segIn.fg }}">In</button>
+<button onClick="{{ row.me.setOut }}" style="border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ row.me.segOut.bg }};color:{{ row.me.segOut.fg }}">Out</button>
+</div></div>
+</sc-if>
+<sc-if value="{{ row.isCoach }}" hint-placeholder-val="{{ false }}"><button onClick="{{ row.goAvail }}" style="align-self:flex-start;background:#F1EDEE;color:#1A1012;border:none;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;min-height:36px">See who's in</button></sc-if>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 14px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Season so far</span><button onClick="{{ goStats }}" style="background:none;border:none;color:#C8102E;font-size:12px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:2px;padding:4px 0;min-height:32px">All stats<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"></path></svg></button></div>
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+<div style="background:#F4F4F3;border-radius:14px;padding:10px 6px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:24px;line-height:1">1</div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;margin-top:4px">Won</div></div>
+<div style="background:#F4F4F3;border-radius:14px;padding:10px 6px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:24px;line-height:1">2</div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;margin-top:4px">Drew</div></div>
+<div style="background:#F4F4F3;border-radius:14px;padding:10px 6px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:24px;line-height:1">2</div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;margin-top:4px">Lost</div></div>
+<div style="background:#FDEAEC;border-radius:14px;padding:10px 6px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:24px;line-height:1;color:#C8102E">5</div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#C8102E;margin-top:4px">Pts</div></div>
+</div>
+<div style="display:flex;gap:6px;margin-top:12px;align-items:center"><span style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D;margin-right:6px">Form</span>
+<sc-for list="{{ form }}" as="p" hint-placeholder-count="5"><span style="width:24px;height:24px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;color:#fff;background:{{ p.bg }}">{{ p.r }}</span></sc-for>
+<span style="margin-left:auto;font-size:12px;color:#6B5A5D;font-weight:600">13 for · 12 against</span></div>
+</div>
+
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 6px">
+<div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Birthdays coming up</div>
+<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #E7E3E3">
+<span style="width:32px;height:32px;border-radius:10px;background:#FCE7F3;color:#BE185D;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"></path><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"></path><path d="M2 21h20"></path><path d="M7 8v3"></path><path d="M12 8v3"></path><path d="M17 8v3"></path></svg></span>
+<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px">Oliver O. turns 8</div><div style="font-size:12px;color:#6B5A5D">Thu, 18 June</div></div>
+</div>
+<div style="display:flex;align-items:center;gap:12px;padding:11px 0">
+<span style="width:32px;height:32px;border-radius:10px;background:#FCE7F3;color:#BE185D;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"></path><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"></path><path d="M2 21h20"></path><path d="M7 8v3"></path><path d="M12 8v3"></path><path d="M17 8v3"></path></svg></span>
+<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px">Levi H. turns 8</div><div style="font-size:12px;color:#6B5A5D">Fri, 24 July</div></div>
+</div>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ s.calendar }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Calendar" style="display:flex;flex-direction:column;gap:14px">
+<sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 12px 10px">
+<div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px 8px">
+<button onClick="{{ calNav }}" aria-label="Previous month" style="width:36px;height:36px;border-radius:12px;border:none;background:#F1EDEE;color:#1A1012;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"></path></svg></button>
+<span style="font-weight:800;font-size:15px">June 2026</span>
+<button onClick="{{ calNav }}" aria-label="Next month" style="width:36px;height:36px;border-radius:12px;border:none;background:#F1EDEE;color:#1A1012;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"></path></svg></button>
+</div>
+<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;font-size:10px;font-weight:700;color:#6B5A5D;letter-spacing:.06em"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:4px">
+<sc-for list="{{ calCells }}" as="c" hint-placeholder-count="30">
+<button onClick="{{ c.tap }}" style="height:54px;border:none;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:0;cursor:pointer;background:{{ c.bg }};color:{{ c.fg }}">
+<span style="font-size:13px;line-height:1;font-weight:{{ c.w }}">{{ c.n }}</span>
+{{ c.img }}
+<sc-if value="{{ c.hasDot }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ c.dot }}"></span></sc-if>
+</button>
+</sc-for>
+</div>
+<div style="display:flex;gap:14px;padding:10px 4px 0;font-size:11px;color:#6B5A5D;font-weight:600;flex-wrap:wrap">
+<span style="display:inline-flex;align-items:center;gap:5px"><img src="assets/crests/oxley-united.png" alt="" style="width:14px;height:14px;border-radius:50%;object-fit:cover">Game</span>
+<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:#F6A623"></span>Training</span>
+<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:#BE185D"></span>Birthday</span>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ isC }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:12px;margin:0 -16px;padding:0 16px;scrollbar-width:none">
+<sc-for list="{{ weeks }}" as="wk" hint-placeholder-count="3">
+<div style="width:100%;flex-shrink:0;scroll-snap-align:start">
+<div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D;margin-bottom:8px;padding-left:2px">{{ wk.label }}</div>
+<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px">
+<sc-for list="{{ wk.days }}" as="d" hint-placeholder-count="7">
+<button onClick="{{ d.tap }}" style="height:66px;border:1px solid #E7E3E3;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:0;cursor:pointer;background:{{ d.bg }};color:{{ d.fg }}">
+<span style="font-size:9px;font-weight:700;letter-spacing:.08em;opacity:.75">{{ d.dw }}</span>
+<span style="font-family:Anton,sans-serif;font-weight:400;font-size:18px;line-height:1">{{ d.n }}</span>
+{{ d.img }}
+<sc-if value="{{ d.hasDot }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ d.dot }}"></span></sc-if>
+</button>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</div>
+<div style="font-size:12px;color:#6B5A5D;text-align:center;margin-top:-6px">Swipe the strip for the next week · swipe a row to reply</div>
+</sc-if>
+
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 4px">
+<sc-if value="{{ isC }}" hint-placeholder-val="{{ false }}"><div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">{{ calTitle }}</div></sc-if>
+<sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}"><div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Coming up in June</div></sc-if>
+<sc-if value="{{ isB }}" hint-placeholder-val="{{ false }}"><div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">June · tap a row to reply</div></sc-if>
+<sc-if value="{{ calEmpty }}" hint-placeholder-val="{{ false }}"><div style="padding:16px 0 12px;font-size:14px;color:#6B5A5D">Nothing on this day. Enjoy the rest.</div></sc-if>
+<sc-for list="{{ calList }}" as="row" hint-placeholder-count="6">
+<div style="position:relative;overflow:hidden;background:{{ row.sw.bg }};touch-action:pan-y;user-select:none;border-bottom:1px solid #E7E3E3">
+<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:12px;font-weight:800;color:#fff;opacity:{{ row.sw.op }}"><span>In</span><span>Out</span></div>
+<div onClick="{{ row.tap }}" onPointerDown="{{ row.sw.down }}" onPointerMove="{{ row.sw.move }}" onPointerUp="{{ row.sw.up }}" onPointerCancel="{{ row.sw.up }}" style="position:relative;background:#fff;display:flex;align-items:center;gap:12px;padding:11px 0;cursor:pointer;transform:translateX({{ row.sw.dx }}px);transition:{{ row.sw.tr }}">
+<div style="width:34px;text-align:center;flex-shrink:0"><div style="font-size:9px;font-weight:700;letter-spacing:.08em;color:#6B5A5D">{{ row.dw }}</div><div style="font-family:Anton,sans-serif;font-weight:400;font-size:20px;line-height:1;margin-top:1px">{{ row.n }}</div></div>
+<span style="width:32px;height:32px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:{{ row.icBg }};color:{{ row.icFg }}">
+<sc-if value="{{ row.isGame }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path></svg></sc-if>
+<sc-if value="{{ row.isTraining }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="M12 11h4"></path><path d="M12 16h4"></path><path d="M8 11h.01"></path><path d="M8 16h.01"></path></svg></sc-if>
+<sc-if value="{{ row.isBday }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"></path><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"></path><path d="M2 21h20"></path><path d="M7 8v3"></path><path d="M12 8v3"></path><path d="M17 8v3"></path></svg></sc-if>
+</span>
+<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ row.title }}</div><div style="font-size:12px;color:#6B5A5D;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ row.meta }}</div></div>
+<sc-if value="{{ row.hasReplies }}" hint-placeholder-val="{{ true }}"><span style="font-size:11px;font-weight:800;border-radius:999px;padding:4px 8px;flex-shrink:0;white-space:nowrap;color:{{ row.myFg }};background:{{ row.myBg }}">{{ row.myLabel }}</span></sc-if>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9AA3A6" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><path d="m9 18 6-6-6-6"></path></svg>
+</div>
+<sc-if value="{{ row.open }}" hint-placeholder-val="{{ false }}">
+<div style="padding:0 0 12px 46px;display:flex;flex-direction:column;gap:8px;background:#fff">
+<div style="font-size:12px;color:#6B5A5D">{{ row.replies }}</div>
+<sc-if value="{{ row.canReply }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:10px"><div style="flex:1;font-size:13px;font-weight:700">Is Levi coming?</div>
+<div style="display:flex;background:#F1EDEE;border-radius:12px;padding:3px;gap:2px;flex-shrink:0">
+<button onClick="{{ row.me.setIn }}" style="border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ row.me.segIn.bg }};color:{{ row.me.segIn.fg }}">In</button>
+<button onClick="{{ row.me.setOut }}" style="border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ row.me.segOut.bg }};color:{{ row.me.segOut.fg }}">Out</button>
+</div></div>
+</sc-if>
+<sc-if value="{{ row.isCoach }}" hint-placeholder-val="{{ false }}"><button onClick="{{ row.goAvail }}" style="align-self:flex-start;background:#F1EDEE;color:#1A1012;border:none;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;min-height:36px">See who's in</button></sc-if>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 14px">
+<div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Add to your calendar</div>
+<div style="font-size:13px;color:#6B5A5D;margin-top:4px;line-height:1.45">Subscribe once and it stays in sync when a game moves — better than importing.</div>
+<div style="display:flex;gap:8px;margin-top:12px">
+<button onClick="{{ subscribe }}" style="flex:1;background:#F1EDEE;color:#1A1012;border:none;border-radius:13px;padding:11px 8px;font-size:13px;font-weight:800;cursor:pointer;min-height:44px">Google</button>
+<button onClick="{{ subscribe }}" style="flex:1;background:#F1EDEE;color:#1A1012;border:none;border-radius:13px;padding:11px 8px;font-size:13px;font-weight:800;cursor:pointer;min-height:44px">Apple</button>
+<button onClick="{{ subscribe }}" style="flex:1;background:#F1EDEE;color:#1A1012;border:none;border-radius:13px;padding:11px 8px;font-size:13px;font-weight:800;cursor:pointer;min-height:44px">Outlook</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ s.results }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Results" style="display:flex;flex-direction:column;gap:14px">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 14px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Season so far</span><button onClick="{{ goStats }}" style="background:none;border:none;color:#C8102E;font-size:12px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:2px;padding:4px 0;min-height:32px">All stats<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"></path></svg></button></div>
+<div style="display:flex;align-items:center;gap:12px">
+<div style="display:flex;gap:6px;align-items:center">
+<sc-for list="{{ form }}" as="p" hint-placeholder-count="5"><span style="width:26px;height:26px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;color:#fff;background:{{ p.bg }}">{{ p.r }}</span></sc-for>
+</div>
+<div style="margin-left:auto;text-align:right"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:22px;line-height:1">1–2–2</div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;margin-top:3px">W · D · L</div></div>
+</div>
+</div>
+<sc-if value="{{ isB }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;background:#E7E3E3;border-radius:13px;padding:3px;gap:3px">
+<button onClick="{{ tabPlayed }}" style="flex:1;border:none;border-radius:11px;padding:10px;font-size:13px;font-weight:800;cursor:pointer;min-height:40px;background:{{ segPlayed.bg }};color:{{ segPlayed.fg }};box-shadow:{{ segPlayed.sh }}">Results</button>
+<button onClick="{{ tabUpcoming }}" style="flex:1;border:none;border-radius:11px;padding:10px;font-size:13px;font-weight:800;cursor:pointer;min-height:40px;background:{{ segUpcoming.bg }};color:{{ segUpcoming.fg }};box-shadow:{{ segUpcoming.sh }}">Fixtures</button>
+</div>
+</sc-if>
+<div style="display:flex;gap:14px;scroll-snap-type:x mandatory;margin:0 -16px;padding:0 16px;scrollbar-width:none;flex-direction:{{ resDir }};overflow-x:{{ resOx }}">
+<sc-if value="{{ showPlayed }}" hint-placeholder-val="{{ true }}">
+<div style="width:100%;flex-shrink:0;scroll-snap-align:start;background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 4px">
+<div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Results</div>
+<sc-for list="{{ resPlayed }}" as="f" hint-placeholder-count="5">
+<div onClick="{{ f.tap }}" style="border-bottom:1px solid #E7E3E3;cursor:pointer">
+<div style="display:flex;align-items:center;gap:8px;padding:13px 0">
+<div style="width:34px;text-align:center;flex-shrink:0"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:18px;line-height:1">{{ f.round }}</div><div style="font-size:9.5px;color:#6B5A5D;margin-top:2px;white-space:nowrap">{{ f.date }}</div></div>
+<div style="flex:1;min-width:0;display:flex;align-items:center;gap:8px">{{ f.homeImg }}<span style="font-size:12px;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-weight:{{ f.homeW }};color:{{ f.homeFg }}">{{ f.homeName }}</span></div>
+<div style="width:56px;text-align:center;flex-shrink:0"><span style="font-family:Anton,sans-serif;font-weight:400;font-size:20px;white-space:nowrap;color:{{ f.col }}">{{ f.score }}</span></div>
+<div style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;flex-direction:row-reverse">{{ f.awayImg }}<span style="font-size:12px;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-align:right;font-weight:{{ f.awayW }};color:{{ f.awayFg }}">{{ f.awayName }}</span></div>
+</div>
+<sc-if value="{{ f.open }}" hint-placeholder-val="{{ false }}"><div style="padding:0 0 12px 42px;font-size:12px;color:#6B5A5D;display:flex;flex-direction:column;gap:5px;line-height:1.4"><div>{{ f.scorersText }}</div><div>{{ f.venue }}</div><button onClick="{{ f.detail }}" style="align-self:flex-start;background:none;border:none;color:#C8102E;font-size:12px;font-weight:800;cursor:pointer;padding:6px 0;min-height:32px;display:inline-flex;align-items:center;gap:2px">Match details<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"></path></svg></button></div></sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ showUpcoming }}" hint-placeholder-val="{{ true }}">
+<div style="width:100%;flex-shrink:0;scroll-snap-align:start;background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 4px">
+<div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Fixtures</div>
+<sc-for list="{{ resUpcoming }}" as="f" hint-placeholder-count="4">
+<div onClick="{{ f.tap }}" style="border-bottom:1px solid #E7E3E3;cursor:pointer">
+<div style="display:flex;align-items:center;gap:8px;padding:13px 0">
+<div style="width:34px;text-align:center;flex-shrink:0"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:18px;line-height:1">{{ f.round }}</div><div style="font-size:9.5px;color:#6B5A5D;margin-top:2px;white-space:nowrap">{{ f.date }}</div></div>
+<div style="flex:1;min-width:0;display:flex;align-items:center;gap:8px">{{ f.homeImg }}<span style="font-size:12px;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-weight:{{ f.homeW }};color:{{ f.homeFg }}">{{ f.homeName }}</span></div>
+<div style="width:56px;text-align:center;flex-shrink:0"><span style="font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:#F6A623">{{ f.time }}</span></div>
+<div style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;flex-direction:row-reverse">{{ f.awayImg }}<span style="font-size:12px;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-align:right;font-weight:{{ f.awayW }};color:{{ f.awayFg }}">{{ f.awayName }}</span></div>
+</div>
+<sc-if value="{{ f.open }}" hint-placeholder-val="{{ false }}"><div style="padding:0 0 12px 42px;font-size:12px;color:#6B5A5D;display:flex;flex-direction:column;gap:5px;line-height:1.4"><div>{{ f.venue }}</div><button onClick="{{ f.detail }}" style="align-self:flex-start;background:none;border:none;color:#C8102E;font-size:12px;font-weight:800;cursor:pointer;padding:6px 0;min-height:32px;display:inline-flex;align-items:center;gap:2px">Match details<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"></path></svg></button></div></sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+</div>
+<sc-if value="{{ isC }}" hint-placeholder-val="{{ false }}"><div style="font-size:12px;color:#6B5A5D;text-align:center;margin-top:-6px">Swipe left for fixtures</div></sc-if>
+<div style="font-size:12px;color:#6B5A5D;line-height:1.45;padding:0 4px">MiniRoos doesn't publish ladders at U8 — results only help grade the leagues. These are just our own numbers.</div>
+</div>
+</sc-if>
+<sc-if value="{{ s.squad }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Squad" style="display:flex;flex-direction:column;gap:14px">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 4px">
+<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Players</span><sc-if value="{{ isCoach }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;color:#6B5A5D;font-weight:600">Saturday replies</span></sc-if></div>
+<sc-for list="{{ squadRows }}" as="r" hint-placeholder-count="10">
+<div style="position:relative;overflow:hidden;background:{{ r.sw.bg }};touch-action:pan-y;user-select:none;border-bottom:1px solid #E7E3E3">
+<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:12px;font-weight:800;color:#fff;opacity:{{ r.sw.op }}"><span>In</span><span>Out</span></div>
+<div onClick="{{ r.tap }}" onPointerDown="{{ r.sw.down }}" onPointerMove="{{ r.sw.move }}" onPointerUp="{{ r.sw.up }}" onPointerCancel="{{ r.sw.up }}" style="position:relative;background:#fff;display:flex;align-items:center;gap:12px;padding:11px 0;cursor:pointer;transform:translateX({{ r.sw.dx }}px);transition:{{ r.sw.tr }}">
+<div style="width:30px;text-align:center;flex-shrink:0;font-family:Anton,sans-serif;font-weight:400;font-size:20px;line-height:1;color:#C8102E">{{ r.num }}</div>
+<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:6px"><span style="font-weight:800;font-size:14px">{{ r.name }}</span><span style="font-size:9px;font-weight:800;letter-spacing:.06em;border-radius:6px;padding:2px 6px;background:{{ r.posBg }};color:{{ r.posFg }}">{{ r.pos }}</span></div><div style="font-size:12px;color:#6B5A5D">{{ r.goalsText }}</div></div>
+<sc-if value="{{ r.rBtn }}" hint-placeholder-val="{{ false }}"><button onClick="{{ r.openSheet }}" style="border:none;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;min-height:34px;flex-shrink:0;background:{{ r.btnBg }};color:{{ r.btnFg }}">{{ r.btnLabel }}</button></sc-if>
+<sc-if value="{{ r.rPill }}" hint-placeholder-val="{{ false }}"><span style="border-radius:999px;padding:5px 10px;font-size:11px;font-weight:800;flex-shrink:0;background:{{ r.pill.bg }};color:{{ r.pill.fg }}">{{ r.pill.label }}</span></sc-if>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9AA3A6" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><path d="m9 18 6-6-6-6"></path></svg>
+</div>
+<sc-if value="{{ r.open }}" hint-placeholder-val="{{ false }}">
+<div style="padding:0 0 12px 42px;display:flex;flex-direction:column;gap:10px;background:#fff">
+<sc-if value="{{ r.rSeg }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:10px"><div style="flex:1;font-size:13px;font-weight:700">Saturday vs Oxley United</div>
+<div style="display:flex;background:#F1EDEE;border-radius:12px;padding:3px;gap:2px;flex-shrink:0">
+<button onClick="{{ r.setIn }}" style="border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ r.segIn.bg }};color:{{ r.segIn.fg }}">In</button>
+<button onClick="{{ r.setOut }}" style="border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ r.segOut.bg }};color:{{ r.segOut.fg }}">Out</button>
+</div></div>
+</sc-if>
+<button onClick="{{ r.profile }}" style="align-self:flex-start;background:#F1EDEE;color:#1A1012;border:none;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;min-height:36px">Full profile</button>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 4px">
+<div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Coaches</div>
+<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #E7E3E3">
+<span style="width:34px;height:34px;border-radius:50%;background:#C8102E;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0">D</span>
+<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px">Damien</div><div style="font-size:12px;color:#6B5A5D">Head coach</div></div>
+<button onClick="{{ wa }}" aria-label="Message Damien on WhatsApp" style="width:36px;height:36px;border-radius:12px;border:none;background:#25D366;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg></button>
+</div>
+<div style="display:flex;align-items:center;gap:12px;padding:11px 0">
+<span style="width:34px;height:34px;border-radius:50%;background:#F1EDEE;color:#6B5A5D;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0">C</span>
+<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px">Cameron</div><div style="font-size:12px;color:#6B5A5D">Assistant coach</div></div>
+<button onClick="{{ wa }}" aria-label="Message Cameron on WhatsApp" style="width:36px;height:36px;border-radius:12px;border:none;background:#25D366;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg></button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ s.player }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Player profile" style="display:flex;flex-direction:column;gap:14px">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:22px 16px 18px;text-align:center">
+<div style="font-family:Anton,sans-serif;font-weight:400;font-size:56px;line-height:1;color:#C8102E">{{ P.num }}</div>
+<div style="font-size:20px;font-weight:800;margin-top:8px">{{ P.name }}</div>
+<div style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:8px"><span style="font-size:10px;font-weight:800;letter-spacing:.06em;border-radius:6px;padding:3px 7px;background:{{ P.posBg }};color:{{ P.posFg }}">{{ P.pos }}</span><span style="font-size:12px;color:#6B5A5D">{{ P.birthdayText }}</span></div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:14px;padding:12px 8px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:26px;line-height:1">{{ P.goals }}</div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;margin-top:5px">Goals</div></div>
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:14px;padding:12px 8px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:26px;line-height:1">{{ P.games }}</div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;margin-top:5px">Games</div></div>
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:14px;padding:12px 8px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:26px;line-height:1">{{ P.inGoal }}</div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;margin-top:5px">In goal</div></div>
+</div>
+<sc-if value="{{ pCanReply }}" hint-placeholder-val="{{ true }}">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 10px">
+<div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Round 7 · Sat, 13 June · 08:00</div>
+<div style="margin-top:6px;position:relative;border-radius:12px;overflow:hidden;background:{{ pReply.sw.bg }};touch-action:pan-y;user-select:none">
+<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:12px;font-weight:800;color:#fff;opacity:{{ pReply.sw.op }}"><span>In</span><span>Out</span></div>
+<div onPointerDown="{{ pReply.sw.down }}" onPointerMove="{{ pReply.sw.move }}" onPointerUp="{{ pReply.sw.up }}" onPointerCancel="{{ pReply.sw.up }}" style="position:relative;background:#fff;display:flex;align-items:center;gap:10px;padding:8px 0;transform:translateX({{ pReply.sw.dx }}px);transition:{{ pReply.sw.tr }}">
+<span style="width:34px;height:34px;border-radius:50%;background:#F1EDEE;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#6B5A5D;flex-shrink:0">{{ pReply.ini }}</span>
+<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px">Is {{ pReply.first }} playing?</div><div style="font-size:12px;color:#6B5A5D">{{ pReply.hint }}</div></div>
+<sc-if value="{{ pReply.showSeg }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;background:#F1EDEE;border-radius:12px;padding:3px;gap:2px;flex-shrink:0">
+<button onClick="{{ pReply.setIn }}" style="border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ pReply.segIn.bg }};color:{{ pReply.segIn.fg }}">In</button>
+<button onClick="{{ pReply.setOut }}" style="border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ pReply.segOut.bg }};color:{{ pReply.segOut.fg }}">Out</button>
+</div>
+</sc-if>
+<sc-if value="{{ pReply.showBtn }}" hint-placeholder-val="{{ true }}"><button onClick="{{ pReply.openSheet }}" style="border:none;border-radius:999px;padding:9px 14px;font-size:12px;font-weight:800;cursor:pointer;min-height:36px;flex-shrink:0;background:{{ pReply.btnBg }};color:{{ pReply.btnFg }}">{{ pReply.btnLabel }}</button></sc-if>
+<sc-if value="{{ pReply.showPill }}" hint-placeholder-val="{{ false }}"><span style="border-radius:999px;padding:6px 11px;font-size:12px;font-weight:800;flex-shrink:0;background:{{ pReply.pill.bg }};color:{{ pReply.pill.fg }}">{{ pReply.pill.label }}</span></sc-if>
+</div>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ canSeeContacts }}" hint-placeholder-val="{{ true }}">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px">
+<div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Family</div>
+<div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px">{{ P.family }}</div><div style="font-size:13px;color:#6B5A5D;font-family:'DM Mono',monospace;margin-top:2px">{{ P.phone }}</div></div>
+<button onClick="{{ wa }}" style="background:#25D366;color:#fff;border:none;border-radius:13px;padding:10px 12px;font-size:12px;font-weight:800;cursor:pointer;min-height:40px;display:inline-flex;align-items:center;gap:6px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>WhatsApp</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ showPrivacy }}" hint-placeholder-val="{{ false }}"><div style="font-size:12px;color:#6B5A5D;padding:0 4px;line-height:1.45">Contact details are only shown to the family and the coaches.</div></sc-if>
+<sc-if value="{{ showCoachNotes }}" hint-placeholder-val="{{ false }}">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 14px">
+<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Coach notes</span><span style="border-radius:999px;padding:3px 8px;font-size:10px;font-weight:800;background:#F1EDEE;color:#6B5A5D">Coaches only</span></div>
+<div style="font-size:14px;line-height:1.5;margin-top:8px">{{ P.note }}</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ s.match }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Match detail" style="display:flex;flex-direction:column;gap:14px">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:16px 16px 14px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px">
+<span style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#C8102E">{{ M.label }}</span>
+<sc-if value="{{ isCoach }}" hint-placeholder-val="{{ false }}"><button onClick="{{ mEdit }}" style="background:none;border:none;color:#6B5A5D;font-size:12px;font-weight:800;cursor:pointer;padding:4px 0;display:inline-flex;align-items:center;gap:4px;min-height:28px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>Edit</button></sc-if>
+</div>
+<div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px">
+<div style="display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center">{{ M.homeImg }}<span style="font-size:12px;line-height:1.25;font-weight:{{ M.homeW }};color:{{ M.homeFg }}">{{ M.homeName }}</span></div>
+<div style="text-align:center;padding:0 6px"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:34px;line-height:1;white-space:nowrap;color:{{ M.centreCol }}">{{ M.centre }}</div><div style="font-size:10px;color:#6B5A5D;font-weight:700;letter-spacing:.08em;margin-top:5px;white-space:nowrap">{{ M.centreSub }}</div></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center">{{ M.awayImg }}<span style="font-size:12px;line-height:1.25;font-weight:{{ M.awayW }};color:{{ M.awayFg }}">{{ M.awayName }}</span></div>
+</div>
+<div style="border-top:1px solid #E7E3E3;margin-top:14px;padding-top:11px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+<span style="font-size:12px;color:#6B5A5D;display:inline-flex;align-items:flex-start;gap:5px;min-width:0;line-height:1.35"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;margin-top:2px"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg><span>{{ M.venue }}</span></span>
+<a href="{{ M.maps }}" target="_blank" rel="noopener" style="background:#F1EDEE;color:#1A1012;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:800;text-decoration:none;flex-shrink:0;display:inline-flex;align-items:center;gap:5px;min-height:32px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>Directions</a>
+</div>
+<sc-if value="{{ M.upcoming }}" hint-placeholder-val="{{ true }}"><div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"><span style="border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;background:#FDEAEC;color:#C8102E">{{ M.kit }}</span><span style="border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;background:#F1EDEE;color:#6B5A5D">{{ M.arrive }}</span></div></sc-if>
+</div>
+<sc-if value="{{ M.hasScorers }}" hint-placeholder-val="{{ false }}">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 4px">
+<div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Goals</div>
+<sc-for list="{{ M.scorers }}" as="g" hint-placeholder-count="2">
+<button onClick="{{ g.tap }}" style="width:100%;background:none;border:none;border-bottom:1px solid #E7E3E3;padding:11px 0;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;color:#1A1012">
+<span style="width:32px;height:32px;border-radius:50%;background:#F1EDEE;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#6B5A5D;flex-shrink:0">{{ g.ini }}</span>
+<span style="flex:1;font-weight:800;font-size:14px">{{ g.name }}</span>
+<span style="font-size:12px;color:#6B5A5D">{{ g.txt }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ M.noScorers }}" hint-placeholder-val="{{ false }}"><div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;padding:14px 16px;font-size:13px;color:#6B5A5D">No scorers recorded for this one.</div></sc-if>
+<sc-if value="{{ M.hasVideo }}" hint-placeholder-val="{{ false }}">
+<a href="{{ M.video }}" target="_blank" rel="noopener" style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px;display:flex;align-items:center;gap:12px;text-decoration:none;color:#1A1012">
+<span style="width:36px;height:36px;border-radius:11px;background:#FDEAEC;color:#C8102E;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m22 8-6 4 6 4V8Z"></path><rect x="2" y="6" width="14" height="12" rx="2"></rect></svg></span>
+<span style="flex:1;min-width:0"><span style="display:block;font-weight:800;font-size:14px">Match video</span><span style="display:block;font-size:12px;color:#6B5A5D">Watch on YouTube</span></span>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9AA3A6" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><path d="m9 18 6-6-6-6"></path></svg>
+</a>
+</sc-if>
+<sc-if value="{{ mShowWho }}" hint-placeholder-val="{{ true }}">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 14px">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Who's in</span><span style="font-size:12px;color:#6B5A5D;font-weight:600">{{ M.repliesText }}</span></div>
+<sc-if value="{{ mShowReply }}" hint-placeholder-val="{{ true }}">
+<div style="margin-top:6px;position:relative;border-radius:12px;overflow:hidden;background:{{ mReply.sw.bg }};touch-action:pan-y;user-select:none">
+<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:12px;font-weight:800;color:#fff;opacity:{{ mReply.sw.op }}"><span>In</span><span>Out</span></div>
+<div onPointerDown="{{ mReply.sw.down }}" onPointerMove="{{ mReply.sw.move }}" onPointerUp="{{ mReply.sw.up }}" onPointerCancel="{{ mReply.sw.up }}" style="position:relative;background:#fff;display:flex;align-items:center;gap:10px;padding:8px 0;transform:translateX({{ mReply.sw.dx }}px);transition:{{ mReply.sw.tr }}">
+<span style="width:34px;height:34px;border-radius:50%;background:#F1EDEE;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#6B5A5D;flex-shrink:0">LH</span>
+<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px">Levi H.</div><div style="font-size:12px;color:#6B5A5D">{{ mReply.hint }}</div></div>
+<sc-if value="{{ mReply.showSeg }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;background:#F1EDEE;border-radius:12px;padding:3px;gap:2px;flex-shrink:0">
+<button onClick="{{ mReply.setIn }}" style="border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ mReply.segIn.bg }};color:{{ mReply.segIn.fg }}">In</button>
+<button onClick="{{ mReply.setOut }}" style="border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ mReply.segOut.bg }};color:{{ mReply.segOut.fg }}">Out</button>
+</div>
+</sc-if>
+<sc-if value="{{ mReply.showBtn }}" hint-placeholder-val="{{ true }}"><button onClick="{{ mReply.openSheet }}" style="border:none;border-radius:999px;padding:9px 14px;font-size:12px;font-weight:800;cursor:pointer;min-height:36px;flex-shrink:0;background:{{ mReply.btnBg }};color:{{ mReply.btnFg }}">{{ mReply.btnLabel }}</button></sc-if>
+<sc-if value="{{ mReply.showPill }}" hint-placeholder-val="{{ false }}"><span style="border-radius:999px;padding:6px 11px;font-size:12px;font-weight:800;flex-shrink:0;background:{{ mReply.pill.bg }};color:{{ mReply.pill.fg }}">{{ mReply.pill.label }}</span></sc-if>
+</div>
+</div>
+</sc-if>
+<button onClick="{{ mGoAvail }}" style="margin-top:10px;width:100%;background:#F1EDEE;color:#1A1012;border:none;border-radius:13px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;min-height:44px">See everyone's replies</button>
+</div>
+</sc-if>
+<sc-if value="{{ M.later }}" hint-placeholder-val="{{ false }}"><div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;padding:14px 16px;font-size:13px;color:#6B5A5D;line-height:1.45">Replies open the week of the game. We'll remind everyone on the Monday.</div></sc-if>
+<sc-if value="{{ M.upcoming }}" hint-placeholder-val="{{ true }}">
+<button onClick="{{ goDuties }}" style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;width:100%;color:#1A1012">
+<div style="display:flex;align-items:center;gap:9px;flex:1;min-width:0"><span style="width:30px;height:30px;border-radius:9px;background:#FFF1DA;color:#B3760A;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"></path><path d="M10 2c1 .5 2 2 2 5"></path></svg></span><div style="min-width:0"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Fruit duty</div><div style="font-size:12px;font-weight:800;margin-top:2px;white-space:nowrap;color:{{ M.fruitFg }}">{{ M.fruit }}</div></div></div>
+<div style="width:1px;align-self:stretch;background:#E7E3E3"></div>
+<div style="display:flex;align-items:center;gap:9px;flex:1;min-width:0"><span style="width:30px;height:30px;border-radius:9px;background:#FDEAEC;color:#C8102E;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></svg></span><div style="min-width:0"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">In goal</div><div style="font-size:12px;font-weight:800;margin-top:2px;white-space:nowrap;color:{{ M.gkFg }}">{{ M.gk }}</div></div></div>
+</button>
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 14px">
+<div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">This week's focus</div>
+<div style="font-size:17px;font-weight:800;margin-top:6px;line-height:1.3">{{ M.focus }}</div>
+<div style="font-size:12px;color:#6B5A5D;margin-top:4px">One thing for the kids to think about on Saturday — Coach Damien</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ s.availability }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Availability" style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;background:#E7E3E3;border-radius:13px;padding:3px;gap:3px">
+<button onClick="{{ setGame }}" style="flex:1;border:none;border-radius:11px;padding:10px;font-size:13px;font-weight:800;cursor:pointer;min-height:40px;background:{{ segGame.bg }};color:{{ segGame.fg }};box-shadow:{{ segGame.sh }}">Sat · Game</button>
+<button onClick="{{ setTraining }}" style="flex:1;border:none;border-radius:11px;padding:10px;font-size:13px;font-weight:800;cursor:pointer;min-height:40px;background:{{ segTraining.bg }};color:{{ segTraining.fg }};box-shadow:{{ segTraining.sh }}">Thu · Training</button>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+<div style="background:#E6F6EC;border-radius:14px;padding:12px 8px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:26px;line-height:1;color:#1F8A4C">{{ availCounts.in }}</div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#1F8A4C;margin-top:5px">In</div></div>
+<div style="background:#FDEAEC;border-radius:14px;padding:12px 8px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:26px;line-height:1;color:#C0393D">{{ availCounts.out }}</div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#C0393D;margin-top:5px">Out</div></div>
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:14px;padding:12px 8px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:26px;line-height:1;color:#6B5A5D">{{ availCounts.none }}</div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;margin-top:5px">No reply</div></div>
+</div>
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:4px 16px 4px">
+<sc-for list="{{ availRows }}" as="r" hint-placeholder-count="10">
+<div style="position:relative;overflow:hidden;background:{{ r.sw.bg }};touch-action:pan-y;user-select:none;border-bottom:1px solid #E7E3E3">
+<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:12px;font-weight:800;color:#fff;opacity:{{ r.sw.op }}"><span>In</span><span>Out</span></div>
+<div onPointerDown="{{ r.sw.down }}" onPointerMove="{{ r.sw.move }}" onPointerUp="{{ r.sw.up }}" onPointerCancel="{{ r.sw.up }}" style="position:relative;display:flex;align-items:center;gap:10px;padding:10px 0;background:{{ r.rowBg }};transform:translateX({{ r.sw.dx }}px);transition:{{ r.sw.tr }}">
+<span style="width:34px;height:34px;border-radius:50%;background:#F1EDEE;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#6B5A5D;flex-shrink:0">{{ r.ini }}</span>
+<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:6px"><span style="font-weight:800;font-size:14px">{{ r.name }}</span><span style="font-size:9px;font-weight:800;letter-spacing:.06em;border-radius:6px;padding:2px 6px;background:{{ r.posBg }};color:{{ r.posFg }}">{{ r.pos }}</span></div><div style="font-size:12px;color:#6B5A5D">{{ r.hint }}</div></div>
+<sc-if value="{{ r.showSeg }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;background:#F1EDEE;border-radius:12px;padding:3px;gap:2px;flex-shrink:0">
+<button onClick="{{ r.setIn }}" style="border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ r.segIn.bg }};color:{{ r.segIn.fg }}">In</button>
+<button onClick="{{ r.setOut }}" style="border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;background:{{ r.segOut.bg }};color:{{ r.segOut.fg }}">Out</button>
+</div>
+</sc-if>
+<sc-if value="{{ r.showBtn }}" hint-placeholder-val="{{ false }}"><button onClick="{{ r.openSheet }}" style="border:none;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;min-height:34px;flex-shrink:0;background:{{ r.btnBg }};color:{{ r.btnFg }}">{{ r.btnLabel }}</button></sc-if>
+<sc-if value="{{ r.showPill }}" hint-placeholder-val="{{ true }}"><span style="border-radius:999px;padding:5px 10px;font-size:11px;font-weight:800;flex-shrink:0;background:{{ r.pill.bg }};color:{{ r.pill.fg }}">{{ r.pill.label }}</span></sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ showNudge }}" hint-placeholder-val="{{ false }}"><button onClick="{{ nudge }}" style="width:100%;background:#25D366;color:#fff;border:none;border-radius:13px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;min-height:48px;display:flex;align-items:center;justify-content:center;gap:8px"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>{{ nudgeLabel }}</button></sc-if>
+<sc-if value="{{ isParent }}" hint-placeholder-val="{{ true }}"><div style="font-size:12px;color:#6B5A5D;line-height:1.45;padding:0 4px">You can reply for Levi. Coaches can reply for anyone.</div></sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ s.duties }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Duties" style="display:flex;flex-direction:column;gap:14px">
+<div style="font-size:13px;color:#6B5A5D;line-height:1.45;padding:0 4px">Two jobs each week: a family brings half-time fruit, and one player takes a turn in goal.</div>
+<sc-for list="{{ dutyRows }}" as="d" hint-placeholder-count="6">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 4px;opacity:{{ d.fade }}">
+<div style="display:flex;align-items:baseline;gap:8px"><span style="font-family:Anton,sans-serif;font-weight:400;font-size:18px;line-height:1;color:#C8102E">R{{ d.round }}</span><span style="font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ d.opp }}</span><span style="margin-left:auto;font-size:12px;color:#6B5A5D;white-space:nowrap">{{ d.date }}</span></div>
+<div style="position:relative;overflow:hidden;background:{{ d.fruit.sw.bg }};touch-action:pan-y;user-select:none;border-top:1px solid #E7E3E3;margin-top:10px">
+<div style="position:absolute;inset:0;display:flex;align-items:center;padding:0 14px;font-size:12px;font-weight:800;color:#fff;opacity:{{ d.fruit.sw.op }}">Take it</div>
+<div onClick="{{ d.fruit.tap }}" onPointerDown="{{ d.fruit.sw.down }}" onPointerMove="{{ d.fruit.sw.move }}" onPointerUp="{{ d.fruit.sw.up }}" onPointerCancel="{{ d.fruit.sw.up }}" style="position:relative;background:#fff;display:flex;align-items:center;gap:10px;padding:10px 0;cursor:pointer;transform:translateX({{ d.fruit.sw.dx }}px);transition:{{ d.fruit.sw.tr }}">
+<span style="width:30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:{{ d.fruit.icBg }};color:{{ d.fruit.icFg }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"></path><path d="M10 2c1 .5 2 2 2 5"></path></svg></span>
+<div style="flex:1;min-width:0"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">{{ d.fruit.label }}</div><div style="font-size:14px;font-weight:800;color:{{ d.fruit.valFg }}">{{ d.fruit.val }}</div><sc-if value="{{ d.fruit.can }}" hint-placeholder-val="{{ false }}"><div style="font-size:11px;color:#6B5A5D">{{ d.fruit.hint }}</div></sc-if></div>
+<sc-if value="{{ d.fruit.showClaim }}" hint-placeholder-val="{{ false }}"><button onClick="{{ d.fruit.claim }}" style="border:none;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;min-height:34px;flex-shrink:0;background:#C8102E;color:#fff">I'll do it</button></sc-if>
+<sc-if value="{{ d.fruit.showAssign }}" hint-placeholder-val="{{ false }}"><span style="border-radius:999px;padding:7px 12px;font-size:12px;font-weight:800;flex-shrink:0;background:#F1EDEE;color:#1A1012">Assign</span></sc-if>
+</div>
+<sc-if value="{{ d.fruit.openInline }}" hint-placeholder-val="{{ false }}"><div style="padding:0 0 10px 40px;display:flex;flex-wrap:wrap;gap:6px;background:#fff"><sc-for list="{{ d.fruit.options }}" as="o" hint-placeholder-count="3"><button onClick="{{ o.pick }}" style="border:1px solid #E7E3E3;background:#fff;color:#1A1012;border-radius:999px;padding:7px 11px;font-size:12px;font-weight:700;cursor:pointer;min-height:34px">{{ o.name }}</button></sc-for></div></sc-if>
+</div>
+<div style="position:relative;overflow:hidden;background:{{ d.gk.sw.bg }};touch-action:pan-y;user-select:none;border-top:1px solid #E7E3E3">
+<div onClick="{{ d.gk.tap }}" style="position:relative;background:#fff;display:flex;align-items:center;gap:10px;padding:10px 0;cursor:pointer">
+<span style="width:30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:{{ d.gk.icBg }};color:{{ d.gk.icFg }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></svg></span>
+<div style="flex:1;min-width:0"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">{{ d.gk.label }}</div><div style="font-size:14px;font-weight:800;color:{{ d.gk.valFg }}">{{ d.gk.val }}</div><sc-if value="{{ d.gk.can }}" hint-placeholder-val="{{ false }}"><div style="font-size:11px;color:#6B5A5D">{{ d.gk.hint }}</div></sc-if></div>
+<sc-if value="{{ d.gk.showAssign }}" hint-placeholder-val="{{ false }}"><span style="border-radius:999px;padding:7px 12px;font-size:12px;font-weight:800;flex-shrink:0;background:#F1EDEE;color:#1A1012">Assign</span></sc-if>
+</div>
+<sc-if value="{{ d.gk.openInline }}" hint-placeholder-val="{{ false }}"><div style="padding:0 0 10px 40px;display:flex;flex-wrap:wrap;gap:6px;background:#fff"><sc-for list="{{ d.gk.options }}" as="o" hint-placeholder-count="3"><button onClick="{{ o.pick }}" style="border:1px solid #E7E3E3;background:#fff;color:#1A1012;border-radius:999px;padding:7px 11px;font-size:12px;font-weight:700;cursor:pointer;min-height:34px">{{ o.name }}</button></sc-for></div></sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ s.stats }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Stats" style="display:flex;flex-direction:column;gap:14px">
+<sc-if value="{{ isB }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;background:#E7E3E3;border-radius:13px;padding:3px;gap:3px">
+<button onClick="{{ tabTeam }}" style="flex:1;border:none;border-radius:11px;padding:10px;font-size:13px;font-weight:800;cursor:pointer;min-height:40px;background:{{ segTeam.bg }};color:{{ segTeam.fg }};box-shadow:{{ segTeam.sh }}">Team</button>
+<button onClick="{{ tabPlayers }}" style="flex:1;border:none;border-radius:11px;padding:10px;font-size:13px;font-weight:800;cursor:pointer;min-height:40px;background:{{ segPlayers.bg }};color:{{ segPlayers.fg }};box-shadow:{{ segPlayers.sh }}">Players</button>
+</div>
+</sc-if>
+<div style="display:flex;gap:14px;scroll-snap-type:x mandatory;margin:0 -16px;padding:0 16px;scrollbar-width:none;flex-direction:{{ stDir }};overflow-x:{{ stOx }}">
+<sc-if value="{{ showTeam }}" hint-placeholder-val="{{ true }}">
+<div style="width:100%;flex-shrink:0;scroll-snap-align:start;display:flex;flex-direction:column;gap:14px">
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:14px;padding:10px 4px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:24px;line-height:1">{{ stats.played }}</div><div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;margin-top:4px">Played</div></div>
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:14px;padding:10px 4px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:24px;line-height:1;color:#1E9E57">{{ stats.w }}</div><div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;margin-top:4px">Won</div></div>
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:14px;padding:10px 4px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:24px;line-height:1;color:#9AA3A6">{{ stats.d }}</div><div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;margin-top:4px">Drew</div></div>
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:14px;padding:10px 4px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:24px;line-height:1;color:#E5484D">{{ stats.l }}</div><div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;margin-top:4px">Lost</div></div>
+<div style="background:#FDEAEC;border-radius:14px;padding:10px 4px;text-align:center"><div style="font-family:Anton,sans-serif;font-weight:400;font-size:24px;line-height:1;color:#C8102E">{{ stats.pts }}</div><div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#C8102E;margin-top:4px">Pts</div></div>
+</div>
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 14px">
+<div style="display:flex;align-items:center;gap:14px">
+<div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D">For</div><div style="font-family:Anton,sans-serif;font-weight:400;font-size:22px;line-height:1;margin-top:3px">{{ stats.gf }}</div></div>
+<div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D">Against</div><div style="font-family:Anton,sans-serif;font-weight:400;font-size:22px;line-height:1;margin-top:3px">{{ stats.ga }}</div></div>
+<div><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D">Diff</div><div style="font-family:Anton,sans-serif;font-weight:400;font-size:22px;line-height:1;margin-top:3px;color:#1E9E57">{{ stats.diff }}</div></div>
+<div style="margin-left:auto;display:flex;gap:5px"><sc-for list="{{ form }}" as="p" hint-placeholder-count="5"><span style="width:24px;height:24px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;color:#fff;background:{{ p.bg }}">{{ p.r }}</span></sc-for></div>
+</div>
+</div>
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 12px">
+<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Goals by round</span><span style="font-size:11px;color:#6B5A5D;font-weight:600;display:inline-flex;gap:10px"><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#1A1012"></span>For</span><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#D9D3D4"></span>Against</span></span></div>
+<div style="display:flex;gap:6px;margin-top:12px;align-items:flex-end">
+<sc-for list="{{ rounds }}" as="r" hint-placeholder-count="5">
+<button onClick="{{ r.tap }}" style="flex:1;background:none;border:none;padding:0;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;color:#1A1012">
+<div style="display:flex;gap:3px;align-items:flex-end;height:66px"><span style="width:12px;border-radius:3px 3px 0 0;background:#1A1012;height:{{ r.gfH }}"></span><span style="width:12px;border-radius:3px 3px 0 0;background:#D9D3D4;height:{{ r.gaH }}"></span></div>
+<span style="font-size:11px;font-weight:800;color:{{ r.col }}">{{ r.gf }}–{{ r.ga }}</span>
+<span style="font-size:10px;font-weight:700;color:#6B5A5D">{{ r.label }}</span>
+</button>
+</sc-for>
+</div>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ showPlayers }}" hint-placeholder-val="{{ true }}">
+<div style="width:100%;flex-shrink:0;scroll-snap-align:start;background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:12px 16px 4px;align-self:flex-start">
+<div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Top scorers</div>
+<sc-for list="{{ scorers }}" as="p" hint-placeholder-count="6">
+<button onClick="{{ p.tap }}" style="width:100%;background:none;border:none;border-bottom:1px solid #E7E3E3;padding:11px 0;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;color:#1A1012">
+<span style="width:30px;text-align:center;flex-shrink:0;font-family:Anton,sans-serif;font-weight:400;font-size:20px;line-height:1;color:#C8102E">{{ p.num }}</span>
+<span style="flex:1;min-width:0"><span style="display:flex;align-items:center;gap:6px"><span style="font-weight:800;font-size:14px">{{ p.name }}</span><span style="font-size:9px;font-weight:800;letter-spacing:.06em;border-radius:6px;padding:2px 6px;background:{{ p.posBg }};color:{{ p.posFg }}">{{ p.pos }}</span></span><span style="display:block;height:6px;border-radius:3px;background:#F1EDEE;margin-top:6px;overflow:hidden"><span style="display:block;height:100%;border-radius:3px;background:#C8102E;width:{{ p.w }}"></span></span></span>
+<span style="font-size:12px;font-weight:700;color:#6B5A5D;white-space:nowrap">{{ p.txt }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+<sc-if value="{{ isC }}" hint-placeholder-val="{{ false }}"><div style="font-size:12px;color:#6B5A5D;text-align:center;margin-top:-6px">Swipe left for top scorers</div></sc-if>
+<div style="font-size:12px;color:#6B5A5D;line-height:1.45;padding:0 4px">Tap a round to open the match.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ s.ask }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Ask" style="display:flex;flex-direction:column;gap:12px">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:14px 16px;display:flex;gap:12px;align-items:flex-start">
+<span style="width:36px;height:36px;border-radius:11px;background:#FDEAEC;color:#C8102E;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"></path></svg></span>
+<div style="min-width:0"><div style="font-weight:800;font-size:15px;line-height:1.3">Ask about fixtures, training, duties or the MiniRoos rules.</div><div style="font-size:12px;color:#6B5A5D;margin-top:4px;line-height:1.45">It answers from our documents and schedule. It won't make up rules.</div></div>
+</div>
+<sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-wrap:wrap;gap:8px">
+<sc-for list="{{ chips }}" as="c" hint-placeholder-count="4"><button onClick="{{ c.tap }}" style="background:#fff;border:1px solid #E7E3E3;color:#1A1012;border-radius:999px;padding:9px 13px;font-size:13px;font-weight:700;cursor:pointer;min-height:38px;text-align:left">{{ c.q }}</button></sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ isB }}" hint-placeholder-val="{{ false }}">
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:4px 16px">
+<sc-for list="{{ chips }}" as="c" hint-placeholder-count="4">
+<div style="border-bottom:1px solid #E7E3E3">
+<button onClick="{{ c.toggle }}" style="width:100%;background:none;border:none;padding:13px 0;display:flex;align-items:center;gap:10px;cursor:pointer;text-align:left;color:#1A1012;min-height:48px"><span style="flex:1;font-size:14px;font-weight:700">{{ c.q }}</span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9AA3A6" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><path d="m6 9 6 6 6-6"></path></svg></button>
+<sc-if value="{{ c.open }}" hint-placeholder-val="{{ false }}"><div style="padding:0 0 14px;font-size:14px;line-height:1.5">{{ c.a }}<div style="font-size:11px;color:#6B5A5D;margin-top:8px;font-weight:600">From: {{ c.src }}</div></div></sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ isC }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -16px;padding:0 16px;scrollbar-width:none">
+<sc-for list="{{ chips }}" as="c" hint-placeholder-count="4"><button onClick="{{ c.tap }}" style="flex:0 0 76%;scroll-snap-align:start;background:#fff;border:1px solid #E7E3E3;color:#1A1012;border-radius:16px;padding:14px 16px;font-size:14px;font-weight:700;cursor:pointer;min-height:56px;text-align:left;line-height:1.35">{{ c.q }}</button></sc-for>
+</div>
+</sc-if>
+<sc-for list="{{ thread }}" as="m" hint-placeholder-count="0">
+<sc-if value="{{ m.me }}" hint-placeholder-val="{{ false }}"><div style="align-self:flex-end;max-width:85%;background:#C8102E;color:#fff;border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:14px;line-height:1.4">{{ m.text }}</div></sc-if>
+<sc-if value="{{ m.ai }}" hint-placeholder-val="{{ false }}"><div style="align-self:flex-start;max-width:92%;background:#fff;border:1px solid #E7E3E3;border-radius:16px 16px 16px 4px;padding:12px 14px;font-size:14px;line-height:1.5">{{ m.text }}<div style="font-size:11px;color:#6B5A5D;margin-top:8px;font-weight:600">From: {{ m.src }}</div></div></sc-if>
+</sc-for>
+<sc-if value="{{ asking }}" hint-placeholder-val="{{ false }}"><div style="align-self:flex-start;background:#fff;border:1px solid #E7E3E3;border-radius:16px 16px 16px 4px;padding:10px 14px;font-size:13px;color:#6B5A5D">Checking the team's documents…</div></sc-if>
+<div style="position:sticky;z-index:15;display:flex;gap:8px;background:#F4F4F3;padding:8px 0 4px;margin-top:4px;bottom:{{ askBarBottom }}px">
+<input value="{{ input }}" onChange="{{ setInput }}" onKeyDown="{{ onKey }}" onFocus="{{ onFocus }}" onBlur="{{ onBlur }}" placeholder="Ask about the team…" style="flex:1;min-width:0;border:1px solid #E7E3E3;border-radius:999px;padding:12px 16px;font-size:14px;background:#fff;color:#1A1012;outline:none;min-height:46px">
+<button onClick="{{ send }}" aria-label="Send" style="width:46px;height:46px;border-radius:50%;background:#C8102E;color:#fff;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;padding:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg></button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ s.signin }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Sign in" style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;flex-direction:column;align-items:center;text-align:center;padding:64px 8px 10px;gap:8px">
+<img src="https://olympicfc.com.au/wp-content/uploads/2024/01/ROUND-GRADIENT-OFC-LOGO.png" data-fallback="assets/crests/olympic-red.png" onError="{{ imgFallback }}" alt="" style="width:84px;height:86px;object-fit:contain">
+<div style="font-size:22px;font-weight:800;line-height:1.2;margin-top:8px">Olympic FC U8<br>Kangaroos White</div>
+<div style="font-size:14px;color:#6B5A5D">Sign in to see your team</div>
+</div>
+<div style="background:#fff;border:1px solid #E7E3E3;border-radius:18px;box-shadow:0 1px 2px rgba(10,30,18,.04);padding:16px">
+<sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}">
+<label style="display:block;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Team code</label>
+<input placeholder="The code from Coach Damien" style="margin-top:8px;width:100%;border:1px solid #E7E3E3;border-radius:11px;padding:13px 14px;font-size:15px;background:#F4F4F3;color:#1A1012;outline:none;min-height:48px;font-family:'DM Mono',monospace;letter-spacing:.08em">
+<button onClick="{{ signIn }}" style="margin-top:12px;width:100%;background:#C8102E;color:#fff;border:none;border-radius:13px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;min-height:48px">Let me in</button>
+<div style="font-size:12px;color:#6B5A5D;margin-top:12px;line-height:1.45">Everyone on the team uses the same code. Ask in the WhatsApp group if you don't have it.</div>
+</sc-if>
+<sc-if value="{{ isB }}" hint-placeholder-val="{{ false }}">
+<label style="display:block;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Your email</label>
+<input placeholder="you@example.com" style="margin-top:8px;width:100%;border:1px solid #E7E3E3;border-radius:11px;padding:13px 14px;font-size:15px;background:#F4F4F3;color:#1A1012;outline:none;min-height:48px">
+<button onClick="{{ signIn }}" style="margin-top:12px;width:100%;background:#C8102E;color:#fff;border:none;border-radius:13px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;min-height:48px">Email me a sign-in link</button>
+<div style="font-size:12px;color:#6B5A5D;margin-top:12px;line-height:1.45">No password. Use the email the club has for your family and we'll send a link that signs you in on this phone.</div>
+</sc-if>
+<sc-if value="{{ isC }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ signIn }}" style="width:100%;background:#fff;color:#1A1012;border:1px solid #E7E3E3;border-radius:13px;padding:13px;font-size:15px;font-weight:800;cursor:pointer;min-height:48px">Continue with Google</button>
+<button onClick="{{ signIn }}" style="margin-top:10px;width:100%;background:#fff;color:#1A1012;border:1px solid #E7E3E3;border-radius:13px;padding:13px;font-size:15px;font-weight:800;cursor:pointer;min-height:48px">Continue with Microsoft</button>
+<div style="display:flex;align-items:center;gap:10px;margin:14px 0;color:#6B5A5D;font-size:12px;font-weight:600"><span style="flex:1;height:1px;background:#E7E3E3"></span>or<span style="flex:1;height:1px;background:#E7E3E3"></span></div>
+<input placeholder="you@example.com" style="width:100%;border:1px solid #E7E3E3;border-radius:11px;padding:13px 14px;font-size:15px;background:#F4F4F3;color:#1A1012;outline:none;min-height:48px">
+<button onClick="{{ signIn }}" style="margin-top:10px;width:100%;background:#C8102E;color:#fff;border:none;border-radius:13px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;min-height:48px">Email me a link</button>
+</sc-if>
+</div>
+<div style="font-size:12px;color:#6B5A5D;text-align:center">Kangaroos K1 Central Hub · footballmgr.au</div>
+</div>
+</sc-if>
+</div>
+</div>
+
+<sc-if value="{{ chrome }}" hint-placeholder-val="{{ true }}">
+<div style="position:absolute;left:14px;right:14px;bottom:30px;z-index:30;background:rgba(255,255,255,.96);backdrop-filter:blur(12px);border:1px solid #E7E3E3;border-radius:20px;box-shadow:0 10px 30px rgba(26,16,18,.14);display:flex;padding:6px;transition:transform .26s cubic-bezier(.2,.8,.2,1);transform:translateY({{ navShift }}px)">
+<button onClick="{{ goHome }}" style="flex:1;min-height:48px;border:none;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;cursor:pointer;background:{{ nav.home.bg }};color:{{ nav.home.fg }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M9 22V12h6v10"></path></svg>Home</button>
+<button onClick="{{ goCalendar }}" style="flex:1;min-height:48px;border:none;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;cursor:pointer;background:{{ nav.calendar.bg }};color:{{ nav.calendar.fg }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>Calendar</button>
+<button onClick="{{ goResults }}" style="flex:1;min-height:48px;border:none;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;cursor:pointer;background:{{ nav.results.bg }};color:{{ nav.results.fg }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path></svg>Results</button>
+<button onClick="{{ goSquad }}" style="flex:1;min-height:48px;border:none;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;cursor:pointer;background:{{ nav.squad.bg }};color:{{ nav.squad.fg }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>Squad</button>
+<button onClick="{{ goAsk }}" style="flex:1;min-height:48px;border:none;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;cursor:pointer;background:{{ nav.ask.bg }};color:{{ nav.ask.fg }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"></path></svg>Ask</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ toastOn }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:50%;bottom:108px;transform:translateX(-50%);z-index:45;background:#1A1012;color:#fff;border-radius:999px;padding:10px 16px;font-size:13px;font-weight:700;white-space:nowrap;box-shadow:0 10px 30px rgba(20,6,10,.3);animation:toastin .2s ease">{{ toast }}</div>
+</sc-if>
+
+<sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ closeSheet }}" style="position:absolute;inset:0;z-index:40;background:rgba(26,16,18,.38);animation:fadein .2s ease"></div>
+<div style="position:absolute;left:0;right:0;bottom:0;z-index:41;background:#fff;border-radius:20px 20px 0 0;padding:10px 16px 44px;box-shadow:0 -10px 30px rgba(26,16,18,.18);animation:rise .26s cubic-bezier(.2,.8,.2,1);max-height:82%;overflow-y:auto">
+<div style="width:36px;height:4px;border-radius:2px;background:#E7E3E3;margin:0 auto 14px"></div>
+
+<sc-if value="{{ sh.reply }}" hint-placeholder-val="{{ false }}">
+<div style="font-size:20px;font-weight:800;line-height:1.2">{{ sheet.title }}</div>
+<div style="font-size:13px;color:#6B5A5D;margin-top:4px">{{ sheet.sub }}</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px">
+<button onClick="{{ sheet.setIn }}" style="border:none;border-radius:14px;padding:18px 12px;font-size:17px;font-weight:800;cursor:pointer;min-height:64px;display:flex;align-items:center;justify-content:center;gap:8px;background:{{ sheet.inBg }};color:{{ sheet.inFg }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round"><path d="M20 6 9 17l-5-5"></path></svg>{{ sheet.inLabel }}</button>
+<button onClick="{{ sheet.setOut }}" style="border:none;border-radius:14px;padding:18px 12px;font-size:17px;font-weight:800;cursor:pointer;min-height:64px;display:flex;align-items:center;justify-content:center;gap:8px;background:{{ sheet.outBg }};color:{{ sheet.outFg }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>{{ sheet.outLabel }}</button>
+</div>
+<input value="{{ note }}" onChange="{{ setNote }}" placeholder="Add a note for coach (optional)" style="margin-top:12px;width:100%;border:1px solid #E7E3E3;border-radius:11px;padding:12px 14px;font-size:14px;background:#F4F4F3;color:#1A1012;outline:none;min-height:44px">
+<div style="font-size:12px;color:#6B5A5D;margin-top:10px">Coach Damien sees replies straight away. You can change it any time before kick-off.</div>
+</sc-if>
+
+<sc-if value="{{ sh.event }}" hint-placeholder-val="{{ false }}">
+<div style="font-size:20px;font-weight:800;line-height:1.2">{{ sheet.title }}</div>
+<div style="font-size:13px;color:#6B5A5D;margin-top:4px">{{ sheet.sub }}</div>
+<div style="display:flex;gap:6px;margin-top:14px">
+<span style="border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;background:#E6F6EC;color:#1F8A4C">{{ sheet.counts.in }} in</span>
+<span style="border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;background:#FDEAEC;color:#C0393D">{{ sheet.counts.out }} out</span>
+<span style="border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;background:#F1EDEE;color:#6B5A5D">{{ sheet.counts.none }} no reply</span>
+</div>
+<sc-if value="{{ sheet.canReply }}" hint-placeholder-val="{{ true }}">
+<div style="margin-top:16px;font-size:13px;font-weight:700">Is Levi coming?</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+<button onClick="{{ sheet.setIn }}" style="border:none;border-radius:14px;padding:16px 12px;font-size:16px;font-weight:800;cursor:pointer;min-height:56px;background:{{ sheet.inBg }};color:{{ sheet.inFg }}">In</button>
+<button onClick="{{ sheet.setOut }}" style="border:none;border-radius:14px;padding:16px 12px;font-size:16px;font-weight:800;cursor:pointer;min-height:56px;background:{{ sheet.outBg }};color:{{ sheet.outFg }}">Out</button>
+</div>
+</sc-if>
+<sc-if value="{{ sheet.isCoach }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ sheet.goAvail }}" style="margin-top:16px;width:100%;background:#C8102E;color:#fff;border:none;border-radius:13px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;min-height:48px">See who's in</button>
+</sc-if>
+</sc-if>
+
+<sc-if value="{{ sh.day }}" hint-placeholder-val="{{ false }}">
+<div style="font-size:20px;font-weight:800;line-height:1.2">{{ sheet.title }}</div>
+<div style="margin-top:6px">
+<sc-for list="{{ sheet.items }}" as="row" hint-placeholder-count="1">
+<div onClick="{{ row.tap }}" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #E7E3E3;cursor:pointer">
+<span style="width:34px;height:34px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:{{ row.icBg }};color:{{ row.icFg }}">
+<sc-if value="{{ row.isGame }}" hint-placeholder-val="{{ false }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path></svg></sc-if>
+<sc-if value="{{ row.isTraining }}" hint-placeholder-val="{{ true }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="M12 11h4"></path><path d="M12 16h4"></path><path d="M8 11h.01"></path><path d="M8 16h.01"></path></svg></sc-if>
+<sc-if value="{{ row.isBday }}" hint-placeholder-val="{{ false }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"></path><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"></path><path d="M2 21h20"></path><path d="M7 8v3"></path><path d="M12 8v3"></path><path d="M17 8v3"></path></svg></sc-if>
+</span>
+<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:14px">{{ row.title }}</div><div style="font-size:12px;color:#6B5A5D">{{ row.meta }}</div></div>
+<sc-if value="{{ row.hasReplies }}" hint-placeholder-val="{{ true }}"><span style="font-size:11px;font-weight:800;border-radius:999px;padding:4px 8px;flex-shrink:0;white-space:nowrap;color:{{ row.myFg }};background:{{ row.myBg }}">{{ row.myLabel }}</span></sc-if>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9AA3A6" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><path d="m9 18 6-6-6-6"></path></svg>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ sh.duty }}" hint-placeholder-val="{{ false }}">
+<div style="font-size:20px;font-weight:800;line-height:1.2">{{ sheet.title }}</div>
+<div style="font-size:13px;color:#6B5A5D;margin-top:4px">{{ sheet.sub }}</div>
+<sc-if value="{{ sheet.parentClaim }}" hint-placeholder-val="{{ true }}">
+<div style="font-size:14px;color:#1A1012;margin-top:14px;line-height:1.5">Half-time fruit for 10 kids — oranges or watermelon go down well. We'll let Coach Damien know it's sorted.</div>
+<button onClick="{{ sheet.claim }}" style="margin-top:16px;width:100%;background:#C8102E;color:#fff;border:none;border-radius:13px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;min-height:48px">Yes, I'll bring fruit</button>
+</sc-if>
+<sc-if value="{{ sheet.showOptions }}" hint-placeholder-val="{{ false }}">
+<div style="margin-top:8px">
+<sc-for list="{{ sheet.options }}" as="o" hint-placeholder-count="3">
+<button onClick="{{ o.pick }}" style="width:100%;background:none;border:none;border-bottom:1px solid #E7E3E3;padding:13px 0;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;color:#1A1012;min-height:48px">
+<span style="width:32px;height:32px;border-radius:50%;background:#F1EDEE;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#6B5A5D;flex-shrink:0">{{ o.ini }}</span>
+<span style="flex:1;font-size:14px;font-weight:700">{{ o.name }}</span>
+<span style="font-size:12px;color:#6B5A5D">{{ o.sub }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+</sc-if>
+
+<sc-if value="{{ sh.hat }}" hint-placeholder-val="{{ false }}">
+<div style="font-size:20px;font-weight:800;line-height:1.2">Viewing as</div>
+<div style="font-size:13px;color:#6B5A5D;margin-top:4px">You're both a coach and a parent here. Pick a hat.</div>
+<div style="margin-top:10px">
+<sc-for list="{{ hatRows }}" as="h" hint-placeholder-count="2">
+<button onClick="{{ h.pick }}" style="width:100%;background:none;border:none;border-bottom:1px solid #E7E3E3;padding:14px 0;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;color:#1A1012;min-height:56px">
+<span style="width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0;background:{{ h.bg }};color:{{ h.fg }}">{{ h.ini }}</span>
+<span style="flex:1;min-width:0"><span style="display:block;font-size:15px;font-weight:800">{{ h.label }}</span><span style="display:block;font-size:12px;color:#6B5A5D">{{ h.sub }}</span></span>
+<sc-if value="{{ h.on }}" hint-placeholder-val="{{ false }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C8102E" style="stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round"><path d="M20 6 9 17l-5-5"></path></svg></sc-if>
+</button>
+</sc-for>
+</div>
+<button onClick="{{ signOut }}" style="margin-top:14px;background:none;border:none;color:#6B5A5D;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:8px 0;min-height:40px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><path d="m16 17 5-5-5-5"></path><path d="M21 12H9"></path></svg>Sign out</button>
+</sc-if>
+
+</div>
+</sc-if>
+</div>
+</x-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;variant&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;sheet&quot;,&quot;options&quot;:[&quot;sheet&quot;,&quot;inline&quot;,&quot;swipe&quot;],&quot;tsType&quot;:&quot;'sheet' | 'inline' | 'swipe'&quot;,&quot;section&quot;:&quot;Interaction model&quot;},&quot;role&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;parent&quot;,&quot;options&quot;:[&quot;parent&quot;,&quot;coach&quot;],&quot;tsType&quot;:&quot;'parent' | 'coach'&quot;,&quot;section&quot;:&quot;Viewing as&quot;},&quot;screen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;home&quot;,&quot;options&quot;:[&quot;home&quot;,&quot;calendar&quot;,&quot;results&quot;,&quot;squad&quot;,&quot;ask&quot;,&quot;match&quot;,&quot;player&quot;,&quot;availability&quot;,&quot;duties&quot;,&quot;stats&quot;,&quot;signin&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Start screen&quot;},&quot;openSheet&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;&quot;,&quot;options&quot;:[&quot;&quot;,&quot;reply&quot;,&quot;event&quot;,&quot;day&quot;,&quot;duty&quot;,&quot;hat&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Start screen&quot;}}">
+class Component extends DCLogic {
+  static ROOTS = ['home', 'calendar', 'results', 'squad', 'ask'];
+  static POS = { GK: ['#FFF1DA', '#B3760A'], DEF: ['#E6F0FF', '#2563A8'], MID: ['#E6F6EC', '#1F8A4C'], FWD: ['#FFE6E6', '#C0393D'] };
+  static D = (() => {
+    const local = (k) => 'assets/crests/' + k + '.png';
+    const OFC = 'https://olympicfc.com.au/wp-content/uploads/2024/01/ROUND-GRADIENT-OFC-LOGO.png', LION = local('lions-fc');
+    // Club crest registry. crest = club artwork saved in assets/crests, or the logo hotlinked from the club's own website until a PNG lands there; fallback = local file used if the hotlink fails.
+    const clubs = [
+      { key: 'olympic-fc', name: 'Olympic FC', site: 'https://olympicfc.com.au/', crest: OFC, fallback: local('olympic-red') },
+      { key: 'olympic-red', name: 'Olympic FC Red', site: 'https://olympicfc.com.au/', crest: OFC },
+      { key: 'oxley-united', name: 'Oxley United FC', site: 'http://www.oxleyutdfc.org.au/', crest: local('oxley-united') },
+      { key: 'springfield-united', name: 'Springfield United FC', site: 'https://www.springfieldutd.com.au/', crest: local('springfield-united') },
+      { key: 'springfield-strikers', name: 'Springfield Strikers', site: 'https://www.springfieldutd.com.au/', crest: local('springfield-united') },
+      { key: 'mfc-kangaroos', name: 'Moggill FC (MFC Kangaroos)', crest: local('mfc-kangaroos') },
+      { key: 'lions-fc', name: 'Lions FC', site: 'https://lionsfootballclub.com.au/', crest: LION },
+      { key: 'lions-orange', name: 'Lions FC Orange', site: 'https://lionsfootballclub.com.au/', crest: LION },
+      { key: 'lions-blue', name: 'Lions FC Blue', site: 'https://lionsfootballclub.com.au/', crest: LION },
+      { key: 'ripley-valley', name: 'Ripley Valley FC', site: 'https://ripleyvalleyfc.majestri.com.au/', crest: 'https://ripleyvalleyfc.majestri.com.au/hosted/org/298/imgs/34739.png', fit: 'contain', fallback: local('ripley-valley') },
+      { key: 'st-george', name: 'St George Willawong FC', site: 'https://stgwfc.com/', crest: 'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/render/image/public/base44-prod/public/69660e08604b119239ee5cb3/dcdb07343_StGeorgeFCLogoOUT.png?width=600&height=600&resize=contain', fit: 'contain', fallback: local('st-george') },
+      { key: 'eastern-suburbs', name: 'Eastern Suburbs FC', site: 'https://eastsfootball.com/', crest: local('eastern-suburbs') },
+      { key: 'moreton-city-excelsior', name: 'Moreton City Excelsior FC', site: 'https://www.moretoncityexcelsiorfc.com/', crest: 'https://static.wixstatic.com/media/300462_1934b5844e654d2c86f292ac91547746~mv2.png/v1/fill/w_174,h_174,al_c,q_85,usm_0.66_1.00_0.01/MCE%20logo.png' },
+      { key: 'brisbane-city', name: 'Brisbane City FC', site: 'https://brisbanecityfc.com.au/', crest: 'https://brisbanecityfc.com.au/wp-content/uploads/2021/08/BCFC-logo-150px.png', fit: 'contain' },
+      { key: 'gold-coast-united', name: 'Gold Coast United FC', site: 'https://goldcoastunitedfc.com.au/', crest: local('gold-coast-united') },
+      { key: 'gold-coast-knights', name: 'Gold Coast Knights FC', site: 'https://gcknights.com.au/', crest: 'https://gcknights.com.au/wp-content/uploads/2024/10/GCK-Logo-2024-2-stars-718x1024.png', fit: 'contain' },
+      { key: 'rochedale-rovers', name: 'Rochedale Rovers FC', site: 'https://rochedalerovers.majestri.com.au/', crest: 'https://rochedalerovers.majestri.com.au/hosted/org/110/imgs/55815.png', fit: 'contain' },
+      { key: 'logan-lightning', name: 'Logan Lightning FC', site: 'https://www.loganlightningfc.com/', crest: 'https://www.loganlightningfc.com/hosted/org/149/imgs/8328.png', fit: 'contain' },
+      { key: 'wynnum-wolves', name: 'Wynnum Wolves FC', site: 'https://wynnumwolvesfc.com.au/', crest: 'https://wynnumwolvesfc.com.au/wp-content/uploads/2023/11/Wolves-LogoRGB-776x1024.png', fit: 'contain' },
+    ];
+    const crestMeta = {};
+    clubs.forEach((x) => { if (!x.crest) return; const m = crestMeta[x.crest] || (crestMeta[x.crest] = {}); if (x.fit) m.fit = x.fit; if (x.pos) m.pos = x.pos; if (x.fallback && !m.fallback) m.fallback = x.fallback; });
+    const c = (k) => { const x = clubs.find((q) => q.key === k); return x && x.crest ? x.crest : local(k); };
+    const players = [
+      { id: 2, num: 2, name: 'Hamish L.', first: 'Hamish', pos: 'MID', goals: 1, bday: 'Wed, 4 Nov', family: 'Kate & Tom L.', phone: '0400 118 204', note: 'Quick feet. Loves a one-two down the left.' },
+      { id: 3, num: 3, name: 'Elias P.', first: 'Elias', pos: 'MID', goals: 0, bday: 'Sun, 6 Sep', family: 'Maria P.', phone: '0400 236 118', note: 'Quiet but reads the game well. Encourage him to shoot.' },
+      { id: 5, num: 5, name: 'Alfred D.', first: 'Alfred', pos: 'DEF', goals: 0, bday: 'Tue, 3 Feb', family: 'Jo & Sam D.', phone: '0400 355 902', note: 'Our calmest defender. Working on passing out rather than clearing.' },
+      { id: 6, num: 6, name: 'Levi H.', first: 'Levi', pos: 'MID', goals: 2, bday: 'Fri, 24 July', family: 'Sarah & Ben H.', phone: '0400 640 771', note: 'Loves playing out wide. Working on using the left foot.' },
+      { id: 7, num: 7, name: 'Spencer M.', first: 'Spencer', pos: 'GK', goals: 0, bday: 'Sun, 30 Aug', family: 'Priya M.', phone: '0400 702 336', note: 'Brave in goal. Remind him to roll it out within 6 seconds.' },
+      { id: 8, num: 8, name: 'Henry P.', first: 'Henry', pos: 'MID', goals: 4, bday: 'Mon, 12 Oct', family: 'Claire & Josh P.', phone: '0400 811 450', note: 'Top scorer. Next step: look up for a teammate before shooting.' },
+      { id: 9, num: 9, name: 'Oliver O.', first: 'Oliver', pos: 'MID', goals: 2, bday: 'Thu, 18 June', family: 'Nina O.', phone: '0400 903 217', note: 'Great energy. Finding space is this month\u2019s focus for him.' },
+      { id: 12, num: 12, name: 'Riyon H.', first: 'Riyon', pos: 'MID', goals: 1, bday: 'Sat, 21 Mar', family: 'Anita & Raj H.', phone: '0400 128 664', note: 'First goal last week. Confidence is up.' },
+      { id: 14, num: 14, name: 'Leonardo G.', first: 'Leonardo', pos: 'FWD', goals: 3, bday: 'Wed, 9 Dec', family: 'Lucia G.', phone: '0400 149 083', note: 'Natural finisher. Keep him involved when the ball is at the other end.' },
+      { id: 16, num: 16, name: 'Asher W.', first: 'Asher', pos: 'MID', goals: 0, bday: 'Fri, 15 May', family: 'Emma & Dan W.', phone: '0400 165 529', note: 'Newest to the group and settling in well.' },
+    ];
+    const fixtures = [
+      { round: 1, iso: '2026-05-02', date: 'Sat, 2 May', time: '08:30', opp: 'Springfield United U8 Snipers K1', short: 'Springfield United', crest: c('springfield-united'), ha: 'A', venue: 'Springfield Central Sports Complex \u2013 Field 1F', us: 3, them: 3, scorers: [[8, 1], [14, 1], [6, 1]] },
+      { round: 2, iso: '2026-05-09', date: 'Sat, 9 May', time: '08:00', opp: 'MFC U8 Kangaroos', short: 'MFC Kangaroos', crest: c('mfc-kangaroos'), ha: 'H', venue: 'J F O\u2019Grady Memorial Park \u2013 Field 4A', us: 1, them: 3, scorers: [[9, 1]] },
+      { round: 4, iso: '2026-05-23', date: 'Sat, 23 May', time: '09:20', opp: 'Lions FC U8 Orange Kangaroos', short: 'Lions Orange', crest: c('lions-orange'), ha: 'A', venue: 'CJ Greenfield Reserve \u2013 Field 3B', us: 2, them: 6, scorers: [[8, 1], [14, 1]] },
+      { round: 5, iso: '2026-05-30', date: 'Sat, 30 May', time: '08:00', opp: 'Springfield United U8 Strikers K2', short: 'Springfield Strikers', crest: c('springfield-strikers'), ha: 'H', venue: 'J F O\u2019Grady Memorial Park \u2013 Field 4A', us: 0, them: 0, scorers: [] },
+      { round: 6, iso: '2026-06-06', date: 'Sat, 6 June', time: '08:00', opp: 'Ripley Valley U8', short: 'Ripley Valley', crest: c('ripley-valley'), ha: 'A', venue: 'Ironbark Park (Ripley Valley) \u2013 Field 5', us: 7, them: 0, scorers: [[8, 2], [14, 1], [6, 1], [9, 1], [12, 1], [2, 1]], video: 'https://www.youtube.com/' },
+      { round: 7, iso: '2026-06-13', date: 'Sat, 13 June', time: '08:00', opp: 'Oxley United FC U8 Eagles', short: 'Oxley United', crest: c('oxley-united'), ha: 'H', venue: 'J F O\u2019Grady Memorial Park (Olympic FC) \u2013 Field 4C', us: null, them: null },
+      { round: 8, iso: '2026-06-20', date: 'Sat, 20 June', time: '08:00', opp: 'Olympic FC U8 Kangaroos RED', short: 'Olympic Red', crest: c('olympic-red'), ha: 'A', venue: 'J F O\u2019Grady Memorial Park \u2013 Field 4C', us: null, them: null },
+      { round: 9, iso: '2026-06-27', date: 'Sat, 27 June', time: '08:00', opp: 'Lions FC U8 Blue Kangaroos', short: 'Lions Blue', crest: c('lions-blue'), ha: 'H', venue: 'J F O\u2019Grady Memorial Park \u2013 Field 4A', us: null, them: null },
+      { round: 10, iso: '2026-07-18', date: 'Sat, 18 July', time: '08:00', opp: 'Springfield United U8 Snipers K1', short: 'Springfield United', crest: c('springfield-united'), ha: 'H', venue: 'J F O\u2019Grady Memorial Park \u2013 Field 4C', us: null, them: null },
+    ];
+    return { US: 'Olympic FC U8 Kangaroos White', crest: OFC, me: 6, players, fixtures, clubs, crestMeta, focuses: ['Spread out and find space', 'First touch away from pressure', 'Everyone gets a turn in goal'] };
+  })();
+  static CANNED = [
+    { q: 'When and where is our next game?', a: 'Round 7 vs Oxley United FC U8 Eagles \u2014 Sat, 13 June, kick-off 08:00 at J F O\u2019Grady Memorial Park (Olympic FC), Field 4C. We\u2019re the home side, so red kit. Coach asks everyone to be there by 07:30 for warm-up.', src: 'Team schedule' },
+    { q: 'What are this season\u2019s match focuses?', a: 'Three things this season: spread out and find space, first touch away from pressure, and everyone gets a turn in goal. Coach Damien highlights one each week \u2014 this week it\u2019s spreading out.', src: 'Coach notes \u00b7 Season focuses' },
+    { q: 'How long are the halves at U8?', a: 'U8 plays two 20-minute halves with at least a 5-minute break. It\u2019s 7-a-side including a goalkeeper, size 3 ball, and there\u2019s no offside.', src: 'MiniRoos National Playing Formats' },
+    { q: 'What\u2019s the wet weather policy?', a: 'Games are only called off by Football Queensland or the home club closing the grounds \u2014 usually decided by 07:00 on match day. Coach Damien posts in the WhatsApp group as soon as we hear. For training, if J F O\u2019Grady is closed we\u2019ll cancel by 15:00.', src: 'Team info \u00b7 Wet weather' },
+  ];
+  static FALLBACK = 'That isn\u2019t covered by the team\u2019s documents or schedule, so I won\u2019t guess. Try fixtures, training, duties or the MiniRoos rules \u2014 or message Coach Damien.';
+
+  state = {
+    screen: null, tab: null, role: null, sheet: undefined, nav: [], condensed: false, kb: false, toast: null, note: '',
+    avail: { g7: { 2: 'in', 5: 'out', 7: 'in', 8: 'in', 12: 'in', 16: 'in' }, tr11: { 2: 'in', 7: 'in', 12: 'in' } },
+    target: 'game',
+    duties: { 5: { fruit: 'Alfred D.\u2019s family', gk: 'Spencer M.' }, 6: { fruit: 'Riyon H.\u2019s family', gk: 'Henry P.' }, 7: { fruit: null, gk: null }, 8: { fruit: null, gk: null }, 9: { fruit: null, gk: null }, 10: { fruit: null, gk: null } },
+    assign: null, matchRound: 7, playerId: 6, weekOpen: null, calOpen: null, squadOpen: null, resOpen: null, sheetOpen: null,
+    calDay: 13, resTab: 'played', stTab: 'team', faqOpen: null, thread: [], input: '', asking: false, swipe: null,
+  };
+  scrollRef = React.createRef();
+  swipedAt = 0;
+
+  get v() { return this.props.variant || 'sheet'; }
+  get role() { return this.state.role || this.props.role || 'parent'; }
+  pl(id) { return Component.D.players.find(p => p.id === id); }
+  fx(r) { return Component.D.fixtures.find(f => f.round === r); }
+  ini(name) { return name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase(); }
+  status(pid, t) { return (this.state.avail[t] || {})[pid] || null; }
+  counts(t) { const m = this.state.avail[t] || {}; let i = 0, o = 0; Component.D.players.forEach(p => { if (m[p.id] === 'in') i++; else if (m[p.id] === 'out') o++; }); return { in: i, out: o, none: Component.D.players.length - i - o }; }
+  canReply(pid) { return this.role === 'coach' || pid === Component.D.me; }
+  stop(fn) { return (e) => { if (e && e.stopPropagation) e.stopPropagation(); fn(e); }; }
+  tapGuard(fn) { return (e) => { if (Date.now() - this.swipedAt < 350) return; fn(e); }; }
+  dw(n) { return ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'][(n - 1) % 7]; }
+  dayName(n) { return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][(n - 1) % 7]; }
+  curScreen() { return this.state.screen || this.props.screen || 'home'; }
+  curTab() { const sc = this.curScreen(); return this.state.tab || (Component.ROOTS.includes(sc) ? sc : 'home'); }
+  top() { const el = this.scrollRef.current; if (el) el.scrollTop = 0; }
+  bottom() { setTimeout(() => { const el = this.scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, 60); }
+  toast(msg) { clearTimeout(this._t); this.setState({ toast: msg }); this._t = setTimeout(() => this.setState({ toast: null }), 2200); }
+  componentWillUnmount() { clearTimeout(this._t); }
+
+  go(screen, extra) { this.setState({ nav: [...this.state.nav, this.curScreen()], screen, sheet: null, kb: false, ...(extra || {}) }); this.top(); }
+  goTab(id) { this.setState({ screen: id, tab: id, nav: [], sheet: null, kb: false }); this.top(); }
+  back() { const nav = [...this.state.nav]; const prev = nav.pop() || this.curTab(); this.setState({ screen: prev, nav, sheet: null }); this.top(); }
+  openMatch(r) { this.go('match', { matchRound: r }); }
+  openPlayer(id) { this.go('player', { playerId: id }); }
+  openSheet(sheet) { this.setState({ sheet, note: '' }); }
+  closeSheet() { this.setState({ sheet: null }); }
+  signIn() { this.setState({ screen: 'home', tab: 'home', nav: [], sheet: { type: 'hat' } }); this.top(); }
+  signOut() { this.setState({ screen: 'signin', nav: [], sheet: null }); this.top(); }
+
+  setReply(pid, val, t) {
+    const P = this.pl(pid); const next = this.status(pid, t) === val ? null : val;
+    this.setState(s => ({ avail: { ...s.avail, [t]: { ...(s.avail[t] || {}), [pid]: next } }, sheet: null }));
+    const what = t.charAt(0) === 'g' ? 'Saturday' : 'training';
+    this.toast(next ? `${P.first}\u2019s ${next} for ${what}` : `${P.first}\u2019s reply cleared`);
+  }
+  assignDuty(rn, kind, who) {
+    this.setState(s => ({ duties: { ...s.duties, [rn]: { ...s.duties[rn], [kind]: who } }, sheet: null, assign: null }));
+    this.toast(kind === 'fruit' ? `${who} on fruit for Round ${rn}` : `${who} in goal for Round ${rn}`);
+  }
+
+  swipeFor(key, commit) {
+    const sw = this.state.swipe; const active = sw && sw.key === key; const dx = active ? sw.dx : 0;
+    return {
+      dx, live: true, op: Math.abs(dx) > 8 ? 1 : 0,
+      tr: active && sw.drag ? 'none' : 'transform .18s cubic-bezier(.2,.8,.2,1)',
+      bg: dx > 8 ? '#1E9E57' : dx < -8 ? '#E5484D' : 'transparent',
+      down: (e) => { if (e.currentTarget.setPointerCapture) { try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {} } this.setState({ swipe: { key, x0: e.clientX, dx: 0, drag: true } }); },
+      move: (e) => { const s = this.state.swipe; if (!s || s.key !== key || !s.drag) return; const d = Math.max(-120, Math.min(120, e.clientX - s.x0)); if (Math.abs(d - s.dx) > 2) this.setState({ swipe: { ...s, dx: d } }); },
+      up: () => { const s = this.state.swipe; if (!s || s.key !== key) return; if (Math.abs(s.dx) > 6) this.swipedAt = Date.now(); if (s.dx > 70) commit('in'); else if (s.dx < -70) commit('out'); this.setState({ swipe: null }); },
+    };
+  }
+  crestEl(src, size, ring) { const m = Component.D.crestMeta[src] || {}; return React.createElement('img', { src, alt: '', onError: Component.imgFallback, style: { width: size, height: size, borderRadius: '50%', objectFit: m.fit || 'cover', objectPosition: m.pos || 'center', background: m.fit === 'contain' ? '#fff' : 'transparent', flexShrink: 0, boxShadow: ring || 'none' } }); }
+  static imgFallback(e) { const el = e.currentTarget, cur = el.getAttribute('src'), f = (Component.D.crestMeta[cur] || {}).fallback || el.getAttribute('data-fallback'); if (f && cur !== f) el.setAttribute('src', f); }
+  noSwipe() { return { dx: 0, live: false, op: 0, tr: 'none', bg: 'transparent', down: null, move: null, up: null }; }
+
+  replyRow(pid, t) {
+    const P = this.pl(pid); const stt = this.status(pid, t); const can = this.canReply(pid); const v = this.v;
+    const pill = stt === 'in' ? { bg: '#E6F6EC', fg: '#1F8A4C', label: 'In' } : stt === 'out' ? { bg: '#FDEAEC', fg: '#C0393D', label: 'Out' } : { bg: '#F1EDEE', fg: '#6B5A5D', label: 'No reply' };
+    const showSeg = can && v === 'inline', showBtn = can && v === 'sheet';
+    const [posBg, posFg] = Component.POS[P.pos];
+    return {
+      id: pid, name: P.name, first: P.first, num: P.num, pos: P.pos, posBg, posFg, ini: this.ini(P.name), mine: pid === Component.D.me, status: stt, can,
+      pill, showSeg, showBtn, showPill: !showSeg && !showBtn,
+      hint: !can ? (stt ? (stt === 'in' ? 'Playing' : 'Not this week') : 'Hasn\u2019t replied yet') : v === 'swipe' ? 'Swipe right for in, left for out' : v === 'inline' ? (stt ? 'Tap the other option to change' : 'Tap in or out') : (stt ? 'Tap to change' : 'Reply for ' + P.first),
+      segIn: { bg: stt === 'in' ? '#1E9E57' : 'transparent', fg: stt === 'in' ? '#fff' : '#6B5A5D' },
+      segOut: { bg: stt === 'out' ? '#E5484D' : 'transparent', fg: stt === 'out' ? '#fff' : '#6B5A5D' },
+      setIn: this.stop(() => this.setReply(pid, 'in', t)), setOut: this.stop(() => this.setReply(pid, 'out', t)),
+      openSheet: this.stop(() => this.openSheet({ type: 'reply', pid, target: t })),
+      btnLabel: stt ? pill.label : 'Reply', btnBg: stt ? pill.bg : '#C8102E', btnFg: stt ? pill.fg : '#fff',
+      sw: (can && v === 'swipe') ? this.swipeFor('r' + t + pid, (val) => this.setReply(pid, val, t)) : this.noSwipe(),
+    };
+  }
+
+  juneItems() {
+    if (this._june) return this._june;
+    const out = [];
+    const add = (n, kind, title, time, place, extra) => out.push(Object.assign({ key: kind.charAt(0) + n, n, dw: this.dw(n), date: this.dayName(n).slice(0, 3) + ', ' + n + ' June', kind, title, time, meta: time ? time + ' \u00b7 ' + place : place, target: null }, extra));
+    [1, 8, 15, 22, 29, 4, 11, 18, 25].forEach(n => add(n, 'training', 'Training', '16:30', 'JF O\u2019Grady', { target: 'tr' + n }));
+    Component.D.fixtures.filter(f => f.iso.slice(0, 7) === '2026-06').forEach(f => add(+f.iso.slice(8), 'game', 'vs ' + f.opp, f.time, f.venue, { target: 'g' + f.round, round: f.round, crest: f.crest }));
+    add(18, 'birthday', 'Oliver O. turns 8', '', 'Birthday', {});
+    out.sort((a, b) => a.n - b.n || (a.kind === 'birthday' ? -1 : 1));
+    this._june = out; return out;
+  }
+  eventFor(t) {
+    const it = this.juneItems().find(x => x.target === t);
+    if (it) return { title: it.title, dateMeta: it.date + ' \u00b7 ' + it.time };
+    if (t.charAt(0) === 'g') { const f = this.fx(+t.slice(1)); if (f) return { title: 'vs ' + f.opp, dateMeta: f.date + ' \u00b7 ' + f.time }; }
+    return { title: 'Training', dateMeta: '' };
+  }
+  eventRow(it, ns) {
+    const v = this.v, isCoach = this.role === 'coach', me = Component.D.me;
+    const openKey = ns + 'Open', open = this.state[openKey] === it.key;
+    const c = it.target ? this.counts(it.target) : null, my = it.target ? this.status(me, it.target) : null;
+    const canReply = !!it.target && !isCoach;
+    const icon = { game: ['#FDEAEC', '#C8102E'], training: ['#FFF1DA', '#B3760A'], birthday: ['#FCE7F3', '#BE185D'] }[it.kind];
+    return Object.assign({}, it, {
+      open, icBg: icon[0], icFg: icon[1], isGame: it.kind === 'game', isTraining: it.kind === 'training', isBday: it.kind === 'birthday', isCoach,
+      hasReplies: !!c, replies: c ? `${c.in} in \u00b7 ${c.out} out \u00b7 ${c.none} no reply` : '',
+      myLabel: !c ? '' : isCoach ? `${c.in} in \u00b7 ${c.none} to reply` : my ? `Levi\u2019s ${my}` : 'No reply',
+      myBg: !c ? '' : isCoach ? '#F1EDEE' : my === 'in' ? '#E6F6EC' : my === 'out' ? '#FDEAEC' : '#F1EDEE',
+      myFg: !c ? '' : isCoach ? '#6B5A5D' : my === 'in' ? '#1F8A4C' : my === 'out' ? '#C0393D' : '#6B5A5D',
+      canReply, me: it.target ? this.replyRow(me, it.target) : null,
+      tap: this.tapGuard(() => {
+        if (v === 'inline' && it.target) { this.setState({ [openKey]: open ? null : it.key }); return; }
+        if (it.kind === 'game') { this.openMatch(it.round); return; }
+        if (it.target) this.openSheet({ type: 'event', key: it.key });
+      }),
+      sw: (v === 'swipe' && canReply) ? this.swipeFor(ns + it.key, (val) => this.setReply(me, val, it.target)) : this.noSwipe(),
+      goAvail: this.stop(() => this.go('availability', { target: it.target === 'tr11' ? 'training' : 'game' })),
+    });
+  }
+  weekRows() { return this.juneItems().filter(x => [11, 13, 15].includes(x.n)).map(it => this.eventRow(it, 'week')); }
+  calCells() {
+    const june = this.juneItems(), sel = this.state.calDay;
+    return Array.from({ length: 30 }, (_, i) => {
+      const n = i + 1, its = june.filter(x => x.n === n), game = its.find(x => x.kind === 'game'), today = n === 11, on = n === sel;
+      return { n, crest: game ? game.crest : null, img: game ? this.crestEl(game.crest, 22) : null, hasCrest: !!game, dot: !game && its.length ? (its[0].kind === 'birthday' ? '#BE185D' : '#F6A623') : null, hasDot: !game && its.length > 0,
+        bg: on ? '#C8102E' : today ? '#FDEAEC' : 'transparent', fg: on ? '#fff' : today ? '#C8102E' : '#1A1012', w: (on || today) ? 800 : 500,
+        tap: () => { this.setState({ calDay: n }); if (its.length) this.openSheet({ type: 'day', n }); } };
+    });
+  }
+  weeks() {
+    const june = this.juneItems(), sel = this.state.calDay;
+    return [8, 15, 22].map(start => ({ key: start, label: `${start}\u2013${start + 6} June`, days: Array.from({ length: 7 }, (_, i) => {
+      const n = start + i, its = june.filter(x => x.n === n), game = its.find(x => x.kind === 'game'), on = n === sel, today = n === 11;
+      return { n, dw: 'MTWTFSS'[i], crest: game ? game.crest : null, img: game ? this.crestEl(game.crest, 18) : null, hasCrest: !!game, hasDot: !game && its.length > 0, dot: its.length && its[0].kind === 'birthday' ? '#BE185D' : '#F6A623',
+        bg: on ? '#C8102E' : today ? '#FDEAEC' : '#fff', fg: on ? '#fff' : today ? '#C8102E' : '#1A1012', tap: () => this.setState({ calDay: n }) };
+    }) }));
+  }
+
+  matchRow(f) {
+    const D = Component.D, isHome = f.ha === 'H', played = f.us != null, open = this.state.resOpen === f.round;
+    const col = !played ? '#F6A623' : f.us > f.them ? '#1E9E57' : f.us < f.them ? '#E5484D' : '#9AA3A6';
+    return { round: f.round, date: f.date.replace('Sat, ', ''), played, upcoming: !played, time: f.time, col, open, venue: f.venue, hasCrests: true,
+      homeName: isHome ? D.US : f.opp, awayName: isHome ? f.opp : D.US, homeCrest: isHome ? D.crest : f.crest, awayCrest: isHome ? f.crest : D.crest,
+      homeRing: isHome ? '0 0 0 2px #C8102E' : 'none', awayRing: isHome ? 'none' : '0 0 0 2px #C8102E', homeImg: this.crestEl(isHome ? D.crest : f.crest, 30, isHome ? '0 0 0 2px #C8102E' : null), awayImg: this.crestEl(isHome ? f.crest : D.crest, 30, isHome ? null : '0 0 0 2px #C8102E'), homeW: isHome ? 800 : 600, awayW: isHome ? 600 : 800, homeFg: isHome ? '#1A1012' : '#6B5A5D', awayFg: isHome ? '#6B5A5D' : '#1A1012',
+      score: played ? (isHome ? `${f.us}\u2013${f.them}` : `${f.them}\u2013${f.us}`) : '', scorersText: this.scorersText(f),
+      tap: this.tapGuard(() => this.v === 'inline' ? this.setState({ resOpen: open ? null : f.round }) : this.openMatch(f.round)), detail: this.stop(() => this.openMatch(f.round)) };
+  }
+  scorersText(f) { const s = (f.scorers || []); if (!s.length) return f.us != null ? 'No scorers recorded' : ''; return 'Goals: ' + s.map(([pid, n]) => this.pl(pid).name + (n > 1 ? ' \u00d7' + n : '')).join(' \u00b7 '); }
+  minus30(t) { const [h, m] = t.split(':').map(Number); const tot = h * 60 + m - 30; return String(Math.floor(tot / 60)).padStart(2, '0') + ':' + String(tot % 60).padStart(2, '0'); }
+  matchVals(f) {
+    const r = this.matchRow(f), c = this.counts('g' + f.round), d = this.state.duties[f.round] || {}, played = f.us != null;
+    return Object.assign(r, { homeImg: this.crestEl(r.homeCrest, 48, r.homeRing === 'none' ? null : r.homeRing), awayImg: this.crestEl(r.awayCrest, 48, r.awayRing === 'none' ? null : r.awayRing), label: `Round ${f.round} \u00b7 ${f.ha === 'H' ? 'Home' : 'Away'} \u00b7 ${f.date}`, centre: played ? r.score : f.time, centreCol: played ? r.col : '#C8102E',
+      centreSub: played ? (f.us > f.them ? 'Win' : f.us < f.them ? 'Loss' : 'Draw') : f.date.replace(',', '').toUpperCase(),
+      maps: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(f.venue), kit: f.ha === 'H' ? 'Red kit' : 'White kit', arrive: 'Arrive ' + this.minus30(f.time),
+      counts: c, scorers: (f.scorers || []).map(([pid, n]) => ({ name: this.pl(pid).name, ini: this.ini(this.pl(pid).name), txt: n > 1 ? n + ' goals' : '1 goal', tap: () => this.openPlayer(pid) })),
+      hasScorers: (f.scorers || []).length > 0, noScorers: played && !(f.scorers || []).length, hasVideo: !!f.video, video: f.video || '#',
+      fruit: d.fruit || 'Not assigned yet', fruitFg: d.fruit ? '#1A1012' : '#6B5A5D', gk: d.gk || 'Not assigned yet', gkFg: d.gk ? '#1A1012' : '#6B5A5D',
+      focus: Component.D.focuses[0], isNext: f.round === 7, later: !played && f.round !== 7, repliesText: `${c.in} in \u00b7 ${c.out} out \u00b7 ${c.none} no reply` });
+  }
+  stats() {
+    const pl = Component.D.fixtures.filter(f => f.us != null); let w = 0, d = 0, l = 0, gf = 0, ga = 0;
+    pl.forEach(f => { gf += f.us; ga += f.them; if (f.us > f.them) w++; else if (f.us === f.them) d++; else l++; });
+    const form = pl.slice(-5).map(f => { const r = f.us > f.them ? 'W' : f.us === f.them ? 'D' : 'L'; return { r, bg: r === 'W' ? '#1E9E57' : r === 'L' ? '#E5484D' : '#9AA3A6' }; });
+    const diff = gf - ga; return { played: pl.length, w, d, l, pts: w * 3 + d, gf, ga, diff: (diff >= 0 ? '+' : '') + diff, form };
+  }
+  rounds() { return Component.D.fixtures.filter(f => f.us != null).map(f => ({ label: 'R' + f.round, gf: f.us, ga: f.them, gfH: Math.max(4, f.us * 9) + 'px', gaH: Math.max(4, f.them * 9) + 'px', col: f.us > f.them ? '#1E9E57' : f.us < f.them ? '#E5484D' : '#9AA3A6', tap: () => this.openMatch(f.round) })); }
+  scorers() { const ps = Component.D.players.filter(p => p.goals > 0).sort((a, b) => b.goals - a.goals || a.num - b.num); const max = ps[0].goals; return ps.map(p => ({ id: p.id, name: p.name, num: p.num, pos: p.pos, posBg: Component.POS[p.pos][0], posFg: Component.POS[p.pos][1], w: Math.round(p.goals / max * 100) + '%', goals: p.goals, txt: p.goals + (p.goals === 1 ? ' goal' : ' goals'), tap: () => this.openPlayer(p.id) })); }
+  squadRows() {
+    const v = this.v, isCoach = this.role === 'coach';
+    return Component.D.players.map(p => {
+      const r = this.replyRow(p.id, 'g7'), open = this.state.squadOpen === p.id, showStatus = isCoach || p.id === Component.D.me;
+      return Object.assign(r, { open, goalsText: p.goals ? p.goals + (p.goals === 1 ? ' goal' : ' goals') : 'No goals yet', showStatus,
+        rBtn: showStatus && r.showBtn, rPill: showStatus && !r.showBtn, rSeg: showStatus && r.showSeg,
+        tap: this.tapGuard(() => v === 'inline' ? this.setState({ squadOpen: open ? null : p.id }) : this.openPlayer(p.id)), profile: this.stop(() => this.openPlayer(p.id)),
+        sw: (showStatus && v === 'swipe') ? r.sw : this.noSwipe() });
+    });
+  }
+  playerVals(p) {
+    const [posBg, posFg] = Component.POS[p.pos];
+    return Object.assign({}, p, { ini: this.ini(p.name), posBg, posFg, goalsText: p.goals ? p.goals + (p.goals === 1 ? ' goal' : ' goals') : 'No goals yet', games: p.id === 5 ? 4 : 5, inGoal: p.pos === 'GK' ? 3 : (p.id === 8 || p.id === 6) ? 1 : 0, birthdayText: 'Turns 8 on ' + p.bday });
+  }
+  dutyRows() {
+    return [5, 6, 7, 8, 9, 10].map(rn => { const f = this.fx(rn), d = this.state.duties[rn], past = f.us != null;
+      return { round: rn, date: f.date, opp: 'vs ' + f.short, past, fade: past ? .5 : 1, fruit: this.slot(rn, 'fruit', d.fruit, past), gk: this.slot(rn, 'gk', d.gk, past) }; });
+  }
+  slot(rn, kind, val, past) {
+    const v = this.v, isCoach = this.role === 'coach', isFruit = kind === 'fruit';
+    const can = !past && !val && (isCoach || isFruit);
+    const openInline = !!(this.state.assign && this.state.assign.round === rn && this.state.assign.kind === kind);
+    const options = (isFruit ? Component.D.players.map(p => ({ name: p.name + '\u2019s family', ini: this.ini(p.name), sub: p.family })) : Component.D.players.map(p => ({ name: p.name, ini: this.ini(p.name), sub: '#' + p.num + ' \u00b7 ' + p.pos }))).map(o => Object.assign(o, { pick: this.stop(() => this.assignDuty(rn, kind, o.name)) }));
+    return { kind, isFruit, label: isFruit ? 'Fruit duty' : 'In goal', val: val || 'Not assigned yet', valFg: val ? '#1A1012' : '#6B5A5D', empty: !val, past, can,
+      icBg: isFruit ? '#FFF1DA' : '#FDEAEC', icFg: isFruit ? '#B3760A' : '#C8102E',
+      showClaim: can && !isCoach && v === 'inline', showAssign: can && isCoach && v === 'inline', openInline, options,
+      hint: !can ? '' : v === 'swipe' && !isCoach ? 'Swipe right to take it' : v === 'inline' ? '' : isCoach ? 'Tap to assign' : 'Tap to volunteer',
+      tap: this.tapGuard(() => { if (!can) return; if (v === 'inline') { if (isCoach) this.setState({ assign: openInline ? null : { round: rn, kind } }); return; } if (v === 'swipe' && !isCoach) return; this.openSheet({ type: 'duty', round: rn, kind }); }),
+      claim: this.stop(() => this.assignDuty(rn, kind, 'Levi H.\u2019s family')),
+      sw: (can && !isCoach && v === 'swipe') ? this.swipeFor('d' + rn + kind, (val) => { if (val === 'in') this.assignDuty(rn, kind, 'Levi H.\u2019s family'); }) : this.noSwipe() };
+  }
+
+  effSheet() {
+    const st = this.state.sheet; if (st !== undefined) return st;
+    const o = this.props.openSheet; if (!o) return null;
+    return { reply: { type: 'reply', pid: 6, target: 'g7' }, hat: { type: 'hat' }, day: { type: 'day', n: 13 }, duty: { type: 'duty', round: 7, kind: 'fruit' }, event: { type: 'event', key: 't11' } }[o] || null;
+  }
+  sheetVals(sh) {
+    if (!sh) return { sheetOpen: false, sh: {}, sheet: {}, hatRows: [] };
+    const isCoach = this.role === 'coach', me = Component.D.me, out = { type: sh.type };
+    const btns = (pid, t) => { const stt = this.status(pid, t); return { inBg: stt === 'in' ? '#1E9E57' : '#E6F6EC', inFg: stt === 'in' ? '#fff' : '#1F8A4C', outBg: stt === 'out' ? '#E5484D' : '#FDEAEC', outFg: stt === 'out' ? '#fff' : '#C0393D', inLabel: stt === 'in' ? 'In' : 'In', outLabel: 'Out', setIn: () => this.setReply(pid, 'in', t), setOut: () => this.setReply(pid, 'out', t) }; };
+    if (sh.type === 'reply') { const P = this.pl(sh.pid), ev = this.eventFor(sh.target); Object.assign(out, btns(sh.pid, sh.target), { title: `Reply for ${P.first}`, sub: `${ev.title} \u00b7 ${ev.dateMeta}` }); }
+    if (sh.type === 'event') { const it = this.juneItems().find(x => x.key === sh.key) || this.juneItems()[0]; Object.assign(out, btns(me, it.target), { title: it.title, sub: it.date + ' \u00b7 ' + it.meta, counts: this.counts(it.target), canReply: !isCoach, isCoach, goAvail: () => this.go('availability', { target: it.target === 'tr11' ? 'training' : 'game' }) }); }
+    if (sh.type === 'day') { out.title = this.dayName(sh.n) + ' ' + sh.n + ' June'; out.items = this.juneItems().filter(x => x.n === sh.n).map(it => this.eventRow(it, 'sheet')); }
+    if (sh.type === 'duty') { const f = this.fx(sh.round), isFruit = sh.kind === 'fruit', s = this.slot(sh.round, sh.kind, null, false);
+      Object.assign(out, { title: isCoach ? (isFruit ? 'Assign fruit duty' : 'Who\u2019s in goal?') : 'Take fruit duty?', sub: `Round ${sh.round} \u00b7 vs ${f.short} \u00b7 ${f.date}`, parentClaim: !isCoach, showOptions: isCoach, options: s.options, claim: () => this.assignDuty(sh.round, 'fruit', 'Levi H.\u2019s family') }); }
+    const hatRows = [
+      { label: 'Coach', sub: 'Damien \u00b7 edit fixtures, scores and duties', ini: 'D', on: isCoach, bg: isCoach ? '#C8102E' : '#F1EDEE', fg: isCoach ? '#fff' : '#6B5A5D', pick: () => { this.setState({ role: 'coach', sheet: null }); this.toast('Viewing as Coach'); } },
+      { label: 'Parent of Levi H.', sub: 'Reply for Levi and see the team', ini: 'LH', on: !isCoach, bg: !isCoach ? '#C8102E' : '#F1EDEE', fg: !isCoach ? '#fff' : '#6B5A5D', pick: () => { this.setState({ role: 'parent', sheet: null }); this.toast('Viewing as Parent of Levi'); } },
+    ];
+    return { sheetOpen: true, sh: { [sh.type]: true }, sheet: out, hatRows };
+  }
+
+  prompt(q) {
+    const D = Component.D, st = this.state, d7 = st.duties[7];
+    return `You are the team assistant for Olympic FC U8 Kangaroos White (Coles MiniRoos U8, Brisbane). Answer in under 60 words, plain warm Australian English, sentence case, no emoji, no markdown. Answer ONLY from the context below. If it isn't covered, say so in one sentence and suggest messaging Coach Damien. Never invent rules.
+
+CONTEXT
+Next game: Round 7 vs Oxley United FC U8 Eagles, Sat 13 June 2026, 08:00, J F O'Grady Memorial Park (Olympic FC) Field 4C, home, red kit, arrive 07:30.
+Fixtures: ${D.fixtures.map(f => `R${f.round} ${f.date} ${f.time} ${f.ha === 'H' ? 'home' : 'away'} vs ${f.opp} at ${f.venue}${f.us != null ? ` (${f.us}-${f.them})` : ''}`).join('; ')}.
+Training: Mondays and Thursdays 16:30 at J F O'Grady.
+Duties Round 7: fruit ${d7.fruit || 'not assigned yet'}; in goal ${d7.gk || 'not assigned yet'}.
+Season: played 5, won 1, drew 2, lost 2, 13 goals for, 12 against. Top scorer Henry P. with 4.
+Squad: ${D.players.map(p => `#${p.num} ${p.name} (${p.pos})`).join(', ')}. Coach Damien, assistant coach Cameron.
+Season focuses: ${D.focuses.join('; ')}.
+MiniRoos U8-U9 format: 7-a-side including a goalkeeper, max 4 substitutes, two 20-minute halves, at least 5 minutes half-time, size 3 ball, field 40x30m to 50x40m, goals 3m x 2m, no offside, no points tables or ladders published, results only used to grade leagues. Goalkeeper restarts within 6 seconds, no kicking from the hands.
+Wet weather: Football Queensland or the home club decides by 07:00 on match day; Coach Damien posts in the WhatsApp group. Training is cancelled by 15:00 if the ground is closed.
+
+QUESTION: ${q}`;
+  }
+  ask(q) {
+    const text = (typeof q === 'string' ? q : this.state.input).trim(); if (!text || this.state.asking) return;
+    const canned = Component.CANNED.find(c => c.q.toLowerCase() === text.toLowerCase());
+    this.setState(s => ({ thread: [...s.thread, { id: 'u' + Date.now(), me: true, text }], input: '', asking: true, faqOpen: null })); this.bottom();
+    const push = (a, src) => { this.setState(s => ({ thread: [...s.thread, { id: 'a' + Date.now(), me: false, ai: true, text: a, src }], asking: false })); this.bottom(); };
+    if (canned) { setTimeout(() => push(canned.a, canned.src), 650); return; }
+    if (window.claude && window.claude.complete) { window.claude.complete(this.prompt(text)).then(r => push(String(r || '').trim() || Component.FALLBACK, 'Team assistant')).catch(() => push(Component.FALLBACK, 'Team assistant')); }
+    else setTimeout(() => push(Component.FALLBACK, 'Team assistant'), 700);
+  }
+
+  renderVals() {
+    const D = Component.D, st = this.state, v = this.v, isA = v === 'sheet', isB = v === 'inline', isC = v === 'swipe';
+    const isCoach = this.role === 'coach', isParent = !isCoach;
+    const screen = this.curScreen(), tab = this.curTab();
+    const s = {}; ['home', 'calendar', 'results', 'squad', 'ask', 'match', 'player', 'availability', 'duties', 'stats', 'signin'].forEach(k => { s[k] = screen === k; });
+    const isRoot = Component.ROOTS.includes(screen);
+    const M = this.matchVals(this.fx(st.matchRound) || this.fx(7));
+    const P = this.playerVals(this.pl(st.playerId) || this.pl(6));
+    const availT = st.target === 'training' ? 'tr11' : 'g7', ev = this.eventFor(availT), cA = this.counts(availT), c7 = this.counts('g7'), d7 = st.duties[7];
+    const titles = { calendar: ['Calendar', 'June 2026'], results: ['Results', 'Season 2026 \u00b7 5 played'], squad: ['Squad', '10 players \u00b7 2 coaches'], ask: ['Ask', 'Answers from our documents and schedule'], match: [`Round ${M.round}`, `vs ${(this.fx(M.round) || {}).short} \u00b7 ${(this.fx(M.round) || {}).date}`], player: [P.name, `#${P.num} \u00b7 ${P.pos}`], availability: ['Who\u2019s in', ev.title + ' \u00b7 ' + ev.dateMeta], duties: ['Duties', 'Fruit and goalkeeper rota'], stats: ['Stats', 'Season 2026 so far'] };
+    const t = titles[screen] || ['', ''];
+    const navItem = (id) => tab === id ? { bg: '#FDEAEC', fg: '#C8102E' } : { bg: 'transparent', fg: '#6B5A5D' };
+    const seg = (on) => ({ bg: on ? '#fff' : 'transparent', fg: on ? '#1A1012' : '#6B5A5D', sh: on ? '0 1px 2px rgba(10,30,18,.08)' : 'none' });
+    const june = this.juneItems(), stats = this.stats();
+    const calList = (isC ? june.filter(x => x.n === st.calDay) : june.filter(x => x.n >= 11)).map(it => this.eventRow(it, 'cal'));
+    const played = D.fixtures.filter(f => f.us != null), upcoming = D.fixtures.filter(f => f.us == null);
+    const order = { in: 0, out: 1, null: 2 };
+    const availRows = [...D.players].sort((a, b) => (order[this.status(a.id, availT)] - order[this.status(b.id, availT)]) || (a.num - b.num)).map(p => Object.assign(this.replyRow(p.id, availT), { rowBg: p.id === D.me ? '#FFF7F8' : '#fff' }));
+    return Object.assign({
+      kb: st.kb, chrome: screen !== 'signin', isRoot, isSub: !isRoot, s, notHome: screen !== 'home', notCondensed: !st.condensed,
+      imgFallback: Component.imgFallback, hdrTitle: t[0], hdrKicker: t[1], hatLabel: isCoach ? 'Coach' : 'Parent of Levi', openHat: () => this.openSheet({ type: 'hat' }),
+      back: () => this.back(), scrollRef: this.scrollRef,
+      onScroll: (e) => { const c = e.currentTarget.scrollTop > 24; if (c !== this.state.condensed) this.setState({ condensed: c }); },
+      isParent, isCoach, isA, isB, isC, variantName: isA ? 'Sheets' : isB ? 'Inline' : 'Gestures',
+      nav: { home: navItem('home'), calendar: navItem('calendar'), results: navItem('results'), squad: navItem('squad'), ask: navItem('ask') },
+      goHome: () => this.goTab('home'), goCalendar: () => this.goTab('calendar'), goResults: () => this.goTab('results'), goSquad: () => this.goTab('squad'), goAsk: () => this.goTab('ask'),
+      navShift: st.kb ? 160 : 0, toastOn: !!st.toast, toast: st.toast, closeSheet: () => this.closeSheet(), signOut: () => this.signOut(),
+      note: st.note, setNote: (e) => this.setState({ note: e.target.value }),
+      openNext: () => this.openMatch(7), me: this.replyRow(D.me, 'g7'), nextCounts: c7,
+      goAvail: () => this.go('availability', { target: 'game' }), goDuties: () => this.go('duties'), goStats: () => this.go('stats'),
+      dutyNext: { fruit: d7.fruit || 'Not assigned yet', fruitFg: d7.fruit ? '#1A1012' : '#6B5A5D', gk: d7.gk || 'Not assigned yet', gkFg: d7.gk ? '#1A1012' : '#6B5A5D' },
+      weekRows: this.weekRows(), stats, form: stats.form,
+      calCells: this.calCells(), calList, calEmpty: calList.length === 0, weeks: this.weeks(), calTitle: this.dayName(st.calDay) + ' ' + st.calDay + ' June',
+      calNav: () => this.toast('Only June is in this prototype'), subscribe: () => this.toast('Subscribe link copied'),
+      resPlayed: played.map(f => this.matchRow(f)), resUpcoming: upcoming.map(f => this.matchRow(f)),
+      resDir: isC ? 'row' : 'column', resOx: isC ? 'auto' : 'visible', showPlayed: !isB || st.resTab === 'played', showUpcoming: !isB || st.resTab === 'upcoming',
+      segPlayed: seg(st.resTab === 'played'), segUpcoming: seg(st.resTab === 'upcoming'), tabPlayed: () => this.setState({ resTab: 'played' }), tabUpcoming: () => this.setState({ resTab: 'upcoming' }),
+      squadRows: this.squadRows(), wa: () => this.toast('Opens WhatsApp'),
+      P, pReply: this.replyRow(P.id, 'g7'), pCanReply: this.canReply(P.id), canSeeContacts: isCoach || P.id === D.me, showCoachNotes: isCoach, showPrivacy: isParent && P.id !== D.me,
+      M, mReply: this.replyRow(D.me, 'g' + M.round), mShowReply: isParent && M.isNext, mShowWho: M.isNext, mGoAvail: () => this.go('availability', { target: 'game' }), mEdit: () => this.toast('Fixture editing is coach-only \u2014 not in this prototype'),
+      availTitle: ev.title, availSub: ev.dateMeta, segGame: seg(st.target !== 'training'), segTraining: seg(st.target === 'training'), setGame: () => this.setState({ target: 'game' }), setTraining: () => this.setState({ target: 'training' }),
+      availCounts: cA, availRows, showNudge: isCoach && cA.none > 0, nudgeLabel: `Nudge the ${cA.none} who haven\u2019t replied`, nudge: () => this.toast(`Reminder sent to ${cA.none} families`),
+      dutyRows: this.dutyRows(),
+      rounds: this.rounds(), scorers: this.scorers(), stDir: isC ? 'row' : 'column', stOx: isC ? 'auto' : 'visible', showTeam: !isB || st.stTab === 'team', showPlayers: !isB || st.stTab === 'players',
+      segTeam: seg(st.stTab === 'team'), segPlayers: seg(st.stTab === 'players'), tabTeam: () => this.setState({ stTab: 'team' }), tabPlayers: () => this.setState({ stTab: 'players' }),
+      chips: Component.CANNED.map(c => ({ q: c.q, a: c.a, src: c.src, tap: () => this.ask(c.q), open: st.faqOpen === c.q, toggle: () => this.setState({ faqOpen: st.faqOpen === c.q ? null : c.q }) })),
+      thread: st.thread, hasThread: st.thread.length > 0, input: st.input, setInput: (e) => this.setState({ input: e.target.value }), onKey: (e) => { if (e.key === 'Enter') this.ask(); }, send: () => this.ask(),
+      onFocus: () => this.setState({ kb: true }), onBlur: () => this.setState({ kb: false }), asking: st.asking, askBarBottom: st.kb ? 0 : 104,
+      signIn: () => this.signIn(),
+    }, this.sheetVals(this.effSheet()));
+  }
+}
+</script>
+</body>
+</html>

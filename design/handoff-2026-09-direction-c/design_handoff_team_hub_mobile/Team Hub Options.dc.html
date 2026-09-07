@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#E9E7E6;font-family:'DM Sans',system-ui,sans-serif;color:#1A1012}
+a{color:#C8102E}a:hover{color:#7A0A1B}
+</style>
+</helmet>
+<section style="padding:40px 48px;display:flex;flex-direction:column;gap:56px;width:max-content">
+<div style="max-width:720px;display:flex;flex-direction:column;gap:8px">
+<div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B5A5D">Turn 1 · Olympic FC Team Hub · three interaction models</div>
+<div style="font-size:28px;font-weight:800;line-height:1.15">Same screens, three ways to act on them</div>
+<div style="font-size:15px;color:#6B5A5D;line-height:1.5">Every phone is live. <a href="#1a">1a</a> puts actions in bottom sheets, <a href="#1b">1b</a> keeps controls inline on the cards, <a href="#1c">1c</a> uses swipe gestures. Pick a row, or mix — the standalone prototype switches between them in Tweaks.</div>
+</div>
+
+<div id="1a" style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:center;gap:12px"><a href="#1a" style="background:#1A1012;color:#fff;border-radius:8px;padding:5px 10px;font-size:13px;font-weight:800;text-decoration:none">1a</a><span style="font-size:20px;font-weight:800">Sheets</span><span style="font-size:14px;color:#6B5A5D">Tap a row or button, a bottom sheet rises with the decision. Calm rows, one decision at a time, easy to add a note.</span></div>
+<div style="display:flex;gap:28px;align-items:flex-start">
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Sign in · team code</div><dc-import name="Team Hub App" variant="sheet" role="parent" screen="signin" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Home · parent</div><dc-import name="Team Hub App" variant="sheet" role="parent" screen="home" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Home · reply sheet</div><dc-import name="Team Hub App" variant="sheet" role="parent" screen="home" open-sheet="reply" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Calendar · day sheet</div><dc-import name="Team Hub App" variant="sheet" role="parent" screen="calendar" open-sheet="day" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Results</div><dc-import name="Team Hub App" variant="sheet" role="parent" screen="results" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Match detail</div><dc-import name="Team Hub App" variant="sheet" role="parent" screen="match" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Squad · coach</div><dc-import name="Team Hub App" variant="sheet" role="coach" screen="squad" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Player · coach</div><dc-import name="Team Hub App" variant="sheet" role="coach" screen="player" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Who's in · coach</div><dc-import name="Team Hub App" variant="sheet" role="coach" screen="availability" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Duties · volunteer sheet</div><dc-import name="Team Hub App" variant="sheet" role="parent" screen="duties" open-sheet="duty" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Stats</div><dc-import name="Team Hub App" variant="sheet" role="parent" screen="stats" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Ask · chips</div><dc-import name="Team Hub App" variant="sheet" role="parent" screen="ask" hint-size="426px,914px"></dc-import></div>
+</div>
+</div>
+
+<div id="1b" style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:center;gap:12px"><a href="#1b" style="background:#1A1012;color:#fff;border-radius:8px;padding:5px 10px;font-size:13px;font-weight:800;text-decoration:none">1b</a><span style="font-size:20px;font-weight:800">Inline</span><span style="font-size:14px;color:#6B5A5D">In / Out segmented controls sit right on the cards; rows expand in place. Fewest taps, busiest screens.</span></div>
+<div style="display:flex;gap:28px;align-items:flex-start">
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Sign in · email link</div><dc-import name="Team Hub App" variant="inline" role="parent" screen="signin" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Home · parent</div><dc-import name="Team Hub App" variant="inline" role="parent" screen="home" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Home · coach</div><dc-import name="Team Hub App" variant="inline" role="coach" screen="home" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Calendar · agenda</div><dc-import name="Team Hub App" variant="inline" role="parent" screen="calendar" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Results · segmented</div><dc-import name="Team Hub App" variant="inline" role="parent" screen="results" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Match detail</div><dc-import name="Team Hub App" variant="inline" role="parent" screen="match" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Squad · coach</div><dc-import name="Team Hub App" variant="inline" role="coach" screen="squad" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Player · parent</div><dc-import name="Team Hub App" variant="inline" role="parent" screen="player" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Who's in · coach</div><dc-import name="Team Hub App" variant="inline" role="coach" screen="availability" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Duties · coach assigns</div><dc-import name="Team Hub App" variant="inline" role="coach" screen="duties" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Stats · segmented</div><dc-import name="Team Hub App" variant="inline" role="parent" screen="stats" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Ask · FAQ list</div><dc-import name="Team Hub App" variant="inline" role="parent" screen="ask" hint-size="426px,914px"></dc-import></div>
+</div>
+</div>
+
+<div id="1c" style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:center;gap:12px"><a href="#1c" style="background:#1A1012;color:#fff;border-radius:8px;padding:5px 10px;font-size:13px;font-weight:800;text-decoration:none">1c</a><span style="font-size:20px;font-weight:800">Gestures</span><span style="font-size:14px;color:#6B5A5D">Swipe a row right for in, left for out; swipe between weeks, results and fixtures. Fastest once learned, least discoverable.</span></div>
+<div style="display:flex;gap:28px;align-items:flex-start">
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Sign in · Google / Microsoft</div><dc-import name="Team Hub App" variant="swipe" role="parent" screen="signin" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Home · parent</div><dc-import name="Team Hub App" variant="swipe" role="parent" screen="home" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Calendar · week strip</div><dc-import name="Team Hub App" variant="swipe" role="parent" screen="calendar" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Results · pager</div><dc-import name="Team Hub App" variant="swipe" role="parent" screen="results" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Match detail</div><dc-import name="Team Hub App" variant="swipe" role="parent" screen="match" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Squad · coach swipes</div><dc-import name="Team Hub App" variant="swipe" role="coach" screen="squad" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Player · coach</div><dc-import name="Team Hub App" variant="swipe" role="coach" screen="player" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Who's in · coach</div><dc-import name="Team Hub App" variant="swipe" role="coach" screen="availability" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Duties · swipe to take</div><dc-import name="Team Hub App" variant="swipe" role="parent" screen="duties" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Stats · pager</div><dc-import name="Team Hub App" variant="swipe" role="parent" screen="stats" hint-size="426px,914px"></dc-import></div>
+<div style="display:flex;flex-direction:column;gap:10px"><div style="font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6B5A5D;padding-left:12px">Ask · chip carousel</div><dc-import name="Team Hub App" variant="swipe" role="parent" screen="ask" hint-size="426px,914px"></dc-import></div>
+</div>
+</div>
+</section>
+</x-dc>
+</body>
+</html>

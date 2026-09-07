@@ -445,6 +445,24 @@ describe("App — per-team feature flags (duties)", () => {
 describe("App — Squadi-style results rows", () => {
   const withFixtures = (fixtures) => makeData({ fixtures });
 
+  it("renders crests from the local registry (never Squadi's hotlink) and an initials disc for unknown clubs", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(withFixtures([
+      { id: "f1", round: 1, status: "played", dateISO: "2026-05-02", time: "09:00", opponent: "Oxley United FC U8 Eagles", opponentLogo: "https://squadi.example/oxley.png", homeAway: "H", venue: "X", us: 2, them: 1, availability: {} },
+      { id: "f2", round: 2, status: "played", dateISO: "2026-05-09", time: "09:00", opponent: "Wests", opponentLogo: "https://squadi.example/wests.png", homeAway: "A", venue: "X", us: 1, them: 1, availability: {} }
+    ])) });
+    const { container } = render(<App />);
+    await screen.findByRole("button", { name: /View/ });
+    fireEvent.click(screen.getByText("Results"));
+    const srcs = [...container.querySelectorAll(".sqrow img.sqcrest")].map((i) => i.getAttribute("src"));
+    expect(srcs).toContain("/crests/oxley-united.png");
+    expect(srcs.filter((s) => s === "/crests/olympic-fc.png")).toHaveLength(2); // our side on both rows
+    expect(srcs.some((s) => /^https?:/.test(s))).toBe(false);
+    // Unknown club: initials disc, no image.
+    const rows = container.querySelectorAll(".sqrow");
+    expect(rows[1].querySelector(".sqcrest-ph").textContent).toBe("W");
+    expect(container.querySelector('img[src^="http"]')).toBeNull();
+  });
+
   it("flips an away game (home team left) but colours the score by our result", async () => {
     // Olympic away win 3–1 → rendered home-perspective as 1–3 with a WIN chip.
     storage.get.mockResolvedValue({ value: JSON.stringify(withFixtures([
