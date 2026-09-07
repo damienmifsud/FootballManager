@@ -8,9 +8,6 @@ import {
   Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt, GripVertical,
   Eye, User, LogOut, Navigation, Video, MessageCircle
 } from "lucide-react";
-import {
-  BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LabelList
-} from "recharts";
 // Pure data/display helpers live in lib/dashboardData.js so they can be unit
 // tested; everything below (ICS export, components) uses them from here.
 import {
@@ -421,9 +418,6 @@ const CSS = `
 .fx .upc{font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.06em;}
 .hatag{display:inline-block;font-size:9px;font-weight:800;padding:2px 5px;border-radius:5px;margin-left:6px;vertical-align:middle;}
 .hatag.H{background:#fdeaec;color:var(--pitch);} .hatag.A{background:#eef0f2;color:#5b6b61;}
-/* .pnum: the numbered square still used by the Stats top scorers (S8 restyles it). */
-.pnum{width:42px;height:42px;border-radius:12px;background:var(--pitch);color:#fff;
-  display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:20px;flex-shrink:0;}
 .numbadge{position:absolute;bottom:-4px;right:-4px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;
   background:var(--pitch);color:#fff;font-family:'Anton';font-size:11px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;}
 /* squad (S5, Direction C): Players card rows and the Coaches card */
@@ -501,13 +495,43 @@ const CSS = `
 .pos-pill.lg{font-size:10px;padding:3px 7px;}
 .pos-GK{background:#fff1da;color:#b3760a;} .pos-DEF{background:#e6f0ff;color:#2563a8;}
 .pos-MID{background:#e6f6ec;color:#1f8a4c;} .pos-FWD{background:#ffe6e6;color:#c0393d;}
-.pstat{display:flex;gap:18px;margin-left:auto;}
-.pstat .v{font-family:'Anton';font-size:18px;text-align:center;line-height:1;}
-.pstat .l{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;text-align:center;}
-.scorer-row{display:flex;align-items:center;gap:11px;padding:10px 2px;border-bottom:1px solid var(--line);}
-.scorer-row:last-child{border-bottom:none;}
-.rank{width:24px;font-family:'Anton';font-size:16px;color:var(--muted);text-align:center;}
-.rank.gold{color:var(--amber);}
+/* stats (S8, Direction C): five tiles, For / Against / Diff, Goals by round, Top scorers */
+.st-tiles{grid-template-columns:repeat(5,1fr);margin-bottom:14px;}
+.st-tiles .tile{background:var(--card);border:1px solid var(--line);padding:10px 4px;}
+.st-tiles .tile .k{font-size:9px;}
+.st-tiles .tile.won .v{color:var(--win);} .st-tiles .tile.drew .v{color:#9AA3A6;} .st-tiles .tile.lost .v{color:var(--red);}
+.st-tiles .tile.pts{background:var(--red-tint);border-color:var(--red-tint);}
+.st-fad{padding:12px 16px 14px;}
+.st-fad .row{display:flex;align-items:center;gap:14px;}
+.st-fad .k{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);}
+.st-fad .v{font-family:'Anton',sans-serif;font-weight:400;font-size:22px;line-height:1;margin-top:3px;}
+.st-fad .v.pos{color:var(--win);} .st-fad .v.neg{color:var(--red);} .st-fad .v.zero{color:var(--muted);}
+.st-pips{margin-left:auto;display:flex;gap:5px;}
+.st-rounds{padding:12px 16px 12px;}
+.st-head{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.st-legend{font-size:11px;color:var(--muted);font-weight:600;display:inline-flex;gap:10px;}
+.st-legend span{display:inline-flex;align-items:center;gap:4px;}
+.st-legend i{width:8px;height:8px;border-radius:2px;display:inline-block;}
+.st-legend .for{background:var(--ink);} .st-legend .against{background:var(--chart-against);}
+.st-bars{display:flex;gap:6px;margin-top:12px;align-items:flex-end;overflow-x:auto;scrollbar-width:none;}
+.st-bars::-webkit-scrollbar{display:none;}
+.st-col{flex:1;min-width:40px;background:none;border:none;padding:0;cursor:pointer;display:flex;flex-direction:column;
+  align-items:center;gap:6px;color:var(--ink);font:inherit;}
+.st-pair{display:flex;gap:3px;align-items:flex-end;height:66px;}
+.st-pair span{width:12px;border-radius:3px 3px 0 0;background:var(--ink);}
+.st-pair .ga{background:var(--chart-against);}
+.st-score{font-size:11px;font-weight:800;}
+.st-score.W{color:var(--win);} .st-score.L{color:var(--red);} .st-score.D{color:#9AA3A6;}
+.st-rd{font-size:10px;font-weight:700;color:var(--muted);}
+.st-empty{font-size:13px;color:var(--muted);margin-top:10px;}
+.st-scorers{padding:12px 16px 4px;}
+.sc-row{width:100%;background:none;border:none;border-bottom:1px solid var(--line);padding:11px 0;display:flex;align-items:center;
+  gap:12px;cursor:pointer;text-align:left;color:var(--ink);font:inherit;}
+.sc-row:last-child{border-bottom:none;}
+.sc-track{display:block;height:6px;border-radius:3px;background:var(--soft);margin-top:6px;overflow:hidden;}
+.sc-fill{display:block;height:100%;border-radius:3px;background:var(--pitch);}
+.sc-txt{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap;}
+.st-foot{font-size:12px;color:var(--muted);line-height:1.45;padding:0 4px;}
 /* nav — five roots; slides away while a text field has focus */
 .nav{position:fixed;bottom:var(--nav-inset);left:var(--nav-inset);right:var(--nav-inset);margin:0 auto;max-width:532px;
   background:var(--nav-bg);backdrop-filter:blur(var(--nav-blur));-webkit-backdrop-filter:blur(var(--nav-blur));
@@ -1060,7 +1084,6 @@ export default function App() {
 
   const stats = useMemo(() => data ? computeStats(data) : null, [data]);
   const next = useMemo(() => data ? nextFixture(data) : null, [data]);
-  const pname = useCallback((id) => data?.players.find(p => p.id === id)?.name || "—", [data]);
 
   // A pushed match / who's-in screen whose fixture has gone (deleted from the
   // editor, or by a sync) pops itself rather than rendering nothing; a player
@@ -1202,7 +1225,7 @@ export default function App() {
         {screen === "player" && screenPlayer && <PlayerScreen {...{ data, p: screenPlayer, next, persist, patchLocal, isCoach, viewer, me, setModal }} />}
         {screen === "ask" && <AskTab {...{ data, viewer, isCoach, account }} />}
         {screen === "duties" && <DutiesTab {...{ data, isCoach, viewer, me, setModal, patchLocal, showToast }} />}
-        {screen === "stats" && <StatsTab {...{ data, stats, pname }} />}
+        {screen === "stats" && <StatsTab {...{ data, stats, openMatch, openPlayer }} />}
         {screen === "settings" && <SettingsTab {...{ data, isCoach, persist, patchLocal, setIsCoach, setModal, account }} />}
       </div>
 
@@ -2168,39 +2191,81 @@ function DutySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast, 
 }
 
 /* ---------------- STATS ---------------- */
-function StatsTab({ data, stats, pname }) {
+// Stats (S8, Direction C): five tiles, For / Against / Diff with the last-5
+// form pips, Goals by round as plain CSS bars (9 px per goal, capped at the
+// 66 px column; tap opens the match) and Top scorers with a progress bar
+// relative to the top scorer (tap opens the player). Read-only.
+const resultOf = (f) => f.us > f.them ? "W" : f.us < f.them ? "L" : "D";
+const barPx = (g) => Math.min(66, Math.max(4, g * 9));
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+function StatsTab({ data, stats, openMatch, openPlayer }) {
+  // Played fixtures in date order — the same set computeStats counts.
+  const rounds = useMemo(() => data.fixtures
+    .filter(f => f.status === "played" && f.us != null && f.them != null)
+    .sort((a, b) => a.dateISO.localeCompare(b.dateISO)), [data.fixtures]);
+  const diff = stats.gf - stats.ga;
+  const scorers = stats.scorers.filter(p => p.goals > 0);
+  const top = scorers[0]?.goals || 1;
   return (
     <>
-      <div className="card">
-        <div className="label" style={{ marginBottom: 12 }}>Goals by round</div>
-        {stats.perRound.length === 0 ? <div className="note">No completed matches yet.</div> : (
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={stats.perRound} barGap={2}>
-              <XAxis dataKey="round" tick={{ fontSize: 11, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={20} allowDecimals={false} />
-              <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e4e9e3", fontSize: 12 }} />
-              <Bar dataKey="GF" name="For" fill="#C8102E" radius={[5, 5, 0, 0]} />
-              <Bar dataKey="GA" name="Against" fill="#3a2e30" radius={[5, 5, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+      <div className="tiles st-tiles">
+        {[[stats.played, "Played", ""], [stats.w, "Won", " won"], [stats.dr, "Drew", " drew"], [stats.l, "Lost", " lost"], [stats.pts, "Pts", " pts"]].map(([v, k, cls]) => (
+          <div className={"tile" + cls} key={k}><div className="v">{v}</div><div className="k">{k}</div></div>
+        ))}
+      </div>
+
+      <div className="card st-fad">
+        <div className="row">
+          <div><div className="k">For</div><div className="v">{stats.gf}</div></div>
+          <div><div className="k">Against</div><div className="v">{stats.ga}</div></div>
+          <div><div className="k">Diff</div><div className={"v " + (diff > 0 ? "pos" : diff < 0 ? "neg" : "zero")}>{(diff > 0 ? "+" : "") + diff}</div></div>
+          {stats.form.length > 0 && (
+            <div className="st-pips">{stats.form.map((r, i) => <span key={i} className={"pip " + r}>{r}</span>)}</div>
+          )}
+        </div>
+      </div>
+
+      <div className="card st-rounds">
+        <div className="st-head">
+          <span className="label">Goals by round</span>
+          <span className="st-legend"><span><i className="for" />For</span><span><i className="against" />Against</span></span>
+        </div>
+        {rounds.length === 0 ? <div className="st-empty">No completed matches yet.</div> : (
+          <div className="st-bars">
+            {rounds.map(f => (
+              <button key={f.id} className="st-col" onClick={() => openMatch(f)} aria-label={`Round ${f.round}, ${f.us}–${f.them}`}>
+                <div className="st-pair">
+                  <span className="gf" style={{ height: barPx(f.us) }} />
+                  <span className="ga" style={{ height: barPx(f.them) }} />
+                </div>
+                <span className={"st-score " + resultOf(f)}>{f.us}–{f.them}</span>
+                <span className="st-rd">R{f.round}</span>
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
-      <div className="card">
-        <div className="label" style={{ marginBottom: 6 }}>Top scorers</div>
-        {stats.scorers.length === 0 ? <div className="note" style={{ paddingTop: 6 }}>No goals recorded yet.</div> :
-          stats.scorers.map((s, i) => (
-            <div className="scorer-row" key={s.id}>
-              <div className={"rank" + (i === 0 ? " gold" : "")}>{i + 1}</div>
-              <div className="pnum" style={{ width: 34, height: 34, fontSize: 16, background: i === 0 ? "var(--amber)" : "var(--pitch)" }}>{s.number}</div>
-              <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{s.name}</div><span className={"pos-pill pos-" + s.position}>{s.position}</span></div>
-              <div className="pstat">
-                <div><div className="v">{s.goals}</div><div className="l">Goals</div></div>
-                <div><div className="v">{s.assists}</div><div className="l">Asst</div></div>
-              </div>
-            </div>
-          ))}
+      <div className="card st-scorers">
+        <div className="label">Top scorers</div>
+        {scorers.length === 0 && <div className="pl-empty">No goals recorded yet.</div>}
+        {scorers.map(p => (
+          <button key={p.id} className="sc-row" onClick={() => openPlayer(p)}>
+            <span className="pr-num">{p.number || ""}</span>
+            <span className="pr-body">
+              <span className="pr-name">
+                <b>{p.name}</b>
+                {p.position && <span className={"pos-pill pos-" + p.position}>{p.position}</span>}
+              </span>
+              <span className="sc-track"><span className="sc-fill" style={{ width: `${Math.round(p.goals / top * 100)}%` }} /></span>
+            </span>
+            <span className="sc-txt">{plural(p.goals, "goal")}{p.assists > 0 ? ` · ${plural(p.assists, "assist")}` : ""}</span>
+          </button>
+        ))}
       </div>
+
+      <div className="st-foot">Tap a round to open the match.</div>
     </>
   );
 }
