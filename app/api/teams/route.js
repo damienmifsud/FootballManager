@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { getStoredTeams, setStoredTeams, getData, setData } from "@/lib/store";
+import { getStoredTeams, setStoredTeams, getData, setData, deleteData } from "@/lib/store";
 import { getTeams, clearTeamsCache } from "@/lib/teams";
 import { auth } from "@/auth";
 import { isAdminEmail, isClubAdminEmail } from "@/lib/directory";
@@ -249,5 +249,8 @@ export async function DELETE(req) {
   }
   await setStoredTeams(stored.filter((t) => t && t.slug !== slug));
   clearTeamsCache();
-  return NextResponse.json({ ok: true });
+  // purgeData: also wipe the team's document, so re-creating the slug seeds
+  // a fresh starter document instead of restoring whatever was stored.
+  if (body?.purgeData === true) await deleteData(slug);
+  return NextResponse.json({ ok: true, purged: body?.purgeData === true });
 }

@@ -13,6 +13,7 @@ vi.mock("@upstash/redis", () => ({
   Redis: class {
     async get(k) { return redisStore.has(k) ? redisStore.get(k) : null; }
     async set(k, v) { redisStore.set(k, v); }
+    async del(...keys) { keys.forEach((k) => redisStore.delete(k)); }
   }
 }));
 
@@ -23,6 +24,10 @@ vi.mock("fs", () => ({
       return fsFiles.get(p);
     },
     writeFile: async (p, v) => { fsFiles.set(p, v); },
+    unlink: async (p) => {
+      if (!fsFiles.has(p)) { const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; }
+      fsFiles.delete(p);
+    },
     mkdir: async () => {}
   }
 }));
@@ -38,7 +43,10 @@ const dataFile = (slug) => path.join(process.cwd(), ".data", `${slug}.data.json`
 const metaFile = (slug) => path.join(process.cwd(), ".data", `${slug}.meta.json`);
 const legacyFile = path.join(process.cwd(), ".data", "team.json");
 
-const KEYS = ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"];
+// TEAMS / SITE_PASSWORD decide which ONE team may inherit the pre-multi-team
+// document; every test starts with neither set (no team inherits).
+const KEYS = ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "TEAMS", "SITE_PASSWORD"];
+const envFirstTeam = (slug) => { process.env.TEAMS = JSON.stringify([{ slug, name: "First", password: "code-1" }, { slug: "second", name: "Second", password: "code-2" }]); };
 let saved;
 beforeEach(() => {
   saved = {};
@@ -70,7 +78,8 @@ describe("store — Redis backend", () => {
     expect(await getData("a")).toBeNull();
   });
 
-  it("migrates the pre-multi-team team:data into team:<slug>:data on first read", async () => {
+  it("migrates the pre-multi-team team:data into team:<slug>:data on first read — for the FIRST env-defined team only", async () => {
+    envFirstTeam("kangaroos-white");
     redisStore.set("team:data", { legacy: true });
     const { getData } = await loadStore();
     const v = await getData("kangaroos-white");
@@ -79,20 +88,69 @@ describe("store — Redis backend", () => {
     expect(redisStore.get("team:kangaroos-white:data")).toEqual({ legacy: true });
   });
 
+  it("a second env team, a wizard-created team and an unknown slug never inherit the legacy doc (the cross-team leak)", async () => {
+    envFirstTeam("kangaroos-white");
+    redisStore.set("team:data", { legacy: true, team: { name: "Original" } });
+    const { getData } = await loadStore();
+    // A brand-new team must read as EMPTY so the wizard seeds it, not as a
+    // copy of the original team's document.
+    expect(await getData("second")).toBeNull();
+    expect(await getData("u9-blue")).toBeNull();
+    expect(redisStore.has("team:second:data")).toBe(false);
+    expect(redisStore.has("team:u9-blue:data")).toBe(false);
+    // No env teams at all (wizard-only club): nobody inherits.
+    delete process.env.TEAMS;
+    const fresh = await loadStore();
+    expect(await fresh.getData("kangaroos-white")).toBeNull();
+  });
+
+  it("single-team SITE_PASSWORD mode: only 'default' inherits", async () => {
+    process.env.SITE_PASSWORD = "code";
+    redisStore.set("team:data", { legacy: true });
+    const { getData } = await loadStore();
+    expect(await getData("u9-blue")).toBeNull();
+    expect(await getData("default")).toEqual({ legacy: true });
+  });
+
   it("does not adopt the legacy doc once the per-team key exists", async () => {
+    envFirstTeam("a");
     redisStore.set("team:data", { legacy: true });
     redisStore.set("team:a:data", { current: true });
     const { getData } = await loadStore();
     expect(await getData("a")).toEqual({ current: true });
   });
 
-  it("getMeta falls back to legacy meta, then to {}", async () => {
+  it("getMeta falls back to legacy meta only for the legacy owner, then to {}", async () => {
     const { getMeta } = await loadStore();
     expect(await getMeta("a")).toEqual({});
 
     redisStore.set("team:meta", { lastSyncAt: 123 });
     const fresh = await loadStore();
-    expect(await fresh.getMeta("a")).toEqual({ lastSyncAt: 123 });
+    expect(await fresh.getMeta("a")).toEqual({}); // not the owner: no inherited sync clock
+    envFirstTeam("a");
+    const owner = await loadStore();
+    expect(await owner.getMeta("a")).toEqual({ lastSyncAt: 123 });
+  });
+
+  it("deleteData wipes one team's data and meta and nothing else", async () => {
+    const { setData, setMeta, deleteData, getData, getMeta } = await loadStore();
+    await setData("a", { x: 1 }); await setMeta("a", { lastSyncAt: 1 });
+    await setData("b", { y: 2 });
+    redisStore.set("team:data", { legacy: true });
+    await deleteData("a");
+    expect(await getData("a")).toBeNull();
+    expect(await getMeta("a")).toEqual({});
+    expect(await getData("b")).toEqual({ y: 2 });
+    expect(redisStore.get("team:data")).toEqual({ legacy: true });
+  });
+
+  it("legacyOwnerSlug reads the env directly", async () => {
+    const { legacyOwnerSlug } = await loadStore();
+    expect(legacyOwnerSlug({})).toBeNull();
+    expect(legacyOwnerSlug({ SITE_PASSWORD: "x" })).toBe("default");
+    expect(legacyOwnerSlug({ TEAMS: JSON.stringify([{ slug: "k", password: "p" }]), SITE_PASSWORD: "x" })).toBe("k");
+    expect(legacyOwnerSlug({ TEAMS: "{bad" })).toBeNull();
+    expect(legacyOwnerSlug({ TEAMS: "[]" })).toBeNull();
   });
 
   it("setMeta writes under team:<slug>:meta", async () => {
@@ -158,15 +216,30 @@ describe("store — file backend (dev, no Upstash)", () => {
     expect(await getData("a")).toEqual({ x: 1 });
   });
 
-  it("falls back to the legacy .data/team.json when the per-team file is absent", async () => {
+  it("falls back to the legacy .data/team.json only for the legacy owner", async () => {
     fsFiles.set(legacyFile, JSON.stringify({ legacy: true }));
     const { getData } = await loadStore();
-    expect(await getData("a")).toEqual({ legacy: true });
+    expect(await getData("a")).toBeNull(); // a wizard team stays empty
+    envFirstTeam("a");
+    const owner = await loadStore();
+    expect(await owner.getData("a")).toEqual({ legacy: true });
+    expect(await owner.getData("second")).toBeNull();
   });
 
   it("returns null when neither the per-team nor the legacy file exists", async () => {
     const { getData } = await loadStore();
     expect(await getData("a")).toBeNull();
+  });
+
+  it("deleteData unlinks the team's files and tolerates a missing one", async () => {
+    const { setData, setMeta, deleteData, getData, getMeta } = await loadStore();
+    await setData("a", { x: 1 }); await setMeta("a", { lastSyncAt: 1 });
+    await deleteData("a");
+    expect(fsFiles.has(dataFile("a"))).toBe(false);
+    expect(fsFiles.has(metaFile("a"))).toBe(false);
+    expect(await getData("a")).toBeNull();
+    expect(await getMeta("a")).toEqual({});
+    await expect(deleteData("never-existed")).resolves.toBeUndefined();
   });
 
   it("persists data as pretty-printed JSON", async () => {

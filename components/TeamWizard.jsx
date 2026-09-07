@@ -165,10 +165,11 @@ export default function TeamWizard() {
   };
 
   const remove = async (slug) => {
-    if (!window.confirm(`Remove team "${slug}"? Its data stays in the store — re-adding the same slug restores it.`)) return;
+    if (!window.confirm(`Remove team "${slug}"?`)) return;
+    const purgeData = window.confirm(`Also wipe its stored data (players, fixtures, replies, duties)?\n\nOK: wipe it, so re-adding "${slug}" starts fresh.\nCancel: keep it, so re-adding "${slug}" restores it.`);
     setBusy(true); setErr("");
     try {
-      const r = await fetch("/api/teams", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug }) });
+      const r = await fetch("/api/teams", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug, purgeData }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "delete failed");
       await load();
