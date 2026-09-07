@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 import App from "@/components/Dashboard";
-import { isoLocal, SEASON } from "@/lib/dashboardData";
+import { isoLocal, SEASON, fmtDate } from "@/lib/dashboardData";
 import { signOut } from "next-auth/react";
 
 // The Viewing-as sheet's Sign out calls Auth.js's signOut; under test it just records the call.
@@ -1243,7 +1243,7 @@ describe("S1 shell — header, nav, back stack, toast", () => {
     render(<App />);
     await enterCoachMode(); // legacy guests can't use Ask
     fireEvent.click(screen.getByText("Ask"));
-    const input = await screen.findByPlaceholderText("Ask a question…");
+    const input = await screen.findByPlaceholderText("Ask about the team…");
     const nav = screen.getByRole("navigation");
     expect(nav.className).toBe("nav");
     fireEvent.focus(input);
@@ -3251,5 +3251,191 @@ describe("S8 Stats — Direction C", () => {
     expect(headerKicker()).toBe("#8 · MID");
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await waitFor(() => expect(headerTitle()).toBe("Stats"));
+  });
+});
+
+describe("S9 Ask — Direction C", () => {
+  const FALLBACK = "That isn't covered by the team's documents or schedule, so I won't guess. Try fixtures, training, duties or the MiniRoos rules — or message Coach Byron.";
+  const load = async (d) => { storage.get.mockResolvedValue({ value: JSON.stringify(d) }); render(<App />); await waitForLoaded(); };
+  const toAsk = async () => { fireEvent.click(screen.getByText("Ask")); return screen.findByPlaceholderText("Ask about the team…"); };
+  const askCalls = () => fetch.mock.calls.filter(([url]) => String(url).includes("/api/ask"));
+  // /api/ask replies with `reply`; everything else (e.g. /api/me) stays a miss.
+  const askFetch = (reply) => fetch.mockImplementation((url) => String(url).includes("/api/ask") ? Promise.resolve(reply) : Promise.resolve({ ok: false, json: async () => ({}) }));
+  const bubbles = (cls) => Array.from(document.querySelectorAll("." + cls)).map((el) => el.textContent);
+  const sendBtn = () => screen.getByRole("button", { name: "Send" });
+  const bar = () => document.querySelector(".ask-bar");
+  const fixtures = [
+    { id: "f6", status: "played", round: 6, dateISO: daysFromNow(-4), time: "09:00", opponent: "Wests", homeAway: "A", venue: "Wests Park", us: 2, them: 1, focusTitle: "Passing", availability: {} },
+    { id: "f7", status: "upcoming", round: 7, dateISO: daysFromNow(3), time: "08:00", opponent: "Oxley United", homeAway: "H", venue: "Perry Park", strip: "Red", focusTitle: "Receiving", availability: {} },
+    { id: "f8", status: "upcoming", round: 8, dateISO: daysFromNow(10), time: "10:30", opponent: "Lions", homeAway: "A", venue: "Lions Park", focusTitle: "Dribbling", availability: {} }
+  ];
+
+  it("intro card: title, sub and (coach only) the documents line; four chips carry the team's age group", async () => {
+    await load(makeData({ fixtures }));
+    await enterCoachMode();
+    await toAsk();
+    expect(screen.getByText("Ask about fixtures, training, duties or the MiniRoos rules.").className).toBe("ask-intro-title");
+    const sub = document.querySelector(".ask-intro-sub");
+    expect(sub.textContent).toBe("It answers from our documents and schedule. It won't make up rules.No documents loaded yet. Add club and Football Queensland PDFs in Team settings.");
+    expect(document.querySelector(".ask-intro .lc-ic svg")).toBeTruthy();
+    expect(Array.from(document.querySelectorAll(".ask-chip")).map((b) => b.textContent)).toEqual([
+      "When and where is our next game?",
+      "What are this season's match focuses?",
+      "How long are the halves at U8?",
+      "What's the wet weather policy?"
+    ]);
+  });
+
+  it("the documents line counts loaded documents for the coach and is absent for a parent", async () => {
+    await load(makeData({ fixtures, knowledge: [{ name: "a.pdf", text: "x" }, { name: "b.pdf", text: "y" }] }));
+    await enterCoachMode();
+    await toAsk();
+    expect(document.querySelector(".ask-intro-sub").textContent).toMatch(/2 documents loaded\.$/);
+    fireEvent.click(await openChip().then(() => screen.getByText("Leave coach mode")));
+    await expectChip("Parent");
+    await openChip();
+    fireEvent.click(screen.getByText("Sign in to respond"));
+    fireEvent.click(await screen.findByText("Sam Smith"));
+    await waitFor(() => expect(document.querySelector(".ov")).toBeNull());
+    await toAsk();
+    expect(document.querySelector(".ask-intro-sub").textContent).toBe("It answers from our documents and schedule. It won't make up rules.");
+  });
+
+  it("a chip tap shows the user bubble, then the typing bubble, then the canned answer with its source — no API call", async () => {
+    await load(makeData({ fixtures }));
+    await enterCoachMode();
+    await toAsk();
+    fireEvent.click(screen.getByText("How long are the halves at U8?"));
+    expect(bubbles("ask-me")).toEqual(["How long are the halves at U8?"]);
+    expect(screen.getByText("Checking the team's documents…").className).toBe("ask-typing");
+    expect(document.querySelector(".ask-chips")).toBeNull(); // chips go once the thread starts
+    const ai = await screen.findByText(/U8 plays two 20-minute halves/, {}, { timeout: 2000 });
+    expect(ai.className).toBe("ask-ai");
+    expect(ai.textContent).toBe("U8 plays two 20-minute halves with at least a 5-minute break. It's 7-a-side including a goalkeeper, size 3 ball, and there's no offside.From: MiniRoos National Playing Formats");
+    expect(screen.queryByText("Checking the team's documents…")).toBeNull();
+    expect(askCalls()).toEqual([]);
+  });
+
+  it("the next-game chip answers from the live schedule", async () => {
+    await load(makeData({ fixtures }));
+    await enterCoachMode();
+    await toAsk();
+    fireEvent.click(screen.getByText("When and where is our next game?"));
+    const ai = await screen.findByText(/Round 7 vs Oxley United/, {}, { timeout: 2000 });
+    expect(ai.textContent).toBe(`Round 7 vs Oxley United — ${fmtDate(daysFromNow(3))}, kick-off 08:00 at Perry Park. We're the home side, so Red kit. Aim to be there by 07:30 for warm-up.From: Team schedule`);
+    expect(askCalls()).toEqual([]);
+  });
+
+  it("free text POSTs { question, history } to /api/ask and renders the answer from the Team assistant", async () => {
+    askFetch({ ok: true, json: async () => ({ answer: "Training is Tuesdays at 17:30." }) });
+    await load(makeData({ fixtures }));
+    await enterCoachMode();
+    const input = await toAsk();
+    fireEvent.change(input, { target: { value: "When is training?" } });
+    fireEvent.click(sendBtn());
+    expect(bubbles("ask-me")).toEqual(["When is training?"]);
+    expect(input.value).toBe("");
+    const ai = await screen.findByText(/Training is Tuesdays/);
+    expect(ai.textContent).toBe("Training is Tuesdays at 17:30.From: Team assistant");
+    expect(askCalls().length).toBe(1);
+    const [, init] = askCalls()[0];
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ question: "When is training?", history: [] });
+    // The next question carries the thread so far.
+    fireEvent.change(input, { target: { value: "And Thursdays?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(askCalls().length).toBe(2));
+    expect(JSON.parse(askCalls()[1][1].body).history).toEqual([
+      { role: "you", text: "When is training?" }, { role: "bot", text: "Training is Tuesdays at 17:30.", src: "Team assistant" }
+    ]);
+  });
+
+  it("a server error message is shown as the assistant's reply", async () => {
+    askFetch({ ok: false, json: async () => ({ error: "The assistant isn't configured yet (no API key set)." }) });
+    await load(makeData({ fixtures }));
+    await enterCoachMode();
+    const input = await toAsk();
+    fireEvent.change(input, { target: { value: "Who brings fruit?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const ai = await screen.findByText(/isn't configured yet/);
+    expect(ai.textContent).toBe("The assistant isn't configured yet (no API key set).From: Team assistant");
+  });
+
+  it("a network failure or an empty answer shows the fallback verbatim, naming the head coach", async () => {
+    fetch.mockImplementation((url) => String(url).includes("/api/ask") ? Promise.reject(new Error("offline")) : Promise.resolve({ ok: false, json: async () => ({}) }));
+    await load(makeData({ fixtures }));
+    await enterCoachMode();
+    const input = await toAsk();
+    fireEvent.change(input, { target: { value: "Who brings fruit?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect((await screen.findByText(FALLBACK, { exact: false })).textContent).toBe(FALLBACK + "From: Team assistant");
+    // Empty answer, no error field.
+    askFetch({ ok: true, json: async () => ({ answer: "" }) });
+    fireEvent.change(input, { target: { value: "Anything?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(bubbles("ask-ai").length).toBe(2));
+    expect(bubbles("ask-ai")[1]).toBe(FALLBACK + "From: Team assistant");
+  });
+
+  it("the fallback says 'the coach' when the team has no head coach", async () => {
+    fetch.mockImplementation((url) => String(url).includes("/api/ask") ? Promise.reject(new Error("offline")) : Promise.resolve({ ok: false, json: async () => ({}) }));
+    await load(makeData({ fixtures, team: { name: "Test FC", division: "Div 1", ageGroup: "U8", coachPin: "" } }));
+    await enterCoachMode();
+    const input = await toAsk();
+    fireEvent.change(input, { target: { value: "Who brings fruit?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect((await screen.findByText(/or message the coach\.$/, { exact: false })).textContent)
+      .toBe("That isn't covered by the team's documents or schedule, so I won't guess. Try fixtures, training, duties or the MiniRoos rules — or message the coach.From: Team assistant");
+  });
+
+  it("a typed question that matches a chip takes the canned path", async () => {
+    await load(makeData({ fixtures }));
+    await enterCoachMode();
+    const input = await toAsk();
+    fireEvent.change(input, { target: { value: "what are this season's match focuses?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const ai = await screen.findByText(/This season's focuses/, {}, { timeout: 2000 });
+    expect(ai.textContent).toBe("This season's focuses: Passing, Receiving and Dribbling. Coach Byron highlights one each week — this week it's Receiving.From: Coach notes · Season focuses");
+    expect(askCalls()).toEqual([]);
+  });
+
+  it("the sticky bar sits 88px above the bottom and drops to 0 while the input has focus; the nav hides meanwhile", async () => {
+    await load(makeData({ fixtures }));
+    await enterCoachMode();
+    const input = await toAsk();
+    expect(bar().style.bottom).toBe("88px");
+    fireEvent.focus(input);
+    expect(bar().style.bottom).toBe("0px");
+    expect(screen.getByRole("navigation").className).toBe("nav hide");
+    fireEvent.blur(input);
+    expect(bar().style.bottom).toBe("88px");
+    expect(screen.getByRole("navigation").className).toBe("nav");
+  });
+
+  it("Send is disabled while the input is empty (or whitespace) and while an answer is pending", async () => {
+    await load(makeData({ fixtures }));
+    await enterCoachMode();
+    const input = await toAsk();
+    expect(sendBtn().disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(sendBtn().disabled).toBe(true);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(bubbles("ask-me")).toEqual([]); // whitespace never sends
+    fireEvent.change(input, { target: { value: "Hello" } });
+    expect(sendBtn().disabled).toBe(false);
+    fireEvent.click(sendBtn());
+    expect(sendBtn().disabled).toBe(true);
+    await screen.findByText(FALLBACK, { exact: false });
+  });
+
+  it("a legacy guest sees the intro and the sign-in card instead of chips and the bar", async () => {
+    await load(makeData({ fixtures }));
+    fireEvent.click(screen.getByText("Ask"));
+    expect(await screen.findByText("Sign in to ask.")).toBeTruthy();
+    expect(screen.getByText("Open Viewing as and choose who you are, then come back here.").className).toBe("ask-signin-sub");
+    expect(screen.getByText("Ask about fixtures, training, duties or the MiniRoos rules.")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Ask about the team…")).toBeNull();
+    expect(document.querySelector(".ask-chip")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
   });
 });
