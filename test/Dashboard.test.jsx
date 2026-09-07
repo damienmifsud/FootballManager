@@ -3678,6 +3678,7 @@ describe("Carnivals", () => {
     expect([...rows].map((r) => r.querySelector(".cv-pitch").textContent)).toEqual(["Pitch 2", "Pitch 4"]);
     expect(rows[0].querySelector(".cv-crest.ph").textContent).toBe("ZF"); // no artwork → initials disc
     expect(rows[1].querySelector("img.cv-crest").getAttribute("src")).toBe("/crests/oxley-united.png");
+    expect(rows[0].getAttribute("role")).toBeNull(); // an old hand-typed row opens nothing
     expect(sheet.queryByText("The game schedule hasn't been published yet.")).toBeNull();
     // Who's coming, and one calendar event from 08:00 to 14:00 titled "Carnival: …" with the games in the details.
     expect(sheet.getByText("Who's coming?", { selector: ".label" })).toBeTruthy();
@@ -3768,7 +3769,7 @@ describe("Carnivals", () => {
     expect(document.querySelectorAll(".av-seg")).toHaveLength(3); // the coach marks anyone
   });
 
-  it("editor: the coach adds a carnival with games; a row without an opponent is dropped, each kept game gets an id, and it persists as kind carnival / recur once", async () => {
+  it("editor: the coach adds a carnival (no games list — the note points to Results); it persists as kind carnival / recur once without a games array", async () => {
     const iso = daysFromNow(10);
     await load(makeData({ players: kids, fixtures: [], sessions: [] }));
     await enterCoachMode();
@@ -3784,50 +3785,275 @@ describe("Carnivals", () => {
     expect(date.getAttribute("max")).toBeNull();
     expect(screen.getByDisplayValue("08:00")).toBeTruthy();
     expect(screen.getByDisplayValue("14:00")).toBeTruthy();
+    // The hand-typed games editor is gone; games are fixtures linked from Results.
+    expect(screen.queryByText("Add game")).toBeNull();
+    expect(screen.queryByLabelText("Opponent")).toBeNull();
+    expect(screen.getByText(/Add the day's games under Results and choose this carnival/).className).toBe("note");
     fireEvent.change(title, { target: { value: "Winter carnival" } });
     fireEvent.change(date, { target: { value: iso } });
-    // Four rows: one removed, one left without an opponent.
-    const add = screen.getByText("Add game");
-    fireEvent.click(add); fireEvent.click(add); fireEvent.click(add); fireEvent.click(add);
-    expect(screen.getAllByLabelText("Opponent")).toHaveLength(4);
-    fireEvent.click(screen.getAllByLabelText("Remove game")[3]);
-    expect(screen.getAllByLabelText("Opponent")).toHaveLength(3);
-    const opp = screen.getAllByLabelText("Opponent"), tm = screen.getAllByLabelText("Game time"), pitch = screen.getAllByLabelText("Pitch");
-    fireEvent.change(tm[0], { target: { value: "09:30" } }); fireEvent.change(opp[0], { target: { value: "Oxley United" } }); fireEvent.change(pitch[0], { target: { value: "4" } });
-    fireEvent.change(tm[1], { target: { value: "08:30" } }); fireEvent.change(opp[1], { target: { value: " Zebras FC " } }); fireEvent.change(pitch[1], { target: { value: "Pitch 2" } });
-    fireEvent.change(tm[2], { target: { value: "10:30" } }); // no opponent → dropped
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(storage.set).toHaveBeenCalled());
     const saved = JSON.parse(storage.set.mock.calls.at(-1)[1]);
     expect(saved.isSample).toBe(false);
     expect(saved.sessions).toHaveLength(1);
-    const c = saved.sessions[0];
-    expect(c).toMatchObject({ kind: "carnival", recur: "once", title: "Winter carnival", dateISO: iso, time: "08:00", endTime: "14:00" });
-    expect(c.games).toHaveLength(2);
-    expect(c.games.map((g) => [g.time, g.opponent, g.pitch])).toEqual([["09:30", "Oxley United", "4"], ["08:30", "Zebras FC", "Pitch 2"]]);
-    expect(c.games.every((g) => typeof g.id === "string" && g.id.length > 0)).toBe(true);
-    expect(new Set(c.games.map((g) => g.id)).size).toBe(2);
-    // Back on the Calendar, the badge and row are there; the sheet has closed.
+    expect(saved.sessions[0]).toMatchObject({ kind: "carnival", recur: "once", title: "Winter carnival", dateISO: iso, time: "08:00", endTime: "14:00" });
+    expect("games" in saved.sessions[0]).toBe(false);
+    // Back on the Calendar, the badge is there; the sheet has closed.
     expect(document.querySelector(".sheet")).toBeNull();
     const d = new Date(iso + "T00:00:00");
     if (d.getMonth() !== new Date().getMonth()) fireEvent.click(screen.getByRole("button", { name: "Next month" }));
     expect(cellFor(iso).querySelector(".cal-carnival")).toBeTruthy();
   });
 
-  it("editor: editing an existing carnival opens 'Edit carnival' with its games, and Delete removes it", async () => {
+  it("editor: editing an existing carnival opens 'Edit carnival' and leaves an old games list untouched; Delete removes it", async () => {
     await load(makeData({ players: kids, fixtures: [], sessions: [carnival({ dateISO: daysFromNow(2) })] }));
     await enterCoachMode();
     fireEvent.click(document.querySelector(".carnivalcard .cc-body"));
     fireEvent.click(await screen.findByText("Edit"));
     await screen.findByText("Edit carnival", { selector: ".sheet h2" });
-    expect(screen.getAllByLabelText("Opponent").map((i) => i.value)).toEqual(["Oxley United", "Zebras FC"]);
+    expect(screen.queryByLabelText("Opponent")).toBeNull();
     expect(screen.getByLabelText("Carnival date").value).toBe(daysFromNow(2));
-    closeSheet();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    expect(JSON.parse(storage.set.mock.calls.at(-1)[1]).sessions[0].games).toHaveLength(2); // the old list passes through
     fireEvent.click(document.querySelector(".carnivalcard .cc-body"));
     fireEvent.click(await screen.findByText("Delete"));
-    await waitFor(() => expect(storage.set).toHaveBeenCalled());
-    expect(JSON.parse(storage.set.mock.calls.at(-1)[1]).sessions).toEqual([]);
+    await waitFor(() => expect(JSON.parse(storage.set.mock.calls.at(-1)[1]).sessions).toEqual([]));
     expect(document.querySelector(".carnivalcard")).toBeNull();
+  });
+
+  // ---- Carnival games: fixtures linked by carnivalId --------------------------
+  const cgame = (over = {}) => ({ id: "cg1", carnivalId: "c1", status: "upcoming", dateISO: daysFromNow(10), time: "08:30", opponent: "Zebras FC", homeAway: "H", venue: "Perry Park", pitch: "2", availability: {}, ...over });
+  const linked = (over = {}) => carnival({ games: undefined, ...over });
+  const toResults = () => fireEvent.click(within(screen.getByRole("navigation")).getByText("Results"));
+  const resCard = (label) => screen.getByText(label, { selector: ".label" }).closest(".card");
+  // The month the calendar shows is today's; step to the month holding `iso`.
+  const showMonthOf = (iso) => {
+    const m = new Date(iso + "T00:00:00").getMonth(), now = new Date().getMonth();
+    if (m > now) fireEvent.click(screen.getByRole("button", { name: "Next month" }));
+    if (m < now) fireEvent.click(screen.getByRole("button", { name: "Previous month" }));
+  };
+  // A past day whose month the calendar can reach (the season defaults to the calendar year).
+  const pastISO = () => { const d = new Date(); return d.getMonth() === 0 && d.getDate() <= 3 ? daysFromNow(-1) : daysFromNow(-3); };
+
+  it("fixture editor: 'Part of a carnival' lists the carnivals by date; choosing one prefills the empty date and venue, clears the default round, shows Pitch and persists carnivalId; 'Not part of a carnival' unlinks", async () => {
+    const iso = daysFromNow(10), later = daysFromNow(40);
+    await load(makeData({ players: kids, fixtures: [game()], sessions: [linked({ id: "c2", title: "Spring carnival", dateISO: later, location: "Ripley Valley" }), linked()] }));
+    await enterCoachMode();
+    toResults();
+    fireEvent.click(await screen.findByText("Add fixture"));
+    await screen.findByText("Add fixture", { selector: ".sheet h2" });
+    const select = screen.getByLabelText("Part of a carnival");
+    expect([...select.options].map((o) => o.textContent)).toEqual(["Not part of a carnival", `Winter carnival · ${fmtDate(iso)}`, `Spring carnival · ${fmtDate(later)}`]);
+    expect(select.value).toBe("");
+    expect(screen.getByLabelText("Round").value).toBe("2");
+    expect(screen.queryByLabelText("Pitch")).toBeNull();
+    fireEvent.change(select, { target: { value: "c1" } });
+    expect(document.querySelector(".sheet input[type=date]").value).toBe(iso);
+    expect(screen.getByDisplayValue("Perry Park")).toBeTruthy();
+    expect(screen.getByLabelText("Round").value).toBe("");
+    fireEvent.change(screen.getByLabelText("Pitch"), { target: { value: "4" } });
+    fireEvent.change(screen.getByText("Opponent", { selector: "label" }).nextSibling, { target: { value: "Oxley United" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save fixture" }));
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    let saved = JSON.parse(storage.set.mock.calls.at(-1)[1]);
+    const added = saved.fixtures.find((x) => x.opponent === "Oxley United");
+    expect(added).toMatchObject({ carnivalId: "c1", dateISO: iso, venue: "Perry Park", pitch: "4", round: null, status: "upcoming" });
+    // A typed date / venue is kept when a carnival is chosen; unlinking drops carnivalId.
+    const row = [...document.querySelectorAll(".mrow")].find((r) => r.textContent.includes("Oxley United"));
+    fireEvent.click(row);
+    await waitFor(() => expect(headerTitle()).toBe("Winter carnival"));
+    fireEvent.click(screen.getByText("Edit"));
+    await screen.findByText("Edit fixture", { selector: ".sheet h2" });
+    expect(screen.getByLabelText("Part of a carnival").value).toBe("c1");
+    fireEvent.change(screen.getByLabelText("Part of a carnival"), { target: { value: "" } });
+    expect(screen.queryByLabelText("Pitch")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save fixture" }));
+    await waitFor(() => expect(storage.set.mock.calls.length).toBeGreaterThan(1));
+    saved = JSON.parse(storage.set.mock.calls.at(-1)[1]);
+    expect("carnivalId" in saved.fixtures.find((x) => x.opponent === "Oxley United")).toBe(false);
+    await waitFor(() => expect(headerTitle()).toBe("Match")); // no carnival, no round
+  });
+
+  it("results: a carnival game is listed with the carnival tag and a medal where the round is blank, the footnote shows, and the Fixtures head still says Add fixture", async () => {
+    await load(makeData({ players: kids, fixtures: [game(), cgame()], sessions: [linked()] }));
+    await enterCoachMode();
+    toResults();
+    const fixtures = resCard("Fixtures");
+    const rows = [...fixtures.querySelectorAll(".mrow")];
+    expect(rows.map((r) => r.querySelector(".mr-name").textContent)).toEqual(["Test FC", "Test FC"]); // both home
+    const cg = rows.find((r) => r.textContent.includes("Zebras FC")), lg = rows.find((r) => r.textContent.includes("Wests"));
+    expect(cg.querySelector(".mr-round .r svg.mr-medal")).toBeTruthy();
+    expect(cg.querySelector(".mr-round .r").textContent).toBe("");
+    expect(cg.querySelector(".mrow-tag .mtag").textContent).toBe("Winter carnival");
+    expect(cg.querySelector(".mtag svg")).toBeTruthy();
+    expect(cg.querySelector(".mtime").textContent).toBe("08:30");
+    expect(lg.querySelector(".mr-round .r").textContent).toBe("7");
+    expect(lg.querySelector(".mrow-tag")).toBeNull();
+    expect(within(fixtures).getByText("Add fixture")).toBeTruthy();
+    expect(screen.getByText("Carnival games are tagged with their carnival and don't count toward the season record.").className).toBe("footnote res-foot");
+    // A carnival game with a round keeps the number, and the tag.
+    cleanup();
+    await load(makeData({ players: kids, fixtures: [cgame({ round: 3 })], sessions: [linked()] }));
+    toResults();
+    const r = document.querySelector(".mrow");
+    expect(r.querySelector(".mr-round .r").textContent).toBe("3");
+    expect(r.querySelector(".mtag").textContent).toBe("Winter carnival");
+    // No carnival game: no footnote (a dangling id is a normal fixture).
+    cleanup();
+    await load(makeData({ players: kids, fixtures: [cgame({ carnivalId: "gone" })], sessions: [linked()] }));
+    toResults();
+    expect(screen.queryByText(/don't count toward the season record/)).toBeNull();
+    expect(document.querySelector(".mtag")).toBeNull();
+    expect(document.querySelector(".mr-round .r").textContent).toBe("–");
+  });
+
+  it("match detail: the hero reads 'Carnival · title · date', the header is the carnival title over 'vs opponent · date', the Who's in card is replaced by 'Replies are on the carnival' (which opens the carnival sheet), and there is no per-game calendar chip", async () => {
+    const iso = daysFromNow(10);
+    meFetch(hatOf("parent", ["p1"], ["Sam Smith"]));
+    await load(makeData({ players: kids, fixtures: [game(), cgame()], sessions: [linked({ availability: { [iso]: { p2: { status: "in" }, p3: { status: "out", reason: "Away" } } } })] }));
+    await expectChip("Parent of Sam");
+    toResults();
+    fireEvent.click([...document.querySelectorAll(".mrow")].find((r) => r.textContent.includes("Zebras FC")));
+    await waitFor(() => expect(headerTitle()).toBe("Winter carnival"));
+    expect(headerKicker()).toBe(`vs Zebras FC · ${fmtDate(iso)}`);
+    expect(document.querySelector(".mh-label").textContent).toBe(`Carnival · Winter carnival · ${fmtDate(iso)}`);
+    expect(screen.queryByText("Who's in", { selector: ".label" })).toBeNull();
+    expect(document.querySelector(".whosin")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull(); // one reply covers the day
+    const link = screen.getByText("Replies are on the carnival").closest(".linkcard");
+    expect(link.querySelector(".lc-sub").textContent).toBe("1 in · 1 out · 1 no reply");
+    expect(link.querySelector(".lc-ic svg")).toBeTruthy();
+    expect(screen.queryByText("Add to your calendar")).toBeNull();
+    expect(screen.getByText("Share to WhatsApp").getAttribute("href")).toContain(encodeURIComponent("Test FC — Winter carnival vs Zebras FC"));
+    fireEvent.click(link);
+    await screen.findByText("Winter carnival", { selector: ".sheet h2" });
+    expect(screen.getByText("Who's coming?", { selector: ".label" }).closest(".card").querySelector(".wi-count").textContent).toBe("1 in · 1 out · 1 no reply");
+    expect(within(document.querySelector(".sheet")).getByRole("button", { name: "Reply" })).toBeTruthy(); // Sam replies here
+    // The Duties card is still the game's own.
+    closeSheet();
+    expect(document.querySelector(".dutycard")).toBeTruthy();
+  });
+
+  it("calendar: the linked game paints no crest (the badge covers its carnival day, and a mis-dated game leaves its own day blank); the list and day-sheet rows fold it into the carnival row, whose meta counts it", async () => {
+    const other = new Date().getDate() > 1 ? daysFromNow(-1) : daysFromNow(1);
+    await load(makeData({ players: kids, fixtures: [game({ dateISO: todayISO }), cgame({ dateISO: todayISO }), cgame({ id: "cg2", dateISO: other, opponent: "Bears", time: "10:00" })], sessions: [linked({ dateISO: todayISO })] }));
+    toCalendar();
+    const cell = cellFor(todayISO);
+    expect(cell.querySelector(".cal-carnival")).toBeTruthy();
+    expect(cell.querySelector(".cal-crest")).toBeNull();
+    const stray = cellFor(other);
+    expect(stray.querySelector(".cal-crest")).toBeNull();
+    expect(stray.querySelector(".cal-dot")).toBeNull();
+    expect(stray.querySelector(".cal-carnival")).toBeNull();
+    const rows = [...document.querySelectorAll(".callist .wk-row")];
+    expect(rows.map((r) => r.querySelector(".wk-title").textContent)).toEqual(["Winter carnival", "vs Wests"]);
+    expect(rows[0].querySelector(".wk-meta").textContent).toBe("2 games · Perry Park · 08:00–14:00");
+    fireEvent.click(cell);
+    const sheetRows = await waitFor(() => { const r = document.querySelectorAll(".sheet .wk-row"); expect(r.length).toBe(2); return r; });
+    expect([...sheetRows].map((r) => r.querySelector(".wk-title").textContent)).toEqual(["Winter carnival", "vs Wests"]);
+    closeSheet();
+    fireEvent.click(stray);
+    expect(document.querySelector(".sheet")).toBeNull(); // nothing to show on that day
+  });
+
+  it("home: the Next game card is the next league game, not the earlier carnival game; Next 7 days folds the game into the carnival row; the Season tiles and Stats leave carnival games out", async () => {
+    const iso = daysFromNow(3);
+    await load(makeData({ players: kids, fixtures: [
+      game(), // Wests in 12 days
+      cgame({ dateISO: iso }),
+      { id: "r5", round: 5, status: "played", dateISO: daysFromNow(-14), time: "09:00", opponent: "Rovers", homeAway: "H", us: 3, them: 1, goals: [{ pid: "p1", n: 3 }], availability: {} },
+      cgame({ id: "cg0", carnivalId: "c0", status: "played", dateISO: daysFromNow(-7), us: 6, them: 0, opponent: "Lions", goals: [{ pid: "p2", n: 6 }] })
+    ], sessions: [linked({ dateISO: iso }), linked({ id: "c0", title: "Autumn carnival", dateISO: daysFromNow(-7) })] }));
+    const ng = document.querySelector(".nextgame");
+    expect([...ng.querySelectorAll(".mu-name")].map((e) => e.textContent)).toEqual(["Test FC", "Wests"]);
+    expect(ng.querySelector(".ng-label").textContent).toBe("Next game · Round 7 · Home");
+    const week = document.querySelector(".week");
+    expect([...week.querySelectorAll(".wk-title")].map((e) => e.textContent)).toEqual(["Winter carnival"]);
+    expect(week.querySelector(".wk-meta").textContent).toBe("1 game · Perry Park · 08:00–14:00");
+    expect(document.querySelector(".carnivalcard .cc-meta").textContent).toBe("1 game · Perry Park · 08:00–14:00");
+    // Season so far: one league game, not the 6–0 carnival win; Sam's 3 goals, not Alex's 6.
+    expect([...document.querySelectorAll(".season .tile .v")].map((e) => e.textContent)).toEqual(["1", "1", "0", "3"]);
+    expect(document.querySelector(".season .fa").textContent).toBe("3 for · 1 against");
+    expect(document.querySelectorAll(".season .pip")).toHaveLength(1);
+    fireEvent.click(screen.getByText("All stats ›"));
+    await screen.findByText("Top scorers");
+    expect([...document.querySelectorAll(".st-tiles .tile .v")].map((e) => e.textContent)).toEqual(["1", "1", "0", "0", "3"]);
+    expect(document.querySelectorAll(".st-col")).toHaveLength(1);
+    expect([...document.querySelectorAll(".sc-row .pr-name b")].map((e) => e.textContent)).toEqual(["Sam Smith"]);
+  });
+
+  it("carnival sheet: the Games card lists the linked fixtures by time with the pitch, or the score coloured by result once played; tapping one opens Match detail; the coach's empty copy points to Results; deleting the carnival unlinks its games", async () => {
+    const iso = pastISO();
+    await load(makeData({ players: kids, fixtures: [
+      cgame({ id: "cg2", dateISO: iso, time: "09:30", opponent: "Oxley United", status: "played", us: 1, them: 2, pitch: "" }),
+      cgame({ id: "cg1", dateISO: iso, time: "08:30", opponent: "Zebras FC", status: "played", us: 3, them: 1 }),
+      cgame({ id: "cg3", dateISO: iso, time: "10:30", opponent: "Bears", status: "cancelled" }),
+      cgame({ id: "cg4", dateISO: iso, time: "11:30", opponent: "Wolves", status: "upcoming" })
+    ], sessions: [linked({ dateISO: iso })] }));
+    await enterCoachMode();
+    toCalendar();
+    showMonthOf(iso);
+    fireEvent.click(cellFor(iso));
+    fireEvent.click(await screen.findByText("Winter carnival", { selector: ".sheet .wk-title" }));
+    await screen.findByText("Winter carnival", { selector: ".sheet h2" });
+    const gamesCard = screen.getByText("Games", { selector: ".sheet .label" }).closest(".card");
+    const rows = [...gamesCard.querySelectorAll(".cv-game")];
+    expect(rows.map((r) => r.querySelector(".cv-time").textContent)).toEqual(["08:30", "09:30", "10:30", "11:30"]);
+    expect(rows.map((r) => r.querySelector(".cv-opp").textContent)).toEqual(["Zebras FC", "Oxley United", "Bears", "Wolves"]);
+    expect(rows[0].querySelector(".mscore").textContent).toBe("3–1");
+    expect(rows[0].querySelector(".mscore").className).toBe("mscore win");
+    expect(rows[1].querySelector(".mscore").className).toBe("mscore loss");
+    expect(rows[2].querySelector(".mstate").textContent).toBe("Canc");
+    expect(rows[3].querySelector(".cv-pitch").textContent).toBe("Pitch 2");
+    expect(rows[3].querySelector(".mscore")).toBeNull();
+    expect(rows.every((r) => r.getAttribute("role") === "button")).toBe(true);
+    // The Add-to-calendar details list the games with the scores.
+    const g = new URL(within(document.querySelector(".sheet")).getByText("Google").getAttribute("href"));
+    expect(g.searchParams.get("details")).toBe("08:30 vs Zebras FC (Pitch 2) · 3–1\n09:30 vs Oxley United · 1–2\n10:30 vs Bears (Pitch 2)\n11:30 vs Wolves (Pitch 2)\n\nBring a chair and sunscreen.");
+    fireEvent.click(rows[0]);
+    await waitFor(() => expect(headerTitle()).toBe("Winter carnival"));
+    expect(document.querySelector(".sheet")).toBeNull();
+    expect(document.querySelector(".mu-big").textContent).toBe("3–1");
+    // Delete the carnival: the fixtures stay, unlinked.
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(cellFor(iso));
+    fireEvent.click(await screen.findByText("Winter carnival", { selector: ".sheet .wk-title" }));
+    fireEvent.click(await screen.findByText("Delete"));
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    const saved = JSON.parse(storage.set.mock.calls.at(-1)[1]);
+    expect(saved.sessions).toEqual([]);
+    expect(saved.fixtures).toHaveLength(4);
+    expect(saved.fixtures.every((f) => !("carnivalId" in f))).toBe(true);
+    // Now ordinary results: no tag, a dash for the blank round.
+    fireEvent.click(within(screen.getByRole("navigation")).getByText("Results"));
+    expect(document.querySelector(".mtag")).toBeNull();
+    expect(document.querySelector(".mrow .mr-round .r").textContent).toBe("–");
+    expect(screen.queryByText(/don't count toward the season record/)).toBeNull();
+    // Empty Games card, coach copy.
+    cleanup();
+    await load(makeData({ players: kids, fixtures: [], sessions: [linked({ dateISO: daysFromNow(2) })] }));
+    await enterCoachMode();
+    fireEvent.click(document.querySelector(".carnivalcard .cc-body"));
+    const empty = (await screen.findByText("Games", { selector: ".sheet .label" })).closest(".card");
+    expect(within(empty).getByText("No games linked yet. Add each game under Results and choose this carnival.").className).toBe("cv-empty");
+  });
+
+  it("an old hand-typed games list still renders read-only when a carnival has no linked fixtures, and is ignored once it has one", async () => {
+    await load(makeData({ players: kids, fixtures: [], sessions: [carnival({ dateISO: daysFromNow(2) })] }));
+    fireEvent.click(document.querySelector(".carnivalcard .cc-body"));
+    const gamesCard = (await screen.findByText("Games", { selector: ".sheet .label" })).closest(".card");
+    const rows = [...gamesCard.querySelectorAll(".cv-game")];
+    expect(rows.map((r) => r.querySelector(".cv-opp").textContent)).toEqual(["Zebras FC", "Oxley United"]);
+    expect(rows.map((r) => r.querySelector(".cv-pitch").textContent)).toEqual(["Pitch 2", "Pitch 4"]);
+    expect(rows.every((r) => r.getAttribute("role") === null)).toBe(true); // nothing to open
+    expect(document.querySelector(".carnivalcard .cc-meta").textContent).toBe(META);
+    cleanup();
+    await load(makeData({ players: kids, fixtures: [cgame({ dateISO: daysFromNow(2), opponent: "Wolves" })], sessions: [carnival({ dateISO: daysFromNow(2) })] }));
+    expect(document.querySelector(".carnivalcard .cc-meta").textContent).toBe("1 game · Perry Park · 08:00–14:00");
+    fireEvent.click(document.querySelector(".carnivalcard .cc-body"));
+    const card2 = (await screen.findByText("Games", { selector: ".sheet .label" })).closest(".card");
+    expect([...card2.querySelectorAll(".cv-opp")].map((e) => e.textContent)).toEqual(["Wolves"]);
   });
 
   it("the season window does not hide a carnival dated outside it (Home rows and card), while weekly training stays clamped", async () => {

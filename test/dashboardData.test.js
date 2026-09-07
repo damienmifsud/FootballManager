@@ -3,7 +3,8 @@ import {
   computeStats, nextFixture, isPastGame, fmtDate, countdown, ytId, videoKind,
   mapsUrl, activeOn, intlPhone, recentChanges, initials, secToClock, clockToSec,
   occurrences, monthItems, upcomingItems, nextBirthdays,
-  carnivalGames, carnivalMeta, carnivalDescription, pitchLabel
+  carnivalGames, carnivalMeta, carnivalDescription, pitchLabel,
+  carnivalOf, isCarnivalGame, carnivalFixtures, carnivalGameRows
 } from "@/lib/dashboardData";
 
 // Pin "now" for the helpers that read the clock (countdown, isPastGame,
@@ -343,6 +344,99 @@ describe("carnivals", () => {
     expect(carnivalDescription(carnival({ notes: "" }))).toBe("08:30 vs Zebras FC (Pitch 2)\n09:30 vs Oxley United (Pitch 4)");
     expect(carnivalDescription(carnival({ games: [] }))).toBe("Bring a chair");
     expect(carnivalDescription(carnival({ games: [], notes: "" }))).toBe("");
+  });
+
+  // Carnival games are fixtures linked by carnivalId.
+  const cg = (over = {}) => ({ id: "cg1", carnivalId: "c1", status: "upcoming", dateISO: "2026-06-13", time: "09:30", opponent: "Oxley United", homeAway: "H", venue: "Perry Park", ...over });
+  const league = (over = {}) => ({ id: "f1", round: 7, status: "upcoming", dateISO: "2026-06-20", time: "09:00", opponent: "Wests", homeAway: "H", ...over });
+  const linkedData = (over = {}) => ({
+    players: [{ id: "p1", name: "A" }, { id: "p2", name: "B" }],
+    sessions: [carnival({ games: undefined })],
+    fixtures: [
+      league(),
+      cg(),
+      cg({ id: "cg2", time: "08:30", opponent: "Zebras FC", pitch: "2" }),
+      cg({ id: "cg3", time: "08:30", opponent: "Bears" })
+    ],
+    ...over
+  });
+
+  it("carnivalOf / isCarnivalGame: a fixture whose carnivalId names a carnival session; a dangling or missing id is a normal fixture", () => {
+    const data = linkedData();
+    expect(carnivalOf(data, cg()).id).toBe("c1");
+    expect(isCarnivalGame(data, cg())).toBe(true);
+    expect(carnivalOf(data, league())).toBeNull();
+    expect(carnivalOf(data, cg({ carnivalId: "gone" }))).toBeNull();
+    expect(isCarnivalGame(data, cg({ carnivalId: "gone" }))).toBe(false);
+    // The id has to be a carnival: a training session with that id doesn't count.
+    expect(carnivalOf({ sessions: [{ id: "c1", kind: "training" }] }, cg())).toBeNull();
+    expect(carnivalOf({}, cg())).toBeNull();
+    expect(carnivalOf(data, null)).toBeNull();
+  });
+
+  it("carnivalFixtures: the linked fixtures by time, then opponent; carnivalGameRows prefers them to the old list", () => {
+    const data = linkedData();
+    expect(carnivalFixtures(data, data.sessions[0]).map((f) => f.id)).toEqual(["cg3", "cg2", "cg1"]);
+    expect(carnivalFixtures(data, null)).toEqual([]);
+    expect(carnivalFixtures({}, data.sessions[0])).toEqual([]);
+    const rows = carnivalGameRows(carnival(), data); // has an old games list too — the fixtures win
+    expect(rows.map((r) => [r.id, r.time, r.opponent, r.pitch])).toEqual([["cg3", "08:30", "Bears", ""], ["cg2", "08:30", "Zebras FC", "2"], ["cg1", "09:30", "Oxley United", ""]]);
+    expect(rows[0].fixture.id).toBe("cg3");
+    // No linked fixtures: the old hand-typed list, read-only (no fixture on the row).
+    const legacy = carnivalGameRows(carnival(), { fixtures: [league()], sessions: [carnival()] });
+    expect(legacy.map((r) => r.id)).toEqual(["g1", "g2"]);
+    expect(legacy[0].fixture).toBeUndefined();
+    expect(carnivalGameRows(carnival({ games: [] }), { fixtures: [] })).toEqual([]);
+  });
+
+  it("carnivalMeta counts the linked fixtures (falling back to the old list); carnivalDescription lists them with pitch and, once played, the score", () => {
+    const data = linkedData();
+    const c = data.sessions[0];
+    expect(carnivalMeta(c, data)).toBe("3 games · Perry Park · 08:00–14:00");
+    expect(carnivalMeta(carnival(), { fixtures: [] })).toBe("2 games · Perry Park · 08:00–14:00");
+    expect(carnivalMeta(carnival({ games: [] }), { fixtures: [] })).toBe("Games to be announced · Perry Park · 08:00–14:00");
+    const played = linkedData({ fixtures: [cg({ status: "played", us: 3, them: 1 }), cg({ id: "cg2", time: "08:30", opponent: "Zebras FC", pitch: "2" })] });
+    expect(carnivalDescription(played.sessions[0], played)).toBe("08:30 vs Zebras FC (Pitch 2)\n09:30 vs Oxley United · 3–1\n\nBring a chair");
+    expect(carnivalDescription(carnival({ games: undefined, notes: "" }), { fixtures: [cg({ time: "" })] })).toBe("Time TBC vs Oxley United");
+  });
+
+  it("nextFixture skips carnival games: the next league game is next, and the carnival game alone leaves nothing", () => {
+    const data = linkedData(); // carnival games 13 Jun, league 20 Jun (now is 18 Jun — use later dates)
+    data.fixtures = [league({ dateISO: "2026-07-04" }), cg({ dateISO: "2026-06-27" })];
+    data.sessions = [carnival({ dateISO: "2026-06-27", games: undefined })];
+    expect(nextFixture(data).id).toBe("f1");
+    expect(nextFixture({ ...data, fixtures: [cg({ dateISO: "2026-06-27" })] })).toBeNull();
+    // A dangling carnivalId is a normal fixture again.
+    expect(nextFixture({ ...data, fixtures: [cg({ dateISO: "2026-06-27", carnivalId: "gone" })] }).id).toBe("cg1");
+  });
+
+  it("computeStats leaves carnival games out of the record, form, goals, per-round series and scorers", () => {
+    const data = {
+      players: [{ id: "p1", name: "A" }, { id: "p2", name: "B" }],
+      sessions: [carnival({ dateISO: "2026-03-07", games: undefined })],
+      fixtures: [
+        { id: "r1", status: "played", round: 1, dateISO: "2026-03-01", us: 3, them: 1, goals: [{ pid: "p1", n: 2 }] },
+        { id: "cg1", carnivalId: "c1", status: "played", dateISO: "2026-03-07", time: "08:30", us: 5, them: 0, goals: [{ pid: "p2", n: 4 }], assists: [{ pid: "p1", n: 1 }] },
+        { id: "cg2", carnivalId: "c1", status: "played", dateISO: "2026-03-07", time: "09:30", us: 0, them: 2 }
+      ]
+    };
+    const s = computeStats(data);
+    expect(s).toMatchObject({ played: 1, w: 1, dr: 0, l: 0, gf: 3, ga: 1, pts: 3 });
+    expect(s.form).toEqual(["W"]);
+    expect(s.perRound).toEqual([{ round: "R1", GF: 3, GA: 1 }]);
+    expect(s.scorers.map((p) => [p.id, p.goals, p.assists])).toEqual([["p1", 2, 0]]);
+    // Without the carnival session the same fixtures are ordinary games again.
+    const t = computeStats({ ...data, sessions: [] });
+    expect(t).toMatchObject({ played: 3, w: 2, l: 1, gf: 8, ga: 3 });
+  });
+
+  it("monthItems / upcomingItems fold a carnival game into the carnival row: no game row of its own; a dangling id still lists", () => {
+    const data = linkedData();
+    const june = monthItems(data, 2026, 5);
+    expect(june.map((i) => i.kind + ":" + i.title)).toEqual(["carnival:Winter carnival", "game:vs Wests"]);
+    expect(upcomingItems(data, "2026-06-12", 7).map((i) => i.kind)).toEqual(["carnival"]);
+    const dangling = { ...data, fixtures: [cg({ carnivalId: "gone" })] };
+    expect(monthItems(dangling, 2026, 5).map((i) => i.kind)).toEqual(["carnival", "game"]);
   });
 });
 
