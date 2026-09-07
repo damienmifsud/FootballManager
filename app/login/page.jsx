@@ -2,19 +2,18 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
+import { AuthPage, AuthHeader, AuthFooter } from "@/components/AuthShell";
 
-const wrap = { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "system-ui, sans-serif", background: "linear-gradient(160deg,#C8102E,#7A0A1B)" };
-const card = { background: "#fff", borderRadius: 18, padding: 20, boxShadow: "0 16px 40px rgba(60,0,10,.35)" };
-const btn = { width: "100%", padding: "12px 14px", borderRadius: 12, border: "1px solid #ddd", background: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10 };
-const inp = { width: "100%", padding: "12px 14px", borderRadius: 12, border: "2px solid #eee", fontSize: 16, boxSizing: "border-box", marginBottom: 10 };
+// Sign-in (S10, Direction C). One page, two modes:
+//  - account mode: whatever /api/auth/providers reports — Google / Microsoft
+//    SSO buttons, and a Resend magic-link form with its "sent" state;
+//  - legacy mode (no providers configured): the shared team code, posted to
+//    /api/login, with the wrong-code error and Enter-to-submit.
+// The page is club-wide — it doesn't know the team yet — so the header says
+// "Olympic FC / Team hub". After sign-in, app/page.jsx routes to the Viewing
+// as picker when the account has a choice to make (D8), else straight home.
 
-function LoginLogo() {
-  const [ok, setOk] = useState(true);
-  return ok
-    ? <img src="/crests/olympic-fc.png" alt="" onError={() => setOk(false)}
-        style={{ width: 72, height: 72, objectFit: "contain", margin: "0 auto 14px", display: "block", filter: "drop-shadow(0 3px 8px rgba(0,0,0,.35))" }} />
-    : <div style={{ width: 64, height: 64, borderRadius: 18, background: "#fff", color: "#C8102E", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontWeight: 800, fontSize: 26 }}>⚽</div>;
-}
+const looksLikeEmail = (s) => /\S+@\S+/.test(String(s || "").trim());
 
 export default function Login() {
   const [providers, setProviders] = useState(null);
@@ -25,7 +24,7 @@ export default function Login() {
   const router = useRouter();
 
   useEffect(() => {
-    fetch("/api/auth/providers").then(r => r.ok ? r.json() : null).then(setProviders).catch(() => setProviders({}));
+    fetch("/api/auth/providers").then(r => r.ok ? r.json() : null).then((p) => setProviders(p || {})).catch(() => setProviders({}));
   }, []);
 
   const legacyLogin = async () => {
@@ -36,52 +35,61 @@ export default function Login() {
     } catch { setErr(true); setBusy(false); }
   };
 
-  const has = (id) => providers && providers[id];
-  const authMode = providers && Object.keys(providers).length > 0;
+  const sendLink = () => {
+    if (!looksLikeEmail(email)) return;
+    signIn("resend", { email: email.trim(), callbackUrl: "/", redirect: false });
+    setSent(true);
+  };
+
+  const has = (id) => !!(providers && providers[id]);
+  const loading = providers === null;
+  const authMode = !loading && Object.keys(providers).length > 0;
+  const sso = has("google") || has("microsoft-entra-id");
+  const magic = has("resend");
+
+  const sub = loading ? null : (authMode ? "Sign in to see your team" : "Enter the team code to continue");
 
   return (
-    <div style={wrap}>
-      <div style={{ width: "100%", maxWidth: 360 }}>
-        <div style={{ textAlign: "center", marginBottom: 22, color: "#fff" }}>
-          <LoginLogo />
+    <AuthPage>
+      <AuthHeader sub={sub} />
 
-          <div style={{ fontSize: 22, fontWeight: 800 }}>Team Dashboard</div>
-          <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>{authMode ? "Sign in to see your team" : "Enter the team code to continue"}</div>
-        </div>
+      <div className="auth-card">
+        {loading && <div className="auth-loading">Loading…</div>}
 
-        <div style={card}>
-          {authMode ? (
-            <>
-              {has("google") && <button style={btn} onClick={() => signIn("google", { callbackUrl: "/" })}>Continue with Google</button>}
-              {has("microsoft-entra-id") && <button style={btn} onClick={() => signIn("microsoft-entra-id", { callbackUrl: "/" })}>Continue with Microsoft</button>}
-              {has("resend") && (
-                sent ? (
-                  <div style={{ textAlign: "center", padding: "8px 0", color: "#1E9E57", fontWeight: 700, fontSize: 14 }}>
-                    Check your email for a sign-in link ✉️
-                  </div>
-                ) : (
-                  <>
-                    {(has("google") || has("microsoft-entra-id")) && <div style={{ textAlign: "center", color: "#aaa", fontSize: 12, margin: "6px 0" }}>or with your email</div>}
-                    <input style={inp} type="email" inputMode="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} />
-                    <button style={{ ...btn, background: "#C8102E", color: "#fff", border: "none" }}
-                      onClick={() => { if (email) { signIn("resend", { email, callbackUrl: "/", redirect: false }); setSent(true); } }}>
-                      Email me a sign-in link
-                    </button>
-                  </>
-                )
-              )}
-              <div style={{ fontSize: 11, color: "#998", textAlign: "center", marginTop: 8 }}>Use the email your coach has on file for your child.</div>
-            </>
+        {!loading && authMode && (<>
+          {has("google") && <button className="auth-btn sso" onClick={() => signIn("google", { callbackUrl: "/" })}>Continue with Google</button>}
+          {has("microsoft-entra-id") && <button className="auth-btn sso" onClick={() => signIn("microsoft-entra-id", { callbackUrl: "/" })}>Continue with Microsoft</button>}
+          {sso && magic && <div className="auth-or" aria-hidden="true"><span />or<span /></div>}
+          {magic && (sent ? (
+            <div>
+              <div className="auth-sent-title">Check your email</div>
+              <div className="auth-sent-sub">We sent a sign-in link to {email.trim()}. It signs you in on this phone.</div>
+              <button className="auth-ghost" onClick={() => setSent(false)}>Use a different email</button>
+            </div>
           ) : (
-            <>
-              <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "#6b5a5d" }}>Team code</label>
-              <input type="password" value={pw} autoFocus onChange={(e) => { setPw(e.target.value); setErr(false); }} onKeyDown={(e) => e.key === "Enter" && legacyLogin()} placeholder="••••••••" style={{ ...inp, marginTop: 6 }} />
-              {err && <div style={{ color: "#C8102E", fontSize: 13, marginBottom: 8 }}>Wrong code — check with your coach.</div>}
-              <button style={{ ...btn, background: "#C8102E", color: "#fff", border: "none" }} onClick={legacyLogin} disabled={busy}>{busy ? "…" : "Enter"}</button>
-            </>
-          )}
-        </div>
+            <div>
+              <label className="auth-label" htmlFor="login-email">Your email</label>
+              <input id="login-email" className="auth-input" type="email" inputMode="email" autoComplete="email" placeholder="you@example.com"
+                aria-label="Your email" value={email} onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendLink()} />
+              <button className="auth-btn" onClick={sendLink} disabled={!looksLikeEmail(email)}>Email me a sign-in link</button>
+              <div className="auth-help">No password. Use the email the club has for your family and we&apos;ll send a link that signs you in on this phone.</div>
+            </div>
+          ))}
+        </>)}
+
+        {!loading && !authMode && (<>
+          <label className="auth-label" htmlFor="login-code">Team code</label>
+          <input id="login-code" className="auth-input code" type="password" autoFocus autoComplete="current-password" placeholder="The code from your coach"
+            aria-label="Team code" value={pw} onChange={(e) => { setPw(e.target.value); setErr(false); }}
+            onKeyDown={(e) => e.key === "Enter" && legacyLogin()} />
+          {err && <div className="auth-err" role="alert">Wrong code — check with your coach.</div>}
+          <button className="auth-btn" onClick={legacyLogin} disabled={busy}>{busy ? "Signing in…" : "Let me in"}</button>
+          <div className="auth-help">Everyone on the team uses the same code. Ask in the WhatsApp group if you don&apos;t have it.</div>
+        </>)}
       </div>
-    </div>
+
+      <AuthFooter />
+    </AuthPage>
   );
 }

@@ -102,20 +102,66 @@ describe("TeamPicker", () => {
     expect(other.compareDocumentPosition(teamA) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("uses the club heading and team count for super admins and club admins", () => {
+  it("uses the club group label and team count for super admins and club admins", () => {
     render(<TeamPicker email="boss@dam.fund" memberships={[
       { teamSlug: "b", teamName: "Team B", role: "coach", admin: true },
       { teamSlug: "a", teamName: "Team A", role: "coach", admin: true }
     ]} />);
-    expect(screen.getByText("Club teams")).toBeTruthy();
-    expect(screen.getByText(/Signed in as boss@dam.fund · 2 teams/)).toBeTruthy();
+    expect(screen.getByText("Club teams · 2 teams")).toBeTruthy();
+    expect(screen.getByText("Signed in as boss@dam.fund")).toBeTruthy();
     expect(screen.getAllByText("Super admin")).toHaveLength(2);
     cleanup();
     render(<TeamPicker email="td@club.com" memberships={[
       { teamSlug: "a", teamName: "Team A", role: "viewer", clubAdmin: true }
     ]} />);
-    expect(screen.getByText("Club teams")).toBeTruthy();
-    expect(screen.getByText(/1 team$/)).toBeTruthy();
+    expect(screen.getByText("Club teams · 1 team")).toBeTruthy();
+  });
+
+  it("is the Viewing-as sheet as a page: title, signed-in line, crest", () => {
+    render(<TeamPicker email="mum@a.com (viewing as)" memberships={[
+      { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam Smith" }
+    ]} />);
+    expect(screen.getByText("Viewing as")).toBeTruthy();
+    // The "(viewing as)" suffix the page passes for an impersonating admin survives.
+    expect(screen.getByText("Signed in as mum@a.com (viewing as)")).toBeTruthy();
+    expect(document.querySelector("img.auth-crest").getAttribute("src")).toBe("/crests/olympic-fc.png");
+    expect(document.querySelector('link[rel="stylesheet"][href*="fonts.googleapis.com"]')).toBeTruthy();
+  });
+
+  it("each hat row carries a disc initial and the dashboard's sub line", () => {
+    render(<TeamPicker email="coach@a.com" memberships={[
+      { teamSlug: "a", teamName: "Team A", role: "coach" },
+      { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam Smith" },
+      { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p2", playerName: "Alex Smith" },
+      { teamSlug: "b", teamName: "Team B", role: "viewer", clubAdmin: true }
+    ]} />);
+    const coach = screen.getByRole("button", { name: "Coach" });
+    expect(coach.querySelector(".disc").textContent).toBe("C");
+    expect(coach.textContent).toContain("Edit fixtures, scores and duties");
+    const parent = screen.getByRole("button", { name: "Parent of Sam & Alex" });
+    expect(parent.querySelector(".disc").textContent).toBe("SA");
+    expect(parent.textContent).toContain("Reply for Sam & Alex and see the team");
+    // Single-hat viewer card: one button holding name + row.
+    const viewer = screen.getByText("Club admin (view only)").closest("button");
+    expect(viewer.textContent).toContain("Team B");
+    expect(viewer.querySelector(".disc").textContent).toBe("V");
+    expect(viewer.textContent).toContain("Read everything, change nothing");
+  });
+
+  it("a single-child parent's disc shows the child's initials", () => {
+    render(<TeamPicker email="mum@a.com" memberships={[
+      { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam Smith" }
+    ]} />);
+    expect(document.querySelector(".disc").textContent).toBe("SS");
+  });
+
+  it("renders no emoji and no gradient chrome", () => {
+    render(<TeamPicker email="coach@a.com" memberships={[
+      { teamSlug: "a", teamName: "Team A", role: "coach" },
+      { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam" }
+    ]} />);
+    expect(document.body.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+    expect(document.querySelector("style").textContent).not.toMatch(/gradient/);
   });
 
   it("keeps the personal heading for a plain coach", () => {
