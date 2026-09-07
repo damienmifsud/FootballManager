@@ -4,11 +4,11 @@ import { fakeRequest } from "./helpers/fakeRequest";
 // /api/teams powers the /admin team wizard: create/edit/remove teams live,
 // no env edits. Uses the REAL lib/teams merge (TEAMS env + mocked store) so
 // uniqueness checks span both sources. Super admin only, account mode only.
-const { auth, getStoredTeams, setStoredTeams, getData, setData, getClubAccess } = vi.hoisted(() => ({
-  auth: vi.fn(), getStoredTeams: vi.fn(), setStoredTeams: vi.fn(), getData: vi.fn(), setData: vi.fn(), getClubAccess: vi.fn()
+const { auth, getStoredTeams, setStoredTeams, getData, setData, deleteData, getClubAccess } = vi.hoisted(() => ({
+  auth: vi.fn(), getStoredTeams: vi.fn(), setStoredTeams: vi.fn(), getData: vi.fn(), setData: vi.fn(), deleteData: vi.fn(), getClubAccess: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
-vi.mock("@/lib/store", () => ({ getStoredTeams, setStoredTeams, getData, setData, getClubAccess }));
+vi.mock("@/lib/store", () => ({ getStoredTeams, setStoredTeams, getData, setData, deleteData, getClubAccess }));
 
 const KEYS = ["AUTH_SECRET", "ADMIN_EMAILS", "CLUB_ADMIN_EMAILS", "TEAMS", "SITE_PASSWORD"];
 let saved;
@@ -415,6 +415,20 @@ describe("DELETE", () => {
     const { DELETE } = await asAdmin();
     expect((await DELETE(fakeRequest({ body: { slug: "wiz-b" } }))).status).toBe(200);
     expect(setStoredTeams).toHaveBeenCalledWith([]);
+    expect(deleteData).not.toHaveBeenCalled(); // data kept by default
     expect((await DELETE(fakeRequest({ body: { slug: "env-a" } }))).status).toBe(400);
+  });
+
+  it("purgeData: true also wipes the team's document so re-creating the slug seeds fresh", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b" }]);
+    deleteData.mockResolvedValue();
+    const { DELETE } = await asAdmin();
+    const res = await DELETE(fakeRequest({ body: { slug: "wiz-b", purgeData: true } }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, purged: true });
+    expect(deleteData).toHaveBeenCalledWith("wiz-b");
+    // Env teams are still refused, data untouched.
+    expect((await DELETE(fakeRequest({ body: { slug: "env-a", purgeData: true } }))).status).toBe(400);
+    expect(deleteData).toHaveBeenCalledTimes(1);
   });
 });
