@@ -11,7 +11,7 @@ vi.mock("next-auth/react", () => ({ signOut: vi.fn().mockResolvedValue(undefined
 // Component-level tests for the Dashboard App: data loading via window.storage,
 // the sample-data fallback, tab navigation, and the coach-mode PIN gate. These
 // render the real component in jsdom, so they exercise the wiring the pure-helper
-// unit tests can't. We stay off the Stats tab (recharts needs a real layout).
+// unit tests can't.
 
 // Dates relative to "today" so the next-fixture cards (Home, Duties) keep
 // finding an upcoming game no matter when the suite runs.
@@ -3092,5 +3092,164 @@ describe("S7 Duties — Direction C", () => {
     expect(sheet().queryByText("Fruit duty")).toBeNull();
     expect(sheet().queryByText("Goalkeeper")).toBeNull();
     expect(sheet().queryByText("— none —")).toBeNull();
+  });
+});
+
+describe("S8 Stats — Direction C", () => {
+  const kids = [
+    { id: "p1", name: "Sam Smith", number: 7, position: "FWD" },
+    { id: "p2", name: "Alex Smith", number: 8, position: "MID" },
+    { id: "p3", name: "Milo Park", number: 9, position: "DEF" }
+  ];
+  const game = (over = {}) => ({ id: "f7", round: 7, status: "upcoming", dateISO: daysFromNow(6), time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park", availability: {}, ...over });
+  const played = (over = {}) => ({ id: "r5", round: 5, status: "played", dateISO: daysFromNow(-14), time: "09:00", opponent: "Rovers", homeAway: "H", venue: "Perry Park", us: 3, them: 1, availability: {}, ...over });
+  // Loss, win, draw (listed out of date order on purpose): Sam 3 goals, Alex
+  // 1 goal + 1 assist, Milo an assist only.
+  const season = () => [
+    game(),
+    played({ id: "r6", round: 6, dateISO: daysFromNow(-7), us: 1, them: 1, goals: [{ pid: "p1", n: 1 }], assists: [{ pid: "p2", n: 1 }] }),
+    played({ id: "r4", round: 4, dateISO: daysFromNow(-21), us: 0, them: 2 }),
+    played({ goals: [{ pid: "p1", n: 2 }, { pid: "p2", n: 1 }], assists: [{ pid: "p3", n: 1 }] })
+  ];
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); render(<App />); return waitForLoaded(); };
+  // Home's Season card pushes the Stats screen.
+  const toStats = async () => { fireEvent.click(screen.getByText("All stats ›")); await screen.findByText("Top scorers"); };
+  const card = (label) => screen.getByText(label, { selector: ".label" }).closest(".card");
+  const tiles = () => [...document.querySelectorAll(".st-tiles .tile")].map((t) => t.querySelector(".k").textContent + "=" + t.querySelector(".v").textContent + ":" + t.className);
+  const fad = (k) => screen.getByText(k, { selector: ".st-fad .k" }).nextSibling;
+  const cols = () => [...document.querySelectorAll(".st-col")];
+  const colInfo = (c) => ({
+    label: c.querySelector(".st-rd").textContent,
+    aria: c.getAttribute("aria-label"),
+    heights: [...c.querySelectorAll(".st-pair span")].map((b) => b.style.height),
+    score: c.querySelector(".st-score").textContent,
+    cls: c.querySelector(".st-score").className
+  });
+  const scorerRows = () => [...document.querySelectorAll(".sc-row")];
+  const rowInfo = (r) => ({
+    num: r.querySelector(".pr-num").textContent,
+    name: r.querySelector(".pr-name b").textContent,
+    tag: r.querySelector(".pos-pill")?.className,
+    txt: r.querySelector(".sc-txt").textContent,
+    width: r.querySelector(".sc-fill").style.width
+  });
+
+  it("five tiles: played, won (green), drew (grey), lost (red) and pts (red tint) from the played fixtures", async () => {
+    await load(makeData({ players: kids, fixtures: season() }));
+    await toStats();
+    expect(headerTitle()).toBe("Stats");
+    expect(headerKicker()).toBe(`Season ${SEASON}`);
+    expect(tiles()).toEqual(["Played=3:tile", "Won=1:tile won", "Drew=1:tile drew", "Lost=1:tile lost", "Pts=4:tile pts"]);
+    expect(document.querySelector(".st-tiles").className).toBe("tiles st-tiles");
+  });
+
+  it("For / Against / Diff: an even diff reads 0 in the muted class; the last-5 form pips sit on the right", async () => {
+    await load(makeData({ players: kids, fixtures: season() }));
+    await toStats();
+    expect(fad("For").textContent).toBe("4");
+    expect(fad("Against").textContent).toBe("4");
+    expect(fad("Diff").textContent).toBe("0");
+    expect(fad("Diff").className).toBe("v zero");
+    expect([...document.querySelectorAll(".st-pips .pip")].map((p) => p.textContent + ":" + p.className)).toEqual(["L:pip L", "W:pip W", "D:pip D"]);
+  });
+
+  it("Diff carries a sign: positive is green, negative is red", async () => {
+    await load(makeData({ players: kids, fixtures: [game(), played({ us: 5, them: 1 })] }));
+    await toStats();
+    expect(fad("Diff").textContent).toBe("+4");
+    expect(fad("Diff").className).toBe("v pos");
+    cleanup();
+    await load(makeData({ players: kids, fixtures: [game(), played({ us: 0, them: 3 })] }));
+    await toStats();
+    expect(fad("Diff").textContent).toBe("-3");
+    expect(fad("Diff").className).toBe("v neg");
+    expect(tiles()).toEqual(["Played=1:tile", "Won=0:tile won", "Drew=0:tile drew", "Lost=1:tile lost", "Pts=0:tile pts"]);
+  });
+
+  it("Goals by round: one column per played fixture in date order, bars max(4, goals × 9) px, score in the result colour; the legend names For and Against", async () => {
+    await load(makeData({ players: kids, fixtures: season() }));
+    await toStats();
+    const c = card("Goals by round");
+    expect(c.className).toBe("card st-rounds");
+    expect(c.querySelector(".st-legend").textContent).toBe("ForAgainst");
+    expect(c.querySelector(".st-legend .for")).toBeTruthy();
+    expect(c.querySelector(".st-legend .against")).toBeTruthy();
+    expect(cols().map(colInfo)).toEqual([
+      { label: "R4", aria: "Round 4, 0–2", heights: ["4px", "18px"], score: "0–2", cls: "st-score L" },
+      { label: "R5", aria: "Round 5, 3–1", heights: ["27px", "9px"], score: "3–1", cls: "st-score W" },
+      { label: "R6", aria: "Round 6, 1–1", heights: ["9px", "9px"], score: "1–1", cls: "st-score D" }
+    ]);
+    expect(cols().every((b) => b.tagName === "BUTTON")).toBe(true);
+    expect(screen.getByText("Tap a round to open the match.").className).toBe("st-foot");
+  });
+
+  it("tapping a round pushes Match detail for that fixture; Back returns to Stats", async () => {
+    await load(makeData({ players: kids, fixtures: season() }));
+    await toStats();
+    fireEvent.click(screen.getByRole("button", { name: "Round 5, 3–1" }));
+    await waitFor(() => expect(headerTitle()).toBe("Round 5"));
+    expect(document.querySelector(".mu-big").textContent).toBe("3–1");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Stats"));
+    expect(cols()).toHaveLength(3);
+  });
+
+  it("a big score caps the bar at the 66 px column but keeps the score text exact", async () => {
+    await load(makeData({ players: kids, fixtures: [game(), played({ us: 9, them: 7 })] }));
+    await toStats();
+    expect(cols().map(colInfo)).toEqual([{ label: "R5", aria: "Round 5, 9–7", heights: ["66px", "63px"], score: "9–7", cls: "st-score W" }]);
+  });
+
+  it("no played games: zero tiles, no pips, and both empty states", async () => {
+    await load(makeData({ players: kids, fixtures: [game()] }));
+    await toStats();
+    expect(tiles()).toEqual(["Played=0:tile", "Won=0:tile won", "Drew=0:tile drew", "Lost=0:tile lost", "Pts=0:tile pts"]);
+    expect(fad("Diff").textContent).toBe("0");
+    expect(document.querySelector(".st-pips")).toBeNull();
+    expect(document.querySelector(".pip")).toBeNull();
+    expect(within(card("Goals by round")).getByText("No completed matches yet.").className).toBe("st-empty");
+    expect(cols()).toHaveLength(0);
+    expect(within(card("Top scorers")).getByText("No goals recorded yet.").className).toBe("pl-empty");
+    expect(scorerRows()).toHaveLength(0);
+  });
+
+  it("played games but no goals recorded against players: bars render, scorers card is empty", async () => {
+    await load(makeData({ players: kids, fixtures: [game(), played()] }));
+    await toStats();
+    expect(cols()).toHaveLength(1);
+    expect(within(card("Top scorers")).getByText("No goals recorded yet.")).toBeTruthy();
+  });
+
+  it("Top scorers: number, name + position tag, goals text with an assists suffix, progress relative to the top scorer; assists-only players are left out", async () => {
+    await load(makeData({ players: kids, fixtures: season() }));
+    await toStats();
+    expect(card("Top scorers").className).toBe("card st-scorers");
+    expect(scorerRows().map(rowInfo)).toEqual([
+      { num: "7", name: "Sam Smith", tag: "pos-pill pos-FWD", txt: "3 goals", width: "100%" },
+      { num: "8", name: "Alex Smith", tag: "pos-pill pos-MID", txt: "1 goal · 1 assist", width: "33%" }
+    ]);
+    expect(screen.queryByText("Milo Park")).toBeNull();
+    expect(scorerRows().every((r) => r.tagName === "BUTTON")).toBe(true);
+  });
+
+  it("assists pluralise; a player without a number or position still renders", async () => {
+    const players = [{ id: "p1", name: "Sam Smith" }, { id: "p2", name: "Alex Smith", number: 8, position: "MID" }];
+    await load(makeData({ players, fixtures: [game(), played({ goals: [{ pid: "p1", n: 2 }, { pid: "p2", n: 2 }], assists: [{ pid: "p2", n: 3 }] })] }));
+    await toStats();
+    // Equal goals: the one with more assists sorts first.
+    expect(scorerRows().map(rowInfo)).toEqual([
+      { num: "8", name: "Alex Smith", tag: "pos-pill pos-MID", txt: "2 goals · 3 assists", width: "100%" },
+      { num: "", name: "Sam Smith", tag: undefined, txt: "2 goals", width: "100%" }
+    ]);
+  });
+
+  it("tapping a scorer pushes the Player screen", async () => {
+    await load(makeData({ players: kids, fixtures: season() }));
+    await toStats();
+    fireEvent.click(scorerRows()[1]);
+    await waitFor(() => expect(headerTitle()).toBe("Alex Smith"));
+    expect(headerKicker()).toBe("#8 · MID");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Stats"));
   });
 });
