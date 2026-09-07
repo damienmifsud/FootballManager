@@ -2911,9 +2911,10 @@ const PERIOD_LABELS = { 1: "Straight through", 2: "2 halves", 3: "3 thirds", 4: 
 // Team-size chips for the default match format: [players on the pitch, keeper by
 // default]. 4v4 is MiniRoos U6-U7 (no keeper); 5v5 is the small-sided variant
 // some hubs and carnivals run (keeper on by default, switch it off below);
-// 7v7 U8-U9; 9v9 U10-U11; 11v11 for U12 and up. The keeper switch and the
-// planner's per-game override can still set any size from 3 to 11.
-const TEAM_SIZES = [[4, false], [5, true], [7, true], [9, true], [11, true]];
+// 6v6 with a keeper is the men's over-35s format; 7v7 U8-U9; 9v9 U10-U11;
+// 11v11 for U12 and up. The keeper switch and the planner's per-game
+// override can still set any size from 3 to 11.
+const TEAM_SIZES = [[4, false], [5, true], [6, true], [7, true], [9, true], [11, true]];
 const fits = (formation, outfield) => parseFormation(formation).reduce((s, n) => s + n, 0) === outfield;
 function MatchFormatCards({ team, patchLocal }) {
   const stored = team.matchFormat || defaultFormatForAgeGroup(team.ageGroup);
