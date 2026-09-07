@@ -208,6 +208,47 @@ Roles exist only in account mode. They are resolved from the signed-in email in
 - **Overrides** (`/admin`) — per email, per team, force coach, parent, viewer or
   blocked. Overrides never apply to super admins.
 
+### Who can do what
+
+The same table is shown on `/admin` (data in `lib/roleMatrix.js`). "Coach" covers
+assistant coaches and managers on the staff list too. The last column is team-code
+mode, where there are no accounts.
+
+| Feature | Super admin | Club admin | Coach | Parent | Team code |
+|---|---|---|---|---|---|
+| **See** | | | | | |
+| Fixtures, results, calendar, training, duties | Yes | Yes | Yes | Yes | Yes |
+| Squad list, positions, photos, goals and assists | Yes | Yes | Yes | Yes | Yes |
+| Parents' contact details and family PINs | Yes | No | Yes | Own children | Yes |
+| Player ratings and coach notes | Yes | No | Yes | No | Yes |
+| Lineup rules and the coach PIN | Yes | No | Yes | No | Yes |
+| Game plan before kick-off | Yes | If the coach allows | Yes | If the coach allows | Yes |
+| Live lineup and clock on game day | Yes | If the coach allows | Yes | If the coach allows | Yes |
+| Match record and minutes played | Yes | If the coach allows | Yes | If the coach allows | Yes |
+| Ask the team assistant | Yes | Yes | Yes | Yes | Yes |
+| Calendar subscribe link | Yes | Yes | Yes | Yes | Yes |
+| **Do** | | | | | |
+| Reply In or Out for games and training | Anyone | No | Anyone | Own children | Anyone |
+| Edit fixtures, scores, duties, squad, staff, team details | Yes | No | Yes | No | Yes |
+| Set the game plan and run the live match | Yes | No | Yes | No | Yes |
+| Settings: parents can see, match format, home shape, lineup rules | Yes | No | Yes | No | Yes |
+| Rate players and write coach notes | Yes | No | Yes | No | Yes |
+| Sync fixtures from Squadi now | Yes | No | Yes | No | Yes |
+| Add web pages and PDFs to the assistant's knowledge | Yes | No | Yes | No | Yes |
+| League page setup | Yes | No | Yes | No | Yes |
+| Switch team or role, sign out | Yes | Yes | Yes | Yes | Yes |
+| **Club** | | | | | |
+| Open `/admin` | Yes | No | No | No | Not available |
+| Create and edit teams (the wizard) | Yes | No | No | No | Not available |
+| Add or remove club admins | Yes | No | No | No | Not available |
+| Per-person per-team overrides | Yes | No | No | No | Not available |
+| View as any user (read only) | Yes | No | No | No | Not available |
+
+"If the coach allows" follows the team's **Parents can see** switches in Settings. A
+coach who is also a parent gets exactly the Parent column while wearing the parent hat.
+Every visit still refreshes fixtures quietly for everyone; only the manual "sync now" is
+coach-level.
+
 ### Hats: several roles, several teams
 
 One email can hold more than one role on the same team (a coach whose child plays
