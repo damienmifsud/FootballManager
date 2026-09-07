@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 import App from "@/components/Dashboard";
-import { isoLocal } from "@/lib/dashboardData";
+import { isoLocal, SEASON } from "@/lib/dashboardData";
 import { signOut } from "next-auth/react";
 
 // The Viewing-as sheet's Sign out calls Auth.js's signOut; under test it just records the call.
@@ -32,7 +32,7 @@ let storage;
 beforeEach(() => {
   storage = { get: vi.fn(), set: vi.fn().mockResolvedValue({ ok: true }) };
   window.storage = storage;
-  // SubscribeCard / AskTab fetch endpoints that don't exist under test.
+  // AddToCalendarCard / AskTab fetch endpoints that don't exist under test.
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) }));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); delete window.storage; });
@@ -1765,5 +1765,230 @@ describe("S3 Results + Match detail", () => {
     fireEvent.click(screen.getByText("Details"));
     await waitFor(() => expect(headerTitle()).toBe("Match"));
     expect(document.querySelector(".mh-label").textContent).toBe(`Home · ${fmt(daysFromNow(6))}`);
+  });
+});
+
+describe("S4 Calendar — Direction C", () => {
+  // Everything is relative to the month the suite runs in: the grid shows the
+  // current month first, and "the other month" is the next one (previous in December).
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth();
+  const todayISO = isoLocal(today);
+  const other = m === 11 ? 10 : m + 1;
+  const mm = (mo) => String(mo + 1).padStart(2, "0");
+  const monthName = (mo) => new Date(y, mo, 1).toLocaleDateString("en-AU", { month: "long" });
+  const FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  // First day of this month falling on `weekday`.
+  const firstOn = (weekday) => 1 + ((weekday - new Date(y, m, 1).getDay() + 7) % 7);
+
+  const meFetch = (me, feedUrl) => {
+    fetch.mockImplementation((url) => {
+      if (String(url).includes("/api/me")) return Promise.resolve({ ok: true, json: async () => me });
+      if (feedUrl && String(url).includes("/api/feedinfo")) return Promise.resolve({ ok: true, json: async () => ({ feedUrl }) });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+  };
+  const parentOf = (playerIds, playerNames) => {
+    const hat = { role: "parent", playerIds, playerNames };
+    return { mode: "account", email: "x@a.com", admin: false, clubAdmin: false, teamSlug: "a", teamName: "Test FC", role: "parent", playerIds, playerNames, hats: [hat], teams: [{ teamSlug: "a", teamName: "Test FC", hats: [hat] }], canSwitch: false, memberships: [] };
+  };
+  const kids = [
+    { id: "p1", name: "Sam Smith", number: 7, position: "FWD" },
+    { id: "p2", name: "Alex Smith", number: 8, position: "MID" },
+    { id: "p3", name: "Milo Park", number: 9, position: "DEF" }
+  ];
+  const game = (over = {}) => ({ id: "f7", round: 7, status: "upcoming", dateISO: todayISO, time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park", availability: {}, ...over });
+  const training = (over = {}) => ({ id: "s1", title: "Training", kind: "training", recur: "weekly", weekday: today.getDay(), startISO: daysFromNow(-60), untilISO: daysFromNow(60), time: "16:30", location: "JF O'Grady", availability: {}, ...over });
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); render(<App />); return waitForLoaded(); };
+  const toCalendar = () => fireEvent.click(within(screen.getByRole("navigation")).getByText("Calendar"));
+  const toOther = () => fireEvent.click(screen.getByRole("button", { name: m === 11 ? "Previous month" : "Next month" }));
+  const cells = () => [...document.querySelectorAll(".cal-cell")];
+  const cellFor = (day) => cells()[day - 1];
+  const listCard = () => within(document.querySelector(".callist"));
+  const sheet = () => document.querySelector(".sheet");
+
+  it("the header kicker reads the shown month on Calendar and returns to division · age group on Home", async () => {
+    await load(makeData());
+    toCalendar();
+    expect(headerKicker()).toBe(`${monthName(m)} ${SEASON}`);
+    expect(screen.getByText(`${monthName(m)} ${SEASON}`, { selector: ".cg-month" })).toBeTruthy();
+    toOther();
+    expect(headerKicker()).toBe(`${monthName(other)} ${SEASON}`);
+    fireEvent.click(within(screen.getByRole("navigation")).getByText("Home"));
+    expect(headerKicker()).toBe("Div 1 · U8");
+  });
+
+  it("the grid is Monday-first with the right leading blanks; today is red-tinted once another day is selected; the old grid is gone", async () => {
+    await load(makeData({ fixtures: [] }));
+    toCalendar();
+    expect([...document.querySelectorAll(".cg-dow span")].map((s) => s.textContent)).toEqual(["M", "T", "W", "T", "F", "S", "S"]);
+    expect(document.querySelectorAll(".cal-blank").length).toBe((new Date(y, m, 1).getDay() + 6) % 7);
+    expect(cells().length).toBe(daysInMonth);
+    expect(cells()[0].querySelector(".n").textContent).toBe("1");
+    expect(cells().every((c) => c.tagName === "BUTTON")).toBe(true);
+    // Today starts selected (selected wins over today).
+    const todayCell = cellFor(today.getDate());
+    expect(todayCell.classList.contains("sel")).toBe(true);
+    expect(todayCell.classList.contains("today")).toBe(false);
+    // Tapping an empty day just selects it — no sheet.
+    const otherDay = today.getDate() === 1 ? 2 : 1;
+    fireEvent.click(cellFor(otherDay));
+    expect(cellFor(otherDay).classList.contains("sel")).toBe(true);
+    expect(todayCell.classList.contains("today")).toBe(true);
+    expect(todayCell.classList.contains("sel")).toBe(false);
+    expect(sheet()).toBeNull();
+    expect(document.querySelector(".daycell, .grid7, .agitem, .addfab")).toBeNull();
+    expect(screen.queryByText("Nothing scheduled this day.")).toBeNull();
+  });
+
+  it("a game day shows the opponent's 22px registry crest; an unknown club gets an initials disc", async () => {
+    await load(makeData({ fixtures: [game({ opponent: "Oxley United U8 Eagles" }), game({ id: "f8", round: 8, opponent: "Wests", dateISO: `${y}-${mm(m)}-${String(today.getDate() === 1 ? 2 : 1).padStart(2, "0")}` })] }));
+    toCalendar();
+    const img = cellFor(today.getDate()).querySelector("img.cal-crest");
+    expect(img.getAttribute("src")).toBe("/crests/oxley-united.png");
+    expect(cellFor(today.getDate()).querySelector(".cal-dot")).toBeNull();
+    const disc = cellFor(today.getDate() === 1 ? 2 : 1).querySelector(".cal-crest.ph");
+    expect(disc.textContent).toBe("W");
+    expect([...document.querySelectorAll("img.cal-crest")].every((i) => i.getAttribute("src").startsWith("/crests/"))).toBe(true); // registry files, never a hotlink
+  });
+
+  it("training and birthday dots, one per cell (birthday beats training); the legend shows Event only when an event exists", async () => {
+    const trWeekday = (today.getDay() + 1) % 7;
+    const bdayDay = firstOn(trWeekday); // a training day, so the birthday dot wins there
+    const data = makeData({
+      players: [{ ...kids[0], dob: `${y - 8}-${mm(m)}-${String(bdayDay).padStart(2, "0")}` }],
+      fixtures: [],
+      sessions: [training({ weekday: trWeekday })]
+    });
+    await load(data);
+    toCalendar();
+    expect(cellFor(bdayDay).querySelectorAll(".cal-dot").length).toBe(1);
+    expect(cellFor(bdayDay).querySelector(".cal-dot").classList.contains("birthday")).toBe(true);
+    const nextTraining = bdayDay + 7 <= daysInMonth ? bdayDay + 7 : bdayDay - 7;
+    expect(cellFor(nextTraining).querySelector(".cal-dot.training")).toBeTruthy();
+    expect([...document.querySelectorAll(".cg-legend span > span, .cg-legend span > img")].length).toBe(3);
+    expect(document.querySelector(".cg-legend").textContent).toBe("GameTrainingBirthday");
+    expect(document.querySelector(".cg-legend img").getAttribute("src")).toBe("/crests/olympic-fc.png");
+    cleanup();
+    const eventDay = firstOn((trWeekday + 1) % 7); // neither a training day nor the birthday
+    await load({ ...data, sessions: [...data.sessions, { id: "e1", title: "Team photo", kind: "event", dateISO: `${y}-${mm(m)}-${String(eventDay).padStart(2, "0")}`, time: "10:00", location: "Clubhouse" }] });
+    toCalendar();
+    expect(document.querySelector(".cg-legend").textContent).toBe("GameTrainingBirthdayEvent");
+    expect(cellFor(eventDay).querySelector(".cal-dot.event")).toBeTruthy();
+  });
+
+  it("tapping a day with items opens the day sheet (title, rows without the day column); a game row there pushes Match detail", async () => {
+    await load(makeData({ players: kids, fixtures: [game({ opponent: "Oxley United U8 Eagles" })], sessions: [training()] }));
+    toCalendar();
+    fireEvent.click(cellFor(today.getDate()));
+    expect(await screen.findByText(`${FULL[today.getDay()]} ${today.getDate()} ${monthName(m)}`, { selector: ".day-title" })).toBeTruthy();
+    const rows = sheet().querySelectorAll(".wk-row");
+    expect(rows.length).toBe(2);
+    expect(sheet().querySelector(".wk-day")).toBeNull();
+    expect(within(rows[0]).getByText("vs Oxley United U8 Eagles")).toBeTruthy();
+    expect(within(rows[0]).getByText("09:00 · Perry Park")).toBeTruthy();
+    expect(within(rows[1]).getByText("Training")).toBeTruthy();
+    expect(within(rows[1]).getByText("0 in · 3 to reply").classList.contains("wk-pill")).toBe(true);
+    fireEvent.click(rows[0]);
+    await waitFor(() => expect(headerTitle()).toBe("Round 7"));
+    expect(sheet()).toBeNull();
+  });
+
+  it("a training row in the day sheet opens the session sheet", async () => {
+    await load(makeData({ players: kids, fixtures: [], sessions: [training()] }));
+    toCalendar();
+    fireEvent.click(cellFor(today.getDate()));
+    fireEvent.click(await screen.findByText("Training", { selector: ".sheet .wk-title" }));
+    expect(await screen.findByText("Training", { selector: ".sheet h2" })).toBeTruthy();
+  });
+
+  it("list card: 'Coming up in {Month}' for this month (from today), '{Month}' after navigating, calm empty copy; a birthday row has no emoji and opens the player", async () => {
+    const data = makeData({
+      players: [{ ...kids[0], dob: `${y - 8}-${mm(other)}-15` }],
+      fixtures: [game(), game({ id: "old", round: 6, dateISO: `${y}-${mm(m)}-${String(today.getDate() === 1 ? 2 : 1).padStart(2, "0")}`, opponent: "Rovers" })]
+    });
+    await load(data);
+    toCalendar();
+    expect(listCard().getByText(`Coming up in ${monthName(m)}`).className).toBe("label");
+    const past = today.getDate() > 1;
+    expect(listCard().queryByText("vs Rovers")).toBe(past ? null : listCard().getByText("vs Rovers"));
+    expect(listCard().getByText("vs Wests")).toBeTruthy();
+    toOther();
+    expect(listCard().getByText(monthName(other)).className).toBe("label");
+    expect(listCard().getByText("Sam S. turns 8").className).toBe("wk-title");
+    expect(listCard().getByText("Birthday").className).toBe("wk-meta");
+    expect(document.body.textContent).not.toMatch(/🎂/);
+    fireEvent.click(listCard().getByText("Sam S. turns 8"));
+    expect(await screen.findByText("Sam Smith", { selector: ".sheet *" })).toBeTruthy();
+    closeSheet();
+    // A month with nothing in it.
+    cleanup();
+    await load(makeData({ fixtures: [] }));
+    toCalendar();
+    toOther();
+    expect(listCard().getByText(`Nothing scheduled in ${monthName(other)}.`).className).toBe("wk-empty");
+    expect(screen.queryByText("Nothing on this day. Enjoy the rest.")).toBeNull();
+  });
+
+  it("rows carry the parent's own-child pill for a game and a training occurrence", async () => {
+    meFetch(parentOf(["p1"], ["Sam Smith"]));
+    // The session ends today so the list has exactly one training occurrence.
+    await load(makeData({ players: kids, fixtures: [game({ availability: { p1: { status: "in" } } })], sessions: [training({ untilISO: todayISO, availability: { [todayISO]: { p1: { status: "out", reason: "Sick" } } } })] }));
+    toCalendar();
+    const rows = await waitFor(() => { const r = document.querySelectorAll(".callist .wk-row"); expect(r.length).toBe(2); return r; });
+    expect(within(rows[0]).getByText("vs Wests")).toBeTruthy();
+    expect(within(rows[0]).getByText("Sam's in").classList.contains("in")).toBe(true);
+    expect(within(rows[1]).getByText("Training")).toBeTruthy();
+    expect(within(rows[1]).getByText("Sam's out").classList.contains("out")).toBe(true);
+    expect(rows[0].querySelector(".wk-dow").textContent).toBe(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][today.getDay()]);
+    expect(rows[0].querySelector(".wk-num").textContent).toBe(String(today.getDate()));
+    expect(screen.queryByText("Add training / activity")).toBeNull(); // parents don't add sessions
+  });
+
+  it("the coach sees the counts pill on both rows and 'Add training / activity' opens the add sheet", async () => {
+    await load(makeData({ players: kids, fixtures: [game({ availability: { p1: { status: "in" } } })], sessions: [training({ untilISO: todayISO, availability: { [todayISO]: { p1: { status: "out" } } } })] }));
+    await enterCoachMode();
+    toCalendar();
+    const rows = document.querySelectorAll(".callist .wk-row");
+    expect(rows.length).toBe(2);
+    expect(within(rows[0]).getByText("1 in · 2 to reply").className).toBe("wk-pill nr");
+    expect(within(rows[1]).getByText("0 in · 2 to reply").className).toBe("wk-pill nr");
+    const add = listCard().getByText("Add training / activity");
+    expect(add.className).toBe("ghostlink");
+    fireEvent.click(add);
+    expect(await screen.findByText("Add training / activity", { selector: ".sheet h2" })).toBeTruthy();
+  });
+
+  it("Add to your calendar: Google / Apple / Outlook links from the feed, Copy link flips to Copied, and the one-off download stays", async () => {
+    const feed = "https://footballmgr.au/api/calendar?key=abc123";
+    const webcal = "webcal://footballmgr.au/api/calendar?key=abc123";
+    meFetch(parentOf(["p1"], ["Sam Smith"]), feed);
+    await load(makeData());
+    toCalendar();
+    const google = await screen.findByText("Google");
+    expect(google.tagName).toBe("A");
+    expect(google.getAttribute("href")).toBe("https://calendar.google.com/calendar/render?cid=" + encodeURIComponent(webcal));
+    expect(google.getAttribute("target")).toBe("_blank");
+    expect(screen.getByText("Apple").getAttribute("href")).toBe(webcal);
+    expect(screen.getByText("Outlook").getAttribute("href")).toBe("https://outlook.office.com/calendar/0/addfromweb?url=" + encodeURIComponent(feed) + "&name=Team%20Calendar");
+    expect(screen.getByText("Add to your calendar").className).toBe("label");
+    expect(screen.getByText("Subscribe once and it stays in sync when a game moves — better than importing.")).toBeTruthy();
+    expect(screen.getByText("Calendars refresh on their own schedule. Treat the link as team-private.")).toBeTruthy();
+    fireEvent.click(screen.getByText("Copy link"));
+    expect(screen.getByText("Copied")).toBeTruthy();
+    expect(screen.getByText("Download a one-off .ics instead")).toBeTruthy();
+    expect(screen.queryByText("Subscribe to the team calendar")).toBeNull();
+  });
+
+  it("without /api/feedinfo the card keeps only the one-off download", async () => {
+    await load(makeData());
+    toCalendar();
+    expect(screen.getByText("Add to your calendar")).toBeTruthy();
+    expect(screen.getByText("Download a one-off .ics instead")).toBeTruthy();
+    expect(screen.queryByText("Google")).toBeNull();
+    expect(screen.queryByText("Apple")).toBeNull();
+    expect(screen.queryByText("Outlook")).toBeNull();
+    expect(screen.queryByText("Copy link")).toBeNull();
   });
 });
