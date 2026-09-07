@@ -1,7 +1,9 @@
 "use client";
-// Super-admin access control: manage club admins (view-only on every team)
-// and per-email per-team role overrides. Talks to /api/access; the resolver
-// in lib/directory.js applies whatever is saved here on every request.
+// The /admin page. Super admins ("super" scope) manage club admins (view-only
+// on every team), per-email per-team role overrides and view-as, plus the team
+// wizard. Club admins ("club" scope) get the role table, the team wizard and
+// the league link only. Talks to /api/access; lib/directory.js applies
+// whatever is saved here on every request.
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
@@ -18,7 +20,8 @@ const chip = { display: "inline-block", padding: "3px 10px", borderRadius: 999, 
 const ROLE_LABELS = { coach: "Coach", parent: "Parent", viewer: "View only", blocked: "Blocked" };
 const ROLE_COLORS = { coach: "#1E9E57", parent: "#2563a8", viewer: "#b3760a", blocked: "#C8102E" };
 
-export default function AccessManager({ adminEmail }) {
+export default function AccessManager({ adminEmail, scope = "super" }) {
+  const superAdmin = scope === "super";
   const [state, setState] = useState(null); // { teams, clubAdmins, envClubAdmins, overrides, roles }
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -48,7 +51,7 @@ export default function AccessManager({ adminEmail }) {
       setOvTeam((t) => t || j.teams[0]?.slug || "");
     } catch (e) { setErr(String(e.message || e)); }
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (superAdmin) load(); }, [load, superAdmin]);
 
   const post = async (body) => {
     setBusy(true); setErr("");
@@ -70,9 +73,9 @@ export default function AccessManager({ adminEmail }) {
     <div style={{ minHeight: "100vh", padding: 24, fontFamily: "system-ui,sans-serif", background: "linear-gradient(160deg,#C8102E,#7A0A1B)" }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
         <div style={{ color: "#fff", marginBottom: 18 }}>
-          <div style={{ fontSize: 24, fontWeight: 800 }}>Club access control</div>
+          <div style={{ fontSize: 24, fontWeight: 800 }}>{superAdmin ? "Club access control" : "Club teams"}</div>
           <div style={{ fontSize: 13, opacity: .85, marginTop: 3 }}>
-            Signed in as {adminEmail} (super admin) · <Link href="/" style={{ color: "#fff" }}>back to the dashboard</Link> ·{" "}
+            Signed in as {adminEmail} ({superAdmin ? "super admin" : "club admin"}) · <Link href="/" style={{ color: "#fff" }}>back to the dashboard</Link> ·{" "}
             <button onClick={() => signOut({ callbackUrl: "/login" })} style={{ background: "none", border: "none", color: "#fff", textDecoration: "underline", cursor: "pointer", fontSize: 13, padding: 0 }}>sign out</button>
           </div>
         </div>
@@ -87,10 +90,11 @@ export default function AccessManager({ adminEmail }) {
           <div style={{ padding: "0 18px 18px" }}><RoleMatrix /></div>
         </details>
 
-        {!state ? (
+        {superAdmin && !state ? (
           <div style={{ ...card, textAlign: "center", color: C.muted }}>Loading…</div>
         ) : (
           <>
+            {superAdmin && state && (<>
             <div style={card}>
               <div style={label}>Club admins — view-only access to every team</div>
               {state.envClubAdmins.map((e) => (
@@ -165,6 +169,7 @@ export default function AccessManager({ adminEmail }) {
                   onClick={() => { post({ action: "setOverride", email: ovEmail, teamSlug: ovTeam, role: ovRole }); setOvEmail(""); }}>Set</button>
               </div>
             </div>
+            </>)}
 
             <TeamWizard />
 

@@ -4,13 +4,13 @@ import { fakeRequest } from "./helpers/fakeRequest";
 // /api/teams powers the /admin team wizard: create/edit/remove teams live,
 // no env edits. Uses the REAL lib/teams merge (TEAMS env + mocked store) so
 // uniqueness checks span both sources. Super admin only, account mode only.
-const { auth, getStoredTeams, setStoredTeams, getData, setData } = vi.hoisted(() => ({
-  auth: vi.fn(), getStoredTeams: vi.fn(), setStoredTeams: vi.fn(), getData: vi.fn(), setData: vi.fn()
+const { auth, getStoredTeams, setStoredTeams, getData, setData, getClubAccess } = vi.hoisted(() => ({
+  auth: vi.fn(), getStoredTeams: vi.fn(), setStoredTeams: vi.fn(), getData: vi.fn(), setData: vi.fn(), getClubAccess: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
-vi.mock("@/lib/store", () => ({ getStoredTeams, setStoredTeams, getData, setData }));
+vi.mock("@/lib/store", () => ({ getStoredTeams, setStoredTeams, getData, setData, getClubAccess }));
 
-const KEYS = ["AUTH_SECRET", "ADMIN_EMAILS", "TEAMS", "SITE_PASSWORD"];
+const KEYS = ["AUTH_SECRET", "ADMIN_EMAILS", "CLUB_ADMIN_EMAILS", "TEAMS", "SITE_PASSWORD"];
 let saved;
 beforeEach(() => {
   vi.clearAllMocks();
@@ -21,6 +21,7 @@ beforeEach(() => {
   setStoredTeams.mockResolvedValue();
   getData.mockResolvedValue(null);
   setData.mockResolvedValue();
+  getClubAccess.mockResolvedValue({});
 });
 afterEach(() => {
   for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
@@ -48,6 +49,42 @@ describe("gates", () => {
     expect((await GET()).status).toBe(401);
     auth.mockResolvedValue({ user: { email: "coach@a.com" } });
     expect((await GET()).status).toBe(403);
+  });
+});
+
+describe("club admins can run the wizard but not delete", () => {
+  const asClubAdmin = async () => {
+    process.env.CLUB_ADMIN_EMAILS = "td@club.com";
+    const route = await loadRoute();
+    auth.mockResolvedValue({ user: { email: "td@club.com" } });
+    return route;
+  };
+  afterEach(() => { delete process.env.CLUB_ADMIN_EMAILS; });
+
+  it("a CLUB_ADMIN_EMAILS email can list, create and edit teams", async () => {
+    const { GET, POST, PATCH } = await asClubAdmin();
+    expect((await GET()).status).toBe(200);
+    const created = await POST(fakeRequest({ body: { name: "Club Made", password: "made-code" } }));
+    expect(created.status).toBe(200);
+    expect(setStoredTeams).toHaveBeenCalled();
+    getStoredTeams.mockResolvedValue([{ slug: "club-made", name: "Club Made", password: "made-code", calendarKey: "k" }]);
+    const edited = await PATCH(fakeRequest({ body: { slug: "club-made", name: "Club Made 2" } }));
+    expect(edited.status).toBe(200);
+  });
+
+  it("a club admin added in the stored access doc works the same", async () => {
+    getClubAccess.mockResolvedValue({ clubAdmins: ["TD2@club.com"] });
+    const { GET } = await loadRoute();
+    auth.mockResolvedValue({ user: { email: "td2@club.com" } });
+    expect((await GET()).status).toBe(200);
+  });
+
+  it("deleting a team stays super-admin only", async () => {
+    const { DELETE } = await asClubAdmin();
+    getStoredTeams.mockResolvedValue([{ slug: "club-made", name: "Club Made", password: "made-code", calendarKey: "k" }]);
+    const res = await DELETE(fakeRequest({ body: { slug: "club-made" } }));
+    expect(res.status).toBe(403);
+    expect(setStoredTeams).not.toHaveBeenCalled();
   });
 });
 

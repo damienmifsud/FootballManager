@@ -38,7 +38,7 @@ export async function GET(req) {
       if (realEmail) {
         const impersonating = viewingAs(req, realEmail);
         const email = impersonating || realEmail;
-        const empty = { role: null, teamSlug: null, teamName: null, hats: [], teams: [], memberships: [], canSwitch: false };
+        const empty = { role: null, teamSlug: null, teamName: null, hats: [], teams: [], memberships: [], canSwitch: false, clubAdmin: false };
         if (impersonating) {
           return NextResponse.json({ mode: "account", email, viewingAs: impersonating, realAdmin: true, admin: false, ...empty });
         }
@@ -55,6 +55,7 @@ export async function GET(req) {
     mode: "account",
     email,
     admin: !impersonating && isAdminEmail(realEmail),
+    clubAdmin: memberships.some((m) => !!m.clubAdmin),
     ...(impersonating ? { viewingAs: impersonating, realAdmin: true } : {}),
     teamSlug: team.slug,
     teamName: team.name,

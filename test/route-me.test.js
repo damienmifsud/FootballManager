@@ -108,6 +108,18 @@ describe("account mode", () => {
     expect(body.memberships).toEqual([{ teamSlug: "a", teamName: "Team A", role: "coach", staffRole: "Manager" }]);
   });
 
+  it("flags club admins so the dashboard can offer the team wizard", async () => {
+    auth.mockResolvedValue({ user: { email: "td@club.com" } });
+    isAdminEmail.mockReturnValue(false);
+    membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", teamName: "Team A", role: "viewer", clubAdmin: true }] });
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await GET(fakeRequest())).json();
+    expect(body).toMatchObject({ role: "viewer", admin: false, clubAdmin: true });
+
+    membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam" }] });
+    expect((await (await GET(fakeRequest())).json()).clubAdmin).toBe(false);
+  });
+
   it("401s an unauthenticated caller or a plain account with no memberships", async () => {
     const { GET } = await loadRoute({ authOn: true });
     auth.mockResolvedValue(null);
@@ -126,7 +138,7 @@ describe("account mode", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       mode: "account", email: "boss@dam.fund", admin: true, role: null,
-      teamSlug: null, teamName: null, hats: [], teams: [], memberships: [], canSwitch: false
+      teamSlug: null, teamName: null, hats: [], teams: [], memberships: [], canSwitch: false, clubAdmin: false
     });
   });
 });
