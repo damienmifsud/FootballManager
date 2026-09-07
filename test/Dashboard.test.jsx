@@ -156,9 +156,11 @@ describe("App — account-mode roles (/api/me)", () => {
     { id: "p2", name: "Alex Smith", number: 8, position: "MID" },
     { id: "p3", name: "Milo Park", number: 9, position: "DEF" }
   ];
+  // Home "Details" pushes Match detail; "See everyone's replies" pushes Who's in.
   const openMatch = async () => {
     fireEvent.click(await screen.findByText("Details"));
-    await screen.findByText("Who's playing? Tap your player");
+    fireEvent.click(await screen.findByText("See everyone's replies"));
+    await waitFor(() => expect(headerTitle()).toBe("Who's in"));
   };
   const clearCookies = () => document.cookie.split(";").forEach((c) => {
     const k = c.split("=")[0].trim();
@@ -450,36 +452,53 @@ describe("App — failed saves are undone", () => {
     await enterCoachMode();
     fireEvent.click(screen.getByText("Results"));
     await screen.findByText("Add fixture");
-    expect(container.querySelectorAll(".sqrow")).toHaveLength(1);
+    expect(container.querySelectorAll(".mrow")).toHaveLength(1);
     fireEvent.click(screen.getByText("Add fixture"));
     fireEvent.click(await screen.findByRole("button", { name: "Save fixture" }));
     const toast = await screen.findByRole("status");
     expect(toast.className).toBe("toast");
     expect(toast.textContent).toMatch(/Couldn't save — your change was undone\. quota/);
-    await waitFor(() => expect(container.querySelectorAll(".sqrow")).toHaveLength(1));
+    await waitFor(() => expect(container.querySelectorAll(".mrow")).toHaveLength(1));
   });
 });
 
-describe("App — RSVP toggle (match modal)", () => {
-  it("marks a player 'in', updating the count and POSTing to /api/rsvp", async () => {
+describe("App — RSVP toggle (Who's in screen)", () => {
+  it("marks a player 'in', updating the count and POSTing to /api/rsvp; Match detail shows the new count", async () => {
     // RSVP succeeds so the optimistic update sticks (a failed POST reverts it).
     fetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await enterCoachMode(); // coach can mark anyone
 
-    // Open the match modal from the Home "Who's playing?" card.
+    // Home "Details" -> Match detail -> "See everyone's replies" -> Who's in.
     fireEvent.click(screen.getByText("Details"));
-    const inBtn = await screen.findByRole("button", { name: "In" });
-    fireEvent.click(inBtn);
+    expect(await screen.findByText("0 in · 0 out · 1 no reply")).toBeTruthy();
+    fireEvent.click(screen.getByText("See everyone's replies"));
+    await waitFor(() => expect(headerTitle()).toBe("Who's in"));
+    fireEvent.click(await screen.findByRole("button", { name: "In" }));
 
-    // Optimistic count update in the modal, and the RSVP POST.
+    // Optimistic count update on the screen, and the RSVP POST.
     expect(await screen.findByText("1 in")).toBeTruthy();
     await waitFor(() => {
       const call = fetch.mock.calls.find(c => String(c[0]).includes("/api/rsvp"));
       expect(call).toBeTruthy();
       expect(JSON.parse(call[1].body)).toMatchObject({ kind: "game", id: "f1", playerId: "p1", status: "in" });
     });
+    // The state lives on the fixture in data, so Match detail reads the same count.
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByText("1 in · 0 out · 0 no reply")).toBeTruthy();
+  });
+
+  it("a refused RSVP reverts the row", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Details"));
+    fireEvent.click(await screen.findByText("See everyone's replies"));
+    fireEvent.click(await screen.findByRole("button", { name: "Out" }));
+    expect(await screen.findByText("1 out")).toBeTruthy(); // optimistic
+    expect(await screen.findByText("0 out")).toBeTruthy(); // the default fetch stub answers ok:false
+    expect(screen.getByRole("button", { name: "Out" }).className).toBe("avbtn");
   });
 });
 
@@ -514,52 +533,53 @@ describe("App — Squadi-style results rows", () => {
 
   it("renders crests from the local registry (never Squadi's hotlink) and an initials disc for unknown clubs", async () => {
     storage.get.mockResolvedValue({ value: JSON.stringify(withFixtures([
-      { id: "f1", round: 1, status: "played", dateISO: "2026-05-02", time: "09:00", opponent: "Oxley United FC U8 Eagles", opponentLogo: "https://squadi.example/oxley.png", homeAway: "H", venue: "X", us: 2, them: 1, availability: {} },
-      { id: "f2", round: 2, status: "played", dateISO: "2026-05-09", time: "09:00", opponent: "Wests", opponentLogo: "https://squadi.example/wests.png", homeAway: "A", venue: "X", us: 1, them: 1, availability: {} }
+      { id: "f1", round: 1, status: "played", dateISO: daysFromNow(-14), time: "09:00", opponent: "Oxley United FC U8 Eagles", opponentLogo: "https://squadi.example/oxley.png", homeAway: "H", venue: "X", us: 2, them: 1, availability: {} },
+      { id: "f2", round: 2, status: "played", dateISO: daysFromNow(-7), time: "09:00", opponent: "Wests", opponentLogo: "https://squadi.example/wests.png", homeAway: "A", venue: "X", us: 1, them: 1, availability: {} }
     ])) });
     const { container } = render(<App />);
     await waitForLoaded();
     fireEvent.click(screen.getByText("Results"));
-    const srcs = [...container.querySelectorAll(".sqrow img.sqcrest")].map((i) => i.getAttribute("src"));
+    const srcs = [...container.querySelectorAll(".mrow img.mcrest")].map((i) => i.getAttribute("src"));
     expect(srcs).toContain("/crests/oxley-united.png");
     expect(srcs.filter((s) => s === "/crests/olympic-fc.png")).toHaveLength(2); // our side on both rows
     expect(srcs.some((s) => /^https?:/.test(s))).toBe(false);
     // Unknown club: initials disc, no image.
-    const rows = container.querySelectorAll(".sqrow");
-    expect(rows[1].querySelector(".sqcrest-ph").textContent).toBe("W");
+    const rows = container.querySelectorAll(".mrow");
+    expect(rows[1].querySelector(".mcrest.ph").textContent).toBe("W");
     expect(container.querySelector('img[src^="http"]')).toBeNull();
   });
 
   it("flips an away game (home team left) but colours the score by our result", async () => {
-    // Olympic away win 3–1 → rendered home-perspective as 1–3 with a WIN chip.
+    // Olympic away win 3–1 → rendered home-perspective as 1–3 in the win colour.
     storage.get.mockResolvedValue({ value: JSON.stringify(withFixtures([
-      { id: "f1", round: 4, status: "played", dateISO: "2026-05-02", time: "09:00", opponent: "Wests", homeAway: "A", venue: "X", us: 3, them: 1, availability: {} }
+      { id: "f1", round: 4, status: "played", dateISO: daysFromNow(-7), time: "09:00", opponent: "Wests", homeAway: "A", venue: "X", us: 3, them: 1, availability: {} }
     ])) });
     const { container } = render(<App />);
     await waitForLoaded();
     fireEvent.click(screen.getByText("Results"));
-    const row = container.querySelector(".sqrow");
-    expect(row.querySelector(".sqscore").className).toContain("win");
-    expect(row.querySelector(".sqscore").textContent).toBe("1–3");
-    // Away flip: opponent (home side) renders first, Olympic highlighted on the right.
-    const names = [...row.querySelectorAll(".sqname")].map((n) => n.textContent);
+    const row = container.querySelector(".mrow");
+    expect(row.querySelector(".mscore").className).toContain("win");
+    expect(row.querySelector(".mscore").textContent).toBe("1–3");
+    // Away flip: opponent (home side) renders first, Olympic ringed on the right.
+    const names = [...row.querySelectorAll(".mr-name")].map((n) => n.textContent);
     expect(names).toEqual(["Wests", "Test FC"]);
-    expect(row.querySelector(".sqteam.away").className).toContain("squs");
+    expect(row.querySelector(".mr-side.away").className).toContain("ours");
+    expect(row.querySelector(".mr-side:not(.away)").className).not.toContain("ours");
   });
 
-  it("renders the non-score states as chips (cancelled dims the row)", async () => {
+  it("renders the non-score states (cancelled dims the row; upcoming shows the kick-off)", async () => {
     storage.get.mockResolvedValue({ value: JSON.stringify(withFixtures([
-      { id: "c1", round: 1, status: "cancelled", dateISO: "2026-05-02", opponent: "A", homeAway: "H", us: null, them: null, availability: {} },
-      { id: "u1", round: 2, status: "upcoming", dateISO: "2099-05-02", opponent: "B", homeAway: "H", us: null, them: null, availability: {} },
-      { id: "n1", round: 3, status: "played", dateISO: "2020-01-01", opponent: "C", homeAway: "H", us: null, them: null, availability: {} }
+      { id: "c1", round: 1, status: "cancelled", dateISO: daysFromNow(-21), opponent: "A", homeAway: "H", us: null, them: null, availability: {} },
+      { id: "u1", round: 2, status: "upcoming", dateISO: daysFromNow(10), time: "09:00", opponent: "B", homeAway: "H", us: null, them: null, availability: {} },
+      { id: "n1", round: 3, status: "played", dateISO: daysFromNow(-60), opponent: "C", homeAway: "H", us: null, them: null, availability: {} }
     ])) });
     const { container } = render(<App />);
     await waitForLoaded();
     fireEvent.click(screen.getByText("Results"));
-    expect(screen.getByText("Canc")).toBeTruthy();
-    expect(screen.getByText("Upcoming")).toBeTruthy();
-    expect(screen.getByText("No score")).toBeTruthy();
-    expect(container.querySelector(".sqrow.canc")).toBeTruthy();
+    expect(screen.getByText("Canc").className).toBe("mstate");
+    expect(screen.getByText("09:00").className).toBe("mtime");
+    expect(screen.getByText("No score").className).toBe("mstate none");
+    expect(container.querySelector(".mrow.canc")).toBeTruthy();
   });
 });
 
@@ -604,7 +624,7 @@ const stubNarrowRoutes = () => {
 const callTo = (path) => fetch.mock.calls.find((c) => String(c[0]).includes(path));
 const bodyOf = (path) => JSON.parse(callTo(path)[1].body);
 
-describe("Match day hub card", () => {
+describe("Match day card (D2)", () => {
   const players = [
     { id: "p1", name: "Seyjan Lee", number: 7, position: "FWD" },
     { id: "p2", name: "Milo Park", number: 8, position: "MID" }
@@ -619,149 +639,140 @@ describe("Match day hub card", () => {
   const fullBlock = { r0c0: "p1", r0c1: "p2", r1c0: "p3", r1c1: "p4" };
   const fixture = (over = {}) => ({ id: "f1", round: 3, status: "upcoming", dateISO: daysFromNow(5), time: "09:00", opponent: "Wests", homeAway: "H", venue: "X", availability: {}, ...over });
 
-  // Coach mode -> Results tab -> tap the fixture row -> hub card in the sheet.
-  const openHub = async (container) => {
+  // Coach mode -> Results tab -> tap the fixture row -> Match day card on Match detail.
+  const openCard = async (container) => {
     await enterCoachMode();
     fireEvent.click(screen.getByText("Results"));
-    fireEvent.click(container.querySelector(".sqrow"));
-    await screen.findByText("Match day");
+    fireEvent.click(container.querySelector(".mrow"));
+    return screen.findByRole("button", { name: "Match day" });
   };
-  // The four .stg cells in order: Availability, Plan, Live, Record.
-  const stage = (i) => document.querySelectorAll(".stg")[i];
+  const val = (card) => card.querySelector(".dc-val").textContent;
+  const meta = (card) => card.querySelector(".dc-meta").textContent;
 
-  it("nobody replied: Availability is 'now' with counts and the no-reply line names both kids", async () => {
+  it("nobody replied: 'Plan not started' and the no-reply line names both kids; no stage strip, no coach-only pill", async () => {
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture()] })) });
     const { container } = render(<App />);
-    await openHub(container);
-    expect(stage(0).className).toContain("now");
-    expect(stage(0).textContent).toContain("0 in · 0 out · 2 no reply");
-    expect(screen.getByText("Seyjan and Milo haven't replied. They're counted in until you mark them out.")).toBeTruthy();
-    // Plan not started, Live/Record still to come, coach-only pill and primary button.
-    expect(stage(1).className).not.toMatch(/now|done/);
-    expect(screen.getByText("Not started")).toBeTruthy();
-    expect(screen.getByText("Kick-off 09:00")).toBeTruthy();
-    expect(screen.getByText("After full time")).toBeTruthy();
-    expect(screen.getByText("Coach only")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open the plan" })).toBeTruthy();
+    const card = await openCard(container);
+    expect(card.className).toBe("card dutycard");
+    expect(card.querySelector(".dc-ic.gk")).toBeTruthy();
+    expect(card.querySelector(".dc-label").textContent).toBe("Match day");
+    expect(val(card)).toBe("Plan not started");
+    expect(meta(card)).toBe("Seyjan and Milo haven't replied. They're counted in until you mark them out.");
+    expect(screen.queryByText("Coach only")).toBeNull();
+    expect(screen.queryByText("Kick-off 09:00")).toBeNull();
+    expect(document.querySelector(".stages")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Open the plan|Kick off/ })).toBeNull();
   });
 
-  it("one reply outstanding: '1 in · 0 out · 1 no reply' and a singular no-reply line", async () => {
+  it("tapping the card opens the planner takeover", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture()] })) });
+    const { container } = render(<App />);
+    fireEvent.click(await openCard(container));
+    expect(await screen.findByRole("button", { name: "Close" })).toBeTruthy();
+    expect(document.querySelector(".mdp")).toBeTruthy();
+  });
+
+  it("one reply outstanding: a singular no-reply line", async () => {
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture({ availability: { p1: { status: "in", by: "Coach", at: 1 } } })] })) });
     const { container } = render(<App />);
-    await openHub(container);
-    expect(stage(0).className).toContain("now");
-    expect(stage(0).textContent).toContain("1 in · 0 out · 1 no reply");
-    expect(screen.getByText("Milo hasn't replied. They're counted in until you mark them out.")).toBeTruthy();
+    const card = await openCard(container);
+    expect(meta(card)).toBe("Milo hasn't replied. They're counted in until you mark them out.");
   });
 
-  it("everyone replied: Availability is done with in/out counts and no no-reply line", async () => {
+  it("everyone replied: the meta line is the in/out tally", async () => {
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture({ availability: { p1: { status: "in", by: "Coach", at: 1 }, p2: { status: "out", reason: "Sick", by: "Coach", at: 1 } } })] })) });
     const { container } = render(<App />);
-    await openHub(container);
-    expect(stage(0).className).toContain("done");
-    expect(stage(0).textContent).toContain("1 in · 1 out");
+    const card = await openCard(container);
+    expect(meta(card)).toBe("1 in · 1 out");
     expect(screen.queryByText(/replied\. They're counted in/)).toBeNull();
   });
 
-  it("a no-reply player the coach marked OUT in the planner is counted out: no dot, no no-reply line", async () => {
+  it("a no-reply player the coach marked OUT in the planner is counted out", async () => {
     const f = fixture({
       availability: { p1: { status: "in", by: "Coach", at: 1 } }, // Milo: no reply
       plan: { subTimes: [], assignments: [], overrides: { p2: "out" }, updatedAt: 1 }
     });
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [f] })) });
     const { container } = render(<App />);
-    await openHub(container);
-    expect(stage(0).className).toContain("done");
-    expect(stage(0).textContent).toContain("1 in · 1 out");
-    expect(stage(0).textContent).not.toContain("no reply");
-    expect(screen.queryByText(/replied\. They're counted in/)).toBeNull();
-    expect(document.querySelectorAll(".rdot")).toHaveLength(0);
+    const card = await openCard(container);
+    expect(meta(card)).toBe("1 in · 1 out");
   });
 
-  it("a no-reply player the coach marked IN in the planner is counted in: no dot, no no-reply line", async () => {
+  it("a no-reply player the coach marked IN in the planner is counted in", async () => {
     const f = fixture({
       availability: { p1: { status: "in", by: "Coach", at: 1 } }, // Milo: no reply
       plan: { subTimes: [], assignments: [], overrides: { p2: "in" }, updatedAt: 1 }
     });
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [f] })) });
     const { container } = render(<App />);
-    await openHub(container);
-    expect(stage(0).className).toContain("done");
-    expect(stage(0).textContent).toContain("2 in · 0 out");
-    expect(screen.queryByText(/replied\. They're counted in/)).toBeNull();
-    expect(document.querySelectorAll(".rdot")).toHaveLength(0);
+    const card = await openCard(container);
+    expect(meta(card)).toBe("2 in · 0 out");
   });
 
-  it("an override on one player leaves the other no-reply player dotted and named", async () => {
+  it("an override on one player leaves the other no-reply player named", async () => {
     const f = fixture({ plan: { subTimes: [], assignments: [], overrides: { p1: "in" }, updatedAt: 1 } }); // nobody RSVP'd
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [f] })) });
     const { container } = render(<App />);
-    await openHub(container);
-    expect(stage(0).className).toContain("now");
-    expect(stage(0).textContent).toContain("1 in · 0 out · 1 no reply");
-    expect(screen.getByText("Milo hasn't replied. They're counted in until you mark them out.")).toBeTruthy();
-    expect(document.querySelectorAll(".rdot")).toHaveLength(1);
+    const card = await openCard(container);
+    expect(meta(card)).toBe("Milo hasn't replied. They're counted in until you mark them out.");
   });
 
-  it("half-filled plan: Plan is 'now' with 'Gaps to fill'", async () => {
+  it("half-filled plan: 'Gaps to fill'", async () => {
     const data = makeData({ players: four, fixtures: [fixture({ plan: { subTimes: [], assignments: [{ r0c0: "p1" }, {}], updatedAt: 1 } })] });
     data.team.matchFormat = u7;
     storage.get.mockResolvedValue({ value: JSON.stringify(data) });
     const { container } = render(<App />);
-    await openHub(container);
-    expect(stage(1).className).toContain("now");
-    expect(screen.getByText("Gaps to fill")).toBeTruthy();
+    expect(val(await openCard(container))).toBe("Gaps to fill");
   });
 
-  it("complete plan: Plan is done with the block count", async () => {
+  it("complete plan: 'Lineup set' with the block count", async () => {
     // 4v4, no keeper, 2 halves and no extra subs -> 2 blocks, 4 spots each.
     const data = makeData({ players: four, fixtures: [fixture({ plan: { subTimes: [], assignments: [fullBlock, fullBlock], updatedAt: 1 } })] });
     data.team.matchFormat = u7;
     storage.get.mockResolvedValue({ value: JSON.stringify(data) });
     const { container } = render(<App />);
-    await openHub(container);
-    expect(stage(1).className).toContain("done");
-    expect(screen.getByText("Lineup set · 2 blocks")).toBeTruthy();
+    expect(val(await openCard(container))).toBe("Lineup set · 2 blocks");
   });
 
-  it("game day: Live is 'now' and the primary button reads 'Kick off'", async () => {
-    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture({ dateISO: isoLocal(new Date()) })] })) });
+  it("game day with a saved record: 'Record saved'", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture({ dateISO: isoLocal(new Date()), record: { savedAt: 1, savedBy: "Coach", minutes: [{ pid: "p1", min: 30 }] } })] })) });
     const { container } = render(<App />);
-    await openHub(container);
-    expect(stage(2).className).toContain("now");
-    expect(screen.getByRole("button", { name: "Kick off" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open the plan" })).toBeNull();
+    expect(val(await openCard(container))).toBe("Record saved");
   });
 
-  it("record present: Record (and Live) are done and read 'Saved'", async () => {
-    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture({ status: "played", dateISO: "2026-05-02", us: 2, them: 1, record: { savedAt: 1, savedBy: "Coach", minutes: [{ pid: "p1", min: 30 }] } })] })) });
+  it("a played game has no Match day card, even for the coach", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture({ status: "played", dateISO: daysFromNow(-7), us: 2, them: 1 })] })) });
     const { container } = render(<App />);
-    await openHub(container);
-    expect(stage(3).className).toContain("done");
-    expect(stage(2).className).toContain("done");
-    expect(screen.getByText("Saved")).toBeTruthy();
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Results"));
+    fireEvent.click(container.querySelector(".mrow"));
+    await waitFor(() => expect(headerTitle()).toBe("Round 3"));
+    expect(screen.queryByRole("button", { name: "Match day" })).toBeNull();
   });
 
-  it("parents see no hub, but do get the live-lineup button once a plan exists", async () => {
+  it("parents never see the Match day card, but get the Live lineup link once a plan exists", async () => {
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture({ plan: { subTimes: [], assignments: [{ r0c0: "p1" }, {}], updatedAt: 1 } })] })) });
     const { container } = render(<App />);
     await waitForLoaded(); // stay in view mode
     fireEvent.click(screen.getByText("Results"));
-    fireEvent.click(container.querySelector(".sqrow"));
-    expect(await screen.findByText("Match day — live lineup")).toBeTruthy();
+    fireEvent.click(container.querySelector(".mrow"));
+    const link = await screen.findByText("Live lineup");
+    expect(link.closest(".linkcard")).toBeTruthy();
+    expect(screen.getByText("See who's on and when")).toBeTruthy();
     expect(screen.queryByText("Match day")).toBeNull();
     expect(screen.queryByText("Coach only")).toBeNull();
-    expect(document.querySelector(".stages")).toBeNull();
+    fireEvent.click(link);
+    expect(await screen.findByRole("button", { name: "Close" })).toBeTruthy(); // the read-only planner view
   });
 
-  it("parents get no button at all when there is no plan yet", async () => {
+  it("parents get no link at all when there is no plan yet", async () => {
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players, fixtures: [fixture()] })) });
     const { container } = render(<App />);
     await waitForLoaded();
     fireEvent.click(screen.getByText("Results"));
-    fireEvent.click(container.querySelector(".sqrow"));
-    await screen.findByText("Who's playing? Tap your player");
-    expect(screen.queryByText("Match day — live lineup")).toBeNull();
+    fireEvent.click(container.querySelector(".mrow"));
+    await waitFor(() => expect(headerTitle()).toBe("Round 3"));
+    expect(screen.queryByText("Live lineup")).toBeNull();
     expect(screen.queryByText("Match day")).toBeNull();
   });
 });
@@ -1233,10 +1244,13 @@ describe("S1 shell — header, nav, back stack, toast", () => {
   it("every sheet gets the grabber; the old X close still works", async () => {
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
-    await waitForLoaded();
-    fireEvent.click(screen.getByText("Details"));
-    await screen.findByText("Who's playing? Tap your player");
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Results"));
+    fireEvent.click(await screen.findByText("Add fixture"));
+    await screen.findByRole("button", { name: "Save fixture" });
     expect(document.querySelector(".sheet > .grab")).toBeTruthy();
+    fireEvent.click(document.querySelector(".sheet .xbtn"));
+    await waitFor(() => expect(document.querySelector(".sheet")).toBeNull());
   });
 });
 
@@ -1279,7 +1293,7 @@ describe("S2 Home — Direction C cards", () => {
     expect(document.querySelector(".mu-date").textContent).toBe(`${DOW[d.getDay()]} ${d.getDate()} ${d.toLocaleDateString("en-AU", { month: "long" })}`);
     expect(screen.getByText("Perry Park")).toBeTruthy();
     fireEvent.click(screen.getByText("Details"));
-    await screen.findByText("Who's playing? Tap your player");
+    await waitFor(() => expect(headerTitle()).toBe("Round 7"));
   });
 
   it("an opponent in the crest registry gets its crest on the right, without the ring", async () => {
@@ -1354,7 +1368,7 @@ describe("S2 Home — Direction C cards", () => {
     expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
     expect(screen.getByText("1 in · 1 to reply", { selector: ".wk-pill" })).toBeTruthy();
     fireEvent.click(screen.getByText("Who's in ›"));
-    await screen.findByText("Who's playing? Tap your player");
+    await waitFor(() => expect(headerTitle()).toBe("Round 7"));
   });
 
   it("a view-only account gets the counts only — no Reply, no Who's in", async () => {
@@ -1460,5 +1474,296 @@ describe("S2 Home — Direction C cards", () => {
     expect(screen.getByText("Season so far")).toBeTruthy();
     fireEvent.click(screen.getByText("Duties ›"));
     expect(await screen.findByText("Roster")).toBeTruthy();
+  });
+});
+
+describe("S3 Results + Match detail", () => {
+  const meFetch = (me, rsvpOk = true) => {
+    fetch.mockImplementation((url) => {
+      if (String(url).includes("/api/me")) return Promise.resolve({ ok: true, json: async () => me });
+      if (String(url).includes("/api/rsvp")) return Promise.resolve({ ok: rsvpOk, json: async () => ({ ok: rsvpOk }) });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+  };
+  const parentOf = (playerIds, playerNames) => {
+    const hat = { role: "parent", playerIds, playerNames };
+    return { mode: "account", email: "x@a.com", admin: false, clubAdmin: false, teamSlug: "a", teamName: "Test FC", role: "parent", playerIds, playerNames, hats: [hat], teams: [{ teamSlug: "a", teamName: "Test FC", hats: [hat] }], canSwitch: false, memberships: [] };
+  };
+  const kids = [
+    { id: "p1", name: "Sam Smith", number: 7, position: "FWD" },
+    { id: "p2", name: "Alex Smith", number: 8, position: "MID" },
+    { id: "p3", name: "Milo Park", number: 9, position: "DEF" }
+  ];
+  const played = (over = {}) => ({ id: "r5", round: 5, status: "played", dateISO: daysFromNow(-14), time: "09:00", opponent: "Rovers", homeAway: "H", venue: "Perry Park", us: 3, them: 1, availability: {}, ...over });
+  const game = (over = {}) => ({ id: "f7", round: 7, status: "upcoming", dateISO: daysFromNow(6), time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park", availability: {}, ...over });
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); render(<App />); return waitForLoaded(); };
+  const toResults = () => fireEvent.click(within(screen.getByRole("navigation")).getByText("Results"));
+  const rows = () => [...document.querySelectorAll(".mrow")];
+  const card = (label) => screen.getByText(label, { selector: ".label" }).closest(".card");
+  const fmt = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
+  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  it("season so far: last-5 form pips and the W–D–L line, with the All stats link", async () => {
+    await load(makeData({ fixtures: [game(), played(), played({ id: "r6", round: 6, dateISO: daysFromNow(-7), us: 1, them: 1 }), played({ id: "r4", round: 4, dateISO: daysFromNow(-21), us: 0, them: 2 })] }));
+    toResults();
+    const season = card("Season so far");
+    expect(season.className).toBe("card season-mini");
+    expect([...season.querySelectorAll(".pip")].map((p) => p.textContent + ":" + p.className)).toEqual(["L:pip lg L", "W:pip lg W", "D:pip lg D"]);
+    expect(season.querySelector(".wdl .v").textContent).toBe("1–1–1");
+    expect(season.querySelector(".wdl .k").textContent).toBe("W · D · L");
+    expect(within(season).getByText("All stats ›").className).toBe("ghostlink"); // the push itself is covered by the S1 shell tests
+  });
+
+  it("no played games: no pips and 0–0–0; empty Results and Fixtures cards say so", async () => {
+    await load(makeData({ fixtures: [] }));
+    toResults();
+    expect(document.querySelector(".pip")).toBeNull();
+    expect(document.querySelector(".wdl .v").textContent).toBe("0–0–0");
+    expect(within(card("Results")).getByText("No results yet.")).toBeTruthy();
+    expect(within(card("Fixtures")).getByText("No fixtures yet.")).toBeTruthy();
+  });
+
+  it("splits past games into Results and upcoming into Fixtures, each ascending by round; a cancelled game follows its date", async () => {
+    await load(makeData({ fixtures: [
+      game({ id: "f9", round: 9, dateISO: daysFromNow(20) }),
+      played({ id: "r6", round: 6, dateISO: daysFromNow(-7), us: 1, them: 2 }),
+      game(),
+      played(),
+      { id: "c8", round: 8, status: "cancelled", dateISO: daysFromNow(13), opponent: "Lions", homeAway: "A", availability: {} },
+      { id: "c3", round: 3, status: "cancelled", dateISO: daysFromNow(-28), opponent: "United", homeAway: "H", availability: {} }
+    ] }));
+    toResults();
+    const roundsIn = (label) => [...card(label).querySelectorAll(".mr-round .r")].map((r) => r.textContent);
+    expect(roundsIn("Results")).toEqual(["3", "5", "6"]);
+    expect(roundsIn("Fixtures")).toEqual(["7", "8", "9"]);
+    // Score colouring by our result, the date in the round column, and cancelled rows dimmed.
+    const results = card("Results");
+    expect(within(results).getByText("3–1").className).toBe("mscore win");
+    expect(within(results).getByText("1–2").className).toBe("mscore loss");
+    expect(results.querySelectorAll(".mrow.canc")).toHaveLength(1);
+    expect(card("Fixtures").querySelectorAll(".mrow.canc")).toHaveLength(1);
+    const d = new Date(daysFromNow(-14) + "T00:00:00");
+    expect(within(results).getByText(`${d.getDate()} ${d.toLocaleDateString("en-AU", { month: "short" })}`)).toBeTruthy();
+  });
+
+  it("a draw is grey; the away side flips with the ring on our side", async () => {
+    await load(makeData({ fixtures: [played({ homeAway: "A", us: 2, them: 2 })] }));
+    toResults();
+    const row = rows()[0];
+    expect(row.querySelector(".mscore").className).toBe("mscore draw");
+    expect([...row.querySelectorAll(".mr-name")].map((n) => n.textContent)).toEqual(["Rovers", "Test FC"]);
+    expect(row.querySelector(".mr-side.away.ours img.mcrest.ours").getAttribute("src")).toBe("/crests/olympic-fc.png");
+  });
+
+  it("the MiniRoos footnote shows at U6–U9 only", async () => {
+    const data = makeData({ fixtures: [game()] });
+    await load(data);
+    toResults();
+    expect(screen.getByText("MiniRoos doesn't publish ladders at U8 — results only help grade the leagues. These are just our own numbers.").className).toBe("footnote res-foot");
+    cleanup();
+    const older = makeData({ fixtures: [game()] });
+    older.team.ageGroup = "U12";
+    await load(older);
+    toResults();
+    expect(screen.queryByText(/MiniRoos doesn't publish ladders/)).toBeNull();
+  });
+
+  it("tapping a row pushes Match detail (Round title, opponent + date kicker); Back returns to Results", async () => {
+    await load(makeData({ fixtures: [game()] }));
+    toResults();
+    fireEvent.click(rows()[0]);
+    await waitFor(() => expect(headerTitle()).toBe("Round 7"));
+    expect(headerKicker()).toBe(`vs Wests · ${fmt(daysFromNow(6))}`);
+    expect(document.querySelector(".nav button.active").textContent).toBe("Results");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Test FC"));
+    expect(rows()).toHaveLength(1);
+  });
+
+  it("hero, played: red label, score in the win colour with 'Win', Directions link, no kit or arrive pills, focus reads 'Focus that week'", async () => {
+    await load(makeData({ fixtures: [played({ strip: "Red", focusTitle: "Passing", focusQuestion: "Can you pass safely", focusPoints: "Look before you pass\nPlay to a teammate" })] }));
+    toResults();
+    fireEvent.click(rows()[0]);
+    await waitFor(() => expect(headerTitle()).toBe("Round 5"));
+    expect(document.querySelector(".mh-label").textContent).toBe(`Round 5 · Home · ${fmt(daysFromNow(-14))}`);
+    expect(document.querySelector(".mu-big").textContent).toBe("3–1");
+    expect(document.querySelector(".mu-big").className).toBe("mu-big win");
+    expect(document.querySelector(".mu-sub").textContent).toBe("Win");
+    expect(document.querySelector(".mu-crest.ours")).toBeTruthy();
+    expect(document.querySelector(".mu-disc").textContent).toBe("R");
+    const dir = screen.getByRole("link", { name: "Directions" });
+    expect(dir.getAttribute("href")).toBe("https://www.google.com/maps/search/?api=1&query=Perry%20Park");
+    expect(dir.getAttribute("target")).toBe("_blank");
+    expect(document.querySelector(".mpills")).toBeNull();
+    expect(screen.queryByText("Edit")).toBeNull(); // parent view
+    expect(screen.queryByText("Who's in")).toBeNull(); // played
+    expect(screen.getByText("Focus that week")).toBeTruthy();
+    expect(screen.getByText("Passing").className).toBe("fc-title");
+    expect(screen.getByText("Can you pass safely").className).toBe("fc-q");
+    expect(document.querySelectorAll(".fc-pt")).toHaveLength(2);
+    expect(screen.getByText(/One thing for the kids to think about on .* — Coach Byron/)).toBeTruthy();
+  });
+
+  it("hero, upcoming: kick-off in red with the date under it, kit and Arrive pills, the duties card and 'This week's focus'", async () => {
+    await load(makeData({ players: kids, fixtures: [game({ strip: "Blue", fruit: "p2", focusTitle: "Dribbling" })] }));
+    toResults();
+    fireEvent.click(rows()[0]);
+    await waitFor(() => expect(headerTitle()).toBe("Round 7"));
+    expect(document.querySelector(".mu-big").textContent).toBe("09:00");
+    expect(document.querySelector(".mu-big").className).toBe("mu-big");
+    const d = new Date(daysFromNow(6) + "T00:00:00");
+    expect(document.querySelector(".mu-sub").textContent).toBe(`${DOW[d.getDay()]} ${d.getDate()} ${d.toLocaleDateString("en-AU", { month: "long" })}`);
+    expect(document.querySelector(".mu-sub").className).toBe("mu-sub up");
+    expect(screen.getByText("Blue kit").className).toBe("mpill kit");
+    expect(screen.getByText("Arrive 08:30").className).toBe("mpill");
+    const duties = screen.getByRole("button", { name: "Duties" });
+    expect(within(duties).getByText("Alex Smith")).toBeTruthy();
+    expect(within(duties).getByText("Not assigned yet")).toBeTruthy();
+    expect(screen.getByText("This week's focus")).toBeTruthy();
+    fireEvent.click(duties);
+    expect(await screen.findByText("Roster")).toBeTruthy();
+  });
+
+  it("cancelled hero reads 'Cancelled' / 'Called off' in red, with no Who's in, duties or Match day card", async () => {
+    await load(makeData({ players: kids, fixtures: [
+      { id: "c1", round: 1, status: "cancelled", dateISO: daysFromNow(6), time: "09:00", opponent: "A", homeAway: "H", fruit: "p1", availability: {} }
+    ] }));
+    await enterCoachMode();
+    toResults();
+    fireEvent.click(rows()[0]);
+    await waitFor(() => expect(headerTitle()).toBe("Round 1"));
+    expect(document.querySelector(".mu-big").textContent).toBe("Cancelled");
+    expect(document.querySelector(".mu-big").className).toBe("mu-big loss");
+    expect(document.querySelector(".mu-sub").textContent).toBe("Called off");
+    expect(screen.queryByText("Who's in")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Duties" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Match day" })).toBeNull();
+    expect(document.querySelector(".mpills")).toBeNull();
+  });
+
+  it("no-score hero reads '–' / 'No score'", async () => {
+    await load(makeData({ fixtures: [{ id: "n2", round: 2, status: "played", dateISO: daysFromNow(-20), time: "09:00", opponent: "B", homeAway: "H", us: null, them: null, availability: {} }] }));
+    toResults();
+    fireEvent.click(rows()[0]);
+    await waitFor(() => expect(headerTitle()).toBe("Round 2"));
+    expect(document.querySelector(".mu-big").textContent).toBe("–");
+    expect(document.querySelector(".mu-big").className).toBe("mu-big none");
+    expect(document.querySelector(".mu-sub").textContent).toBe("No score");
+  });
+
+  it("goals: one row per scorer with the goal count; tapping opens the player sheet; no scorers gets the quiet card", async () => {
+    await load(makeData({ players: kids, fixtures: [played({ goals: [{ pid: "p1", n: 2 }, { pid: "p3", n: 1 }] })] }));
+    toResults();
+    fireEvent.click(rows()[0]);
+    const goals = (await screen.findByText("Goals", { selector: ".label" })).closest(".card");
+    const gr = goals.querySelectorAll(".goalrow");
+    expect(gr).toHaveLength(2);
+    expect(gr[0].querySelector(".gr-disc").textContent).toBe("SS");
+    expect(gr[0].querySelector(".gr-name").textContent).toBe("Sam Smith");
+    expect(gr[0].querySelector(".gr-n").textContent).toBe("2 goals");
+    expect(gr[1].querySelector(".gr-n").textContent).toBe("1 goal");
+    expect(screen.queryByText("No scorers recorded for this one.")).toBeNull();
+    fireEvent.click(gr[0]);
+    expect(await screen.findByText("Sam Smith", { selector: ".sheet h2" })).toBeTruthy();
+    cleanup();
+    await load(makeData({ players: kids, fixtures: [played({ goals: [] })] }));
+    toResults();
+    fireEvent.click(rows()[0]);
+    expect((await screen.findByText("No scorers recorded for this one.")).className).toBe("card quiet");
+  });
+
+  it("who's in: counts line, a parent's reply row opens the reply sheet and the In lands on the row; See everyone's replies pushes Who's in", async () => {
+    meFetch(parentOf(["p1"], ["Sam Smith"]));
+    await load(makeData({ players: kids, fixtures: [game({ availability: { p2: { status: "in" }, p3: { status: "out", reason: "Sick" } } })] }));
+    toResults();
+    fireEvent.click(rows()[0]);
+    const who = (await screen.findByText("Who's in", { selector: ".label" })).closest(".card");
+    expect(who.querySelector(".wi-count").textContent).toBe("1 in · 1 out · 1 no reply");
+    expect(within(who).getByText("Sam S.")).toBeTruthy();
+    expect(within(who).queryByText("Alex S.")).toBeNull();
+    expect(screen.queryByText("Sign in to respond")).toBeNull();
+    fireEvent.click(within(who).getByRole("button", { name: "Reply" }));
+    expect(await screen.findByText("Reply for Sam", { selector: ".rs-title" })).toBeTruthy();
+    fireEvent.click(within(document.querySelector(".sheet")).getByRole("button", { name: "In" }));
+    await waitFor(() => expect(within(who).getByRole("button", { name: "In" }).className).toBe("rr-btn in"));
+    expect(who.querySelector(".wi-count").textContent).toBe("2 in · 1 out · 0 no reply");
+    fireEvent.click(within(who).getByText("See everyone's replies"));
+    await waitFor(() => expect(headerTitle()).toBe("Who's in"));
+    expect(headerKicker()).toBe(`Round 7 vs Wests · ${fmt(daysFromNow(6))} 09:00`);
+    // Only Sam's row is editable here; the others are pills.
+    expect(screen.getAllByRole("button", { name: "In" })).toHaveLength(1);
+    expect(screen.getByText(/Milo Park/).closest(".avrow").querySelector(".avpill").textContent).toBe("Sick");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Round 7"));
+  });
+
+  it("a legacy guest gets 'Sign in to respond' on Match detail, which opens the who's-responding sheet", async () => {
+    await load(makeData({ players: kids, fixtures: [game()] }));
+    toResults();
+    fireEvent.click(rows()[0]);
+    fireEvent.click(await screen.findByText("Sign in to respond"));
+    expect(await screen.findByText("Who's responding?")).toBeTruthy();
+  });
+
+  it("coach: Edit opens the fixture editor; Delete fixture removes it and pops back to Results", async () => {
+    await load(makeData({ fixtures: [game(), played()] }));
+    await enterCoachMode();
+    toResults();
+    expect(rows()).toHaveLength(2);
+    fireEvent.click(rows()[1]); // the upcoming game, in the Fixtures card
+    await waitFor(() => expect(headerTitle()).toBe("Round 7"));
+    expect(document.querySelector(".mh-edit").textContent).toBe("Edit");
+    expect(screen.getByText("No match video linked yet. Add one with Edit.").className).toBe("card quiet");
+    fireEvent.click(screen.getByText("Edit"));
+    expect(await screen.findByText("Edit fixture")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete fixture" }));
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    const saved = JSON.parse(storage.set.mock.calls.at(-1)[1]);
+    expect(saved.fixtures.map((f) => f.id)).toEqual(["r5"]);
+    expect(saved.isSample).toBe(false);
+    await waitFor(() => expect(headerTitle()).toBe("Test FC")); // the match screen popped itself
+    expect(document.querySelector(".sheet")).toBeNull();
+    expect(rows()).toHaveLength(1);
+    expect(within(card("Fixtures")).getByText("No fixtures yet.")).toBeTruthy();
+  });
+
+  it("a Veo link is a link card that opens in a new tab; YouTube embeds inside a Match video card with chapter chips", async () => {
+    await load(makeData({ fixtures: [played({ video: "https://app.veo.co/matches/abc" })] }));
+    toResults();
+    fireEvent.click(rows()[0]);
+    const link = (await screen.findByText("Match video")).closest("a");
+    expect(link.className).toBe("card linkcard");
+    expect(link.getAttribute("href")).toBe("https://app.veo.co/matches/abc");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(within(link).getByText("Watch on Veo")).toBeTruthy();
+    expect(document.querySelector(".vidwrap")).toBeNull();
+    cleanup();
+    await load(makeData({ fixtures: [played({ video: "https://youtu.be/dQw4w9WgXcQ", chapters: [{ label: "Kick-off", t: 0 }, { label: "2nd half", t: 1500 }] })] }));
+    toResults();
+    fireEvent.click(rows()[0]);
+    const vid = (await screen.findByText("Match video", { selector: ".label" })).closest(".card");
+    expect(vid.querySelector(".vidwrap iframe").getAttribute("src")).toContain("youtube.com/embed/dQw4w9WgXcQ");
+    fireEvent.click(within(vid).getByText("2nd half"));
+    await waitFor(() => expect(vid.querySelector("iframe").getAttribute("src")).toContain("start=1500"));
+    expect(screen.queryByText(/No match video linked yet/)).toBeNull(); // parent, and there is a video
+  });
+
+  it("parents see nothing for a missing video; the schedule-changed card is a plain card with a coach Dismiss", async () => {
+    const f = game({ schedChanges: [{ field: "Time", oldText: "09:00", newText: "10:30", at: Date.now() }] });
+    await load(makeData({ fixtures: [f] }));
+    toResults();
+    fireEvent.click(rows()[0]);
+    const chg = (await screen.findByText("Schedule changed")).closest(".card");
+    expect(within(chg).getByText("10:30").className).toBe("chg-new");
+    expect(screen.queryByText(/No match video linked yet/)).toBeNull();
+    expect(screen.queryByText("Dismiss")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/⚠/);
+  });
+
+  it("the Match detail header falls back to 'Match' without a round, and Calendar day rows push the same screen", async () => {
+    await load(makeData({ fixtures: [game({ round: undefined })] }));
+    fireEvent.click(screen.getByText("Details"));
+    await waitFor(() => expect(headerTitle()).toBe("Match"));
+    expect(document.querySelector(".mh-label").textContent).toBe(`Home · ${fmt(daysFromNow(6))}`);
   });
 });
