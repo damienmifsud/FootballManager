@@ -373,14 +373,16 @@ describe("App — account-mode roles (/api/me)", () => {
     expect(screen.queryByText("Team settings")).toBeNull(); // parent hat: not coach mode
     closeSheet();
     await openMatch();
-    expect(screen.getAllByRole("button", { name: "In" })).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "Out" })).toHaveLength(2);
-    // Milo's row is read-only (a pill, not buttons) and no legacy sign-in button appears.
-    const milo = screen.getByText(/Milo Park/).closest(".avrow");
-    expect(milo.querySelector(".avbtn")).toBeNull();
-    expect(milo.querySelector(".avpill")).toBeTruthy();
-    expect(screen.queryByText("Sign in to mark your child")).toBeNull();
-    expect(screen.getByText(/You're marking Sam & Alex\./)).toBeTruthy();
+    // Their two children get the tinted row and a Reply pill (the sheet, D1 1a); no inline In / Out.
+    expect(screen.getAllByRole("button", { name: "Reply" })).toHaveLength(2);
+    expect(document.querySelectorAll(".av-row.mine")).toHaveLength(2);
+    expect(document.querySelector(".av-seg")).toBeNull();
+    // Milo's row is read-only (a status pill, not a button) and no legacy sign-in button appears.
+    const milo = screen.getByText("Milo Park").closest(".av-row");
+    expect(milo.querySelector("button")).toBeNull();
+    expect(milo.querySelector(".st-pill").textContent).toBe("No reply");
+    expect(screen.queryByText("Sign in to respond")).toBeNull();
+    expect(screen.getByText("You can reply for Sam & Alex. Coaches can reply for anyone.")).toBeTruthy();
   });
 
   it("a view-only club admin gets no In/Out buttons and no sign-in button in the match sheet", async () => {
@@ -391,8 +393,10 @@ describe("App — account-mode roles (/api/me)", () => {
     await openMatch();
     expect(screen.queryByRole("button", { name: "In" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Out" })).toBeNull();
-    expect(screen.queryByText("Sign in to mark your child")).toBeNull();
-    expect(screen.getByText("Club admins can see replies but can't respond.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+    expect(screen.queryByText("Sign in to respond")).toBeNull();
+    expect(document.querySelectorAll(".st-pill")).toHaveLength(3);
+    expect(screen.getByText("Only coaches and families can reply.")).toBeTruthy();
   });
 
   it("until /api/me has answered the chip reads Parent and the sheet offers neither coach mode nor sign-in", async () => {
@@ -463,7 +467,10 @@ describe("App — failed saves are undone", () => {
 });
 
 describe("App — RSVP toggle (Who's in screen)", () => {
-  it("marks a player 'in', updating the count and POSTing to /api/rsvp; Match detail shows the new count", async () => {
+  // The three count tiles' numbers: [in, out, no reply].
+  const tiles = () => [...document.querySelectorAll(".wi-tile .v")].map((e) => e.textContent);
+
+  it("marks a player 'in' from the coach's inline control, updating the tiles and POSTing to /api/rsvp; Match detail shows the new count", async () => {
     // RSVP succeeds so the optimistic update sticks (a failed POST reverts it).
     fetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
@@ -475,10 +482,14 @@ describe("App — RSVP toggle (Who's in screen)", () => {
     expect(await screen.findByText("0 in · 0 out · 1 no reply")).toBeTruthy();
     fireEvent.click(screen.getByText("See everyone's replies"));
     await waitFor(() => expect(headerTitle()).toBe("Who's in"));
-    fireEvent.click(await screen.findByRole("button", { name: "In" }));
+    expect(tiles()).toEqual(["0", "0", "1"]);
+    const inBtn = await screen.findByRole("button", { name: "In" });
+    expect(inBtn.className).toBe("in");
+    fireEvent.click(inBtn);
 
-    // Optimistic count update on the screen, and the RSVP POST.
-    expect(await screen.findByText("1 in")).toBeTruthy();
+    // Optimistic update on the screen (selected class, tiles), and the RSVP POST.
+    expect(screen.getByRole("button", { name: "In" }).className).toBe("in on");
+    expect(tiles()).toEqual(["1", "0", "0"]);
     await waitFor(() => {
       const call = fetch.mock.calls.find(c => String(c[0]).includes("/api/rsvp"));
       expect(call).toBeTruthy();
@@ -489,16 +500,18 @@ describe("App — RSVP toggle (Who's in screen)", () => {
     expect(await screen.findByText("1 in · 0 out · 0 no reply")).toBeTruthy();
   });
 
-  it("a refused RSVP reverts the row", async () => {
+  it("a refused RSVP reverts the row and the tiles, with a toast", async () => {
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await enterCoachMode();
     fireEvent.click(screen.getByText("Details"));
     fireEvent.click(await screen.findByText("See everyone's replies"));
     fireEvent.click(await screen.findByRole("button", { name: "Out" }));
-    expect(await screen.findByText("1 out")).toBeTruthy(); // optimistic
-    expect(await screen.findByText("0 out")).toBeTruthy(); // the default fetch stub answers ok:false
-    expect(screen.getByRole("button", { name: "Out" }).className).toBe("avbtn");
+    expect(tiles()).toEqual(["0", "1", "0"]); // optimistic
+    expect(screen.getByRole("button", { name: "Out" }).className).toBe("out on");
+    await waitFor(() => expect(tiles()).toEqual(["0", "0", "1"])); // the default fetch stub answers ok:false
+    expect(screen.getByRole("button", { name: "Out" }).className).toBe("out");
+    expect(document.querySelector(".toast").textContent).toBe("Couldn't save Sam's reply — try again.");
   });
 });
 
@@ -1697,7 +1710,7 @@ describe("S3 Results + Match detail", () => {
     expect(headerKicker()).toBe(`Round 7 vs Wests · ${fmt(daysFromNow(6))} 09:00`);
     // Only Sam's row is editable here; the others are pills.
     expect(screen.getAllByRole("button", { name: "In" })).toHaveLength(1);
-    expect(screen.getByText(/Milo Park/).closest(".avrow").querySelector(".avpill").textContent).toBe("Sick");
+    expect(screen.getByText("Milo Park").closest(".av-row").querySelector(".st-pill").textContent).toBe("Sick");
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await waitFor(() => expect(headerTitle()).toBe("Round 7"));
   });
@@ -2426,5 +2439,344 @@ describe("S5 Squad + Player — Direction C", () => {
     expect(rowText(r[4], ".guesttag")).toBe("Guest · ended");
     expect(r[4].querySelector(".guesttag").className).toBe("guesttag ended");
     expect(headerKicker()).toBe("5 players · 1 coach");
+  });
+});
+
+describe("S6 Availability — Direction C", () => {
+  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const fmt = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
+  const weekday = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-AU", { weekday: "long" });
+  const wd = (iso) => DOW[new Date(iso + "T00:00:00").getDay()];
+  // "Sat 13 Jun" — the way the reminder text writes a date.
+  const nd = (iso) => { const d = new Date(iso + "T00:00:00"); return `${wd(iso)} ${d.getDate()} ${d.toLocaleDateString("en-AU", { month: "short" })}`; };
+
+  const meFetch = (me, rsvpOk = true) => {
+    fetch.mockImplementation((url) => {
+      if (String(url).includes("/api/me")) return Promise.resolve({ ok: true, json: async () => me });
+      if (String(url).includes("/api/rsvp")) return Promise.resolve({ ok: rsvpOk, json: async () => ({ ok: rsvpOk }) });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+  };
+  const hatOf = (role, playerIds = [], playerNames = [], extra = {}) => {
+    const hat = { role, playerIds, playerNames, ...extra };
+    return {
+      mode: "account", email: "x@a.com", admin: false, clubAdmin: false, teamSlug: "a", teamName: "Test FC", role, playerIds, playerNames,
+      hats: [hat], teams: [{ teamSlug: "a", teamName: "Test FC", hats: [hat] }], canSwitch: false, memberships: [], ...extra
+    };
+  };
+  const kids = [
+    { id: "p1", name: "Sam Smith", number: 7, position: "FWD" },
+    { id: "p2", name: "Alex Smith", number: 8, position: "MID" },
+    { id: "p3", name: "Milo Park", number: 9, position: "DEF", guardians: [{ name: "Jo Park", mobile: "0400 000 000" }] }
+  ];
+  // The game is six days out; the weekly training lands two days before it
+  // (and so pairs as the training closest before the game).
+  const gameISO = daysFromNow(6), trainISO = daysFromNow(4);
+  const game = (over = {}) => ({ id: "f7", round: 7, status: "upcoming", dateISO: gameISO, time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park", availability: {}, ...over });
+  const training = (over = {}) => ({ id: "s1", title: "Training", kind: "training", recur: "weekly", weekday: new Date(trainISO + "T00:00:00").getDay(), startISO: daysFromNow(-30), untilISO: daysFromNow(60), time: "16:30", location: "JF O'Grady", availability: {}, ...over });
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); render(<App />); return waitForLoaded(); };
+  // Home "Details" -> Match detail -> "See everyone's replies" -> Who's in.
+  const openWhosIn = async () => {
+    fireEvent.click(await screen.findByText("Details"));
+    fireEvent.click(await screen.findByText("See everyone's replies"));
+    await waitFor(() => expect(headerTitle()).toBe("Who's in"));
+  };
+  const tiles = () => [...document.querySelectorAll(".wi-tile .v")].map((e) => e.textContent);
+  const rows = () => [...document.querySelectorAll(".av-row")];
+  const names = () => rows().map((r) => r.querySelector(".av-name span").textContent);
+  const rowOf = (name) => screen.getByText(name, { selector: ".av-name span" }).closest(".av-row");
+  const segTabs = () => [...document.querySelectorAll(".wi-seg button")];
+  const rsvpBodies = () => fetch.mock.calls.filter((c) => String(c[0]).includes("/api/rsvp")).map((c) => JSON.parse(c[1].body));
+  const lastRsvp = () => rsvpBodies().at(-1);
+  const toast = () => document.querySelector(".toast")?.textContent;
+
+  it("game: the header kicker, three count tiles and the list sorted in → out → no reply with who replied in the hint; no Game / Training control without a training", async () => {
+    await load(makeData({ players: kids, fixtures: [game({ availability: { p2: { status: "in", by: "Coach" }, p3: { status: "out", reason: "Sick", by: "Milo Park" } } })] }));
+    await enterCoachMode();
+    await openWhosIn();
+    expect(headerKicker()).toBe(`Round 7 vs Wests · ${fmt(gameISO)} 09:00`);
+    expect(document.querySelector(".wi-seg")).toBeNull();
+    expect(tiles()).toEqual(["1", "1", "1"]);
+    expect([...document.querySelectorAll(".wi-tile .k")].map((e) => e.textContent)).toEqual(["In", "Out", "No reply"]);
+    expect(document.querySelector(".wi-tile.in").querySelector(".v").textContent).toBe("1");
+    expect(names()).toEqual(["Alex Smith", "Milo Park", "Sam Smith"]);
+    expect(rows().map((r) => r.querySelector(".pos-pill").textContent)).toEqual(["MID", "DEF", "FWD"]);
+    expect(rowOf("Alex Smith").querySelector(".av-hint").textContent).toBe("In · Coach");
+    expect(rowOf("Sam Smith").querySelector(".av-hint").textContent).toBe("No reply yet");
+    // The coach's Out row carries the reason select in the hint line, then who replied.
+    const milo = rowOf("Milo Park");
+    expect(milo.querySelector("select.av-reason").value).toBe("Sick");
+    expect(within(milo).getByText("· Milo Park")).toBeTruthy();
+    expect(within(milo).getByRole("button", { name: "Out" }).className).toBe("out on");
+    expect(screen.getByText("As coach you can reply for anyone.").className).toBe("wi-foot");
+    expect(screen.queryByText("Sign in to respond")).toBeNull();
+  });
+
+  it("coach: inline In / Out marks a player, tapping the chosen value clears it, Out shows the reason select and the POST carries the reason; Match detail reads the same count", async () => {
+    meFetch(hatOf("coach"));
+    await load(makeData({ players: kids, fixtures: [game()] }));
+    await expectChip("Coach");
+    await openWhosIn();
+    const sam = () => rowOf("Sam Smith");
+    expect(names()).toEqual(["Sam Smith", "Alex Smith", "Milo Park"]);
+    fireEvent.click(within(sam()).getByRole("button", { name: "In" }));
+    await waitFor(() => expect(lastRsvp()).toEqual({ kind: "game", id: "f7", playerId: "p1", status: "in" }));
+    expect(within(sam()).getByRole("button", { name: "In" }).className).toBe("in on");
+    expect(within(sam()).getByRole("button", { name: "Out" }).className).toBe("out");
+    expect(sam().querySelector(".av-hint").textContent).toMatch(/^In · Coach · /);
+    expect(tiles()).toEqual(["1", "0", "2"]);
+    expect(toast()).toBe(`Sam's in for ${weekday(gameISO)}`);
+    // Tapping the chosen value clears it.
+    fireEvent.click(within(sam()).getByRole("button", { name: "In" }));
+    await waitFor(() => expect(lastRsvp()).toEqual({ kind: "game", id: "f7", playerId: "p1", status: null }));
+    expect(within(sam()).getByRole("button", { name: "In" }).className).toBe("in");
+    expect(sam().querySelector(".av-hint").textContent).toBe("No reply yet");
+    expect(tiles()).toEqual(["0", "0", "3"]);
+    expect(toast()).toBe("Sam's reply cleared");
+    // Out: the reason select appears in the hint line, defaulting to Away.
+    fireEvent.click(within(sam()).getByRole("button", { name: "Out" }));
+    await waitFor(() => expect(lastRsvp()).toEqual({ kind: "game", id: "f7", playerId: "p1", status: "out", reason: "Away" }));
+    expect(within(sam()).getByRole("button", { name: "Out" }).className).toBe("out on");
+    expect(sam().querySelector("select.av-reason").value).toBe("Away");
+    expect(toast()).toBe(`Sam's out for ${weekday(gameISO)}`);
+    fireEvent.change(sam().querySelector("select.av-reason"), { target: { value: "Sick" } });
+    await waitFor(() => expect(lastRsvp()).toEqual({ kind: "game", id: "f7", playerId: "p1", status: "out", reason: "Sick" }));
+    expect(sam().querySelector("select.av-reason").value).toBe("Sick");
+    expect(tiles()).toEqual(["0", "1", "2"]);
+    expect(names()).toEqual(["Sam Smith", "Alex Smith", "Milo Park"]); // out sorts above no reply
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByText("0 in · 1 out · 2 no reply")).toBeTruthy();
+  });
+
+  it("parent: own child rows are tinted with a Reply pill that opens the reply sheet; other rows are status pills; the footnote names the children; no nudge", async () => {
+    meFetch(hatOf("parent", ["p1"], ["Sam Smith"]));
+    await load(makeData({ players: kids, fixtures: [game({ availability: { p3: { status: "out", reason: "Sick", by: "Milo Park" } } })] }));
+    await expectChip("Parent of Sam");
+    await openWhosIn();
+    const sam = () => rowOf("Sam Smith");
+    expect(sam().className).toBe("av-row mine");
+    expect(rowOf("Alex Smith").className).toBe("av-row");
+    expect(rowOf("Alex Smith").querySelector(".st-pill").textContent).toBe("No reply");
+    expect(rowOf("Milo Park").querySelector(".st-pill").className).toBe("st-pill out");
+    expect(rowOf("Milo Park").querySelector(".st-pill").textContent).toBe("Sick");
+    expect(document.querySelector(".av-seg")).toBeNull();
+    expect(document.querySelector("select")).toBeNull();
+    expect(screen.queryByText(/Nudge the/)).toBeNull();
+    expect(screen.getByText("You can reply for Sam. Coaches can reply for anyone.").className).toBe("wi-foot");
+    fireEvent.click(within(sam()).getByRole("button", { name: "Reply" }));
+    expect(await screen.findByText("Reply for Sam", { selector: ".rs-title" })).toBeTruthy();
+    expect(document.querySelector(".rs-sub").textContent).toBe(`vs Wests · ${fmt(gameISO)} · 09:00`);
+    fireEvent.click(within(document.querySelector(".sheet")).getByRole("button", { name: "In" }));
+    await waitFor(() => expect(document.querySelector(".sheet")).toBeNull());
+    expect(within(sam()).getByRole("button", { name: "In" }).className).toBe("rr-btn in");
+    expect(sam().querySelector(".av-hint").textContent).toMatch(/^In · Sam Smith · /);
+    expect(tiles()).toEqual(["1", "1", "1"]);
+    expect(names()).toEqual(["Sam Smith", "Milo Park", "Alex Smith"]);
+    await waitFor(() => expect(lastRsvp()).toEqual({ kind: "game", id: "f7", playerId: "p1", status: "in" }));
+    expect(toast()).toBe(`Sam's in for ${weekday(gameISO)}`);
+  });
+
+  it("a view-only account sees status pills only and the viewer footnote", async () => {
+    meFetch(hatOf("viewer", [], [], { clubAdmin: true }));
+    await load(makeData({ players: kids, fixtures: [game({ availability: { p1: { status: "in", by: "Sam Smith" } } })] }));
+    await expectChip("Club admin (view only)");
+    await openWhosIn();
+    expect(document.querySelectorAll(".st-pill")).toHaveLength(3);
+    expect(rowOf("Sam Smith").querySelector(".st-pill").className).toBe("st-pill in");
+    expect(document.querySelector(".av-row button")).toBeNull();
+    expect(document.querySelector(".av-row.mine")).toBeNull();
+    expect(screen.queryByText(/Nudge the/)).toBeNull();
+    expect(screen.getByText("Only coaches and families can reply.").className).toBe("wi-foot");
+    expect(screen.queryByText("Sign in to respond")).toBeNull();
+  });
+
+  it("a legacy guest gets 'Sign in to respond' instead of a footnote; once signed in as a family the child's row becomes theirs", async () => {
+    await load(makeData({ players: kids, fixtures: [game()] }));
+    await openWhosIn();
+    expect(document.querySelector(".wi-foot")).toBeNull();
+    expect(document.querySelectorAll(".st-pill")).toHaveLength(3);
+    const signin = screen.getByText("Sign in to respond");
+    expect(signin.className).toBe("btn");
+    fireEvent.click(signin);
+    expect(await screen.findByText("Who's responding?")).toBeTruthy();
+    fireEvent.click(within(document.querySelector(".sheet")).getByText("Sam Smith"));
+    await waitFor(() => expect(document.querySelector(".sheet")).toBeNull());
+    expect(rowOf("Sam Smith").className).toBe("av-row mine");
+    expect(within(rowOf("Sam Smith")).getByRole("button", { name: "Reply" })).toBeTruthy();
+    expect(document.querySelectorAll(".st-pill")).toHaveLength(2);
+    expect(screen.queryByText("Sign in to respond")).toBeNull();
+    expect(screen.getByText("You can reply for Sam. Coaches can reply for anyone.")).toBeTruthy();
+  });
+
+  it("the Game / Training control appears when a training occurrence pairs with the game; switching swaps the kicker, tiles and list, and a training reply POSTs kind session with the occurrence", async () => {
+    meFetch(hatOf("parent", ["p1"], ["Sam Smith"]));
+    await load(makeData({
+      players: kids,
+      fixtures: [game({ availability: { p2: { status: "in" } } })],
+      sessions: [training({ availability: { [trainISO]: { p2: { status: "in" }, p3: { status: "out", reason: "Sick" } } } })]
+    }));
+    await expectChip("Parent of Sam");
+    await openWhosIn();
+    expect(segTabs().map((b) => b.textContent)).toEqual([`${wd(gameISO)} · Game`, `${wd(trainISO)} · Training`]);
+    expect(segTabs().map((b) => b.className)).toEqual(["on", ""]);
+    expect(tiles()).toEqual(["1", "0", "2"]);
+    fireEvent.click(segTabs()[1]);
+    expect(headerTitle()).toBe("Who's in");
+    expect(headerKicker()).toBe(`Training · ${fmt(trainISO)} 16:30`);
+    expect(segTabs().map((b) => b.className)).toEqual(["", "on"]);
+    expect(tiles()).toEqual(["1", "1", "1"]);
+    expect(names()).toEqual(["Alex Smith", "Milo Park", "Sam Smith"]);
+    expect(rowOf("Milo Park").querySelector(".st-pill").textContent).toBe("Sick");
+    expect(screen.getByText("You can reply for Sam. Coaches can reply for anyone.")).toBeTruthy();
+    fireEvent.click(within(rowOf("Sam Smith")).getByRole("button", { name: "Reply" }));
+    expect(await screen.findByText("Reply for Sam", { selector: ".rs-title" })).toBeTruthy();
+    expect(document.querySelector(".rs-sub").textContent).toBe(`Training · ${fmt(trainISO)} · 16:30`);
+    fireEvent.click(within(document.querySelector(".sheet")).getByRole("button", { name: "In" }));
+    await waitFor(() => expect(lastRsvp()).toEqual({ kind: "session", id: "s1", occ: trainISO, playerId: "p1", status: "in" }));
+    expect(toast()).toBe("Sam's in for training");
+    expect(tiles()).toEqual(["2", "1", "0"]);
+    expect(within(rowOf("Sam Smith")).getByRole("button", { name: "In" }).className).toBe("rr-btn in");
+    // Back to the game: its own reply set, untouched.
+    fireEvent.click(segTabs()[0]);
+    expect(headerKicker()).toBe(`Round 7 vs Wests · ${fmt(gameISO)} 09:00`);
+    expect(tiles()).toEqual(["1", "0", "2"]);
+    expect(within(rowOf("Sam Smith")).getByRole("button", { name: "Reply" })).toBeTruthy();
+    expect(rsvpBodies()).toHaveLength(1);
+  });
+
+  it("coach: Nudge copies the reminder, opens WhatsApp with it and says so honestly; Message a family directly lists each family with a Remind link when there is a mobile", async () => {
+    meFetch(hatOf("coach"));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    await load(makeData({ players: kids, fixtures: [game({ availability: { p2: { status: "in", by: "Coach" } } })] }));
+    await expectChip("Coach");
+    await openWhosIn();
+    const text = `Round 7 vs Wests, ${nd(gameISO)} 09:00. Still need In or Out from Sam and Milo. Reply on the team page please.`;
+    const btn = screen.getByRole("button", { name: "Nudge the 2 who haven't replied" });
+    expect(btn.className).toBe("nudge");
+    fireEvent.click(btn);
+    expect(writeText).toHaveBeenCalledWith(text);
+    expect(open).toHaveBeenCalledWith("https://wa.me/?text=" + encodeURIComponent(text), "_blank", "noopener");
+    expect(toast()).toBe("Reminder copied — paste it in the group");
+    expect(document.body.textContent).not.toMatch(/Reminder sent/);
+    // Per-family reminders under the button.
+    const details = document.querySelector("details.fam-direct");
+    expect(details.querySelector("summary").textContent).toBe("Message a family directly");
+    const fam = [...details.querySelectorAll(".fd-row")];
+    expect(fam.map((r) => r.querySelector(".fd-name").textContent)).toEqual(["Sam Smith", "Milo Park"]);
+    expect(fam[0].querySelector(".fd-who")).toBeNull();
+    expect(fam[0].querySelector(".fd-none").textContent).toBe("no contact");
+    expect(fam[0].querySelector("a")).toBeNull();
+    expect(fam[1].querySelector(".fd-who").textContent).toBe("Jo");
+    const link = fam[1].querySelector("a.fd-link");
+    expect(link.textContent).toBe("Remind");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("href")).toBe("https://wa.me/61400000000?text=" + encodeURIComponent(`Hi Jo, could you mark Milo In or Out for Round 7 vs Wests (${nd(gameISO)}) on the team page? Thanks.`));
+    // One left: the singular label. None left: no nudge at all.
+    fireEvent.click(within(rowOf("Milo Park")).getByRole("button", { name: "In" }));
+    expect(screen.getByRole("button", { name: "Nudge the 1 who hasn't replied" })).toBeTruthy();
+    expect(document.querySelectorAll(".fd-row")).toHaveLength(1);
+    fireEvent.click(within(rowOf("Sam Smith")).getByRole("button", { name: "Out" }));
+    expect(screen.queryByText(/Nudge the/)).toBeNull();
+    expect(screen.queryByText("Message a family directly")).toBeNull();
+    open.mockRestore();
+  });
+
+  it("session sheet: the parent's own-child row opens the training reply sheet and comes back with the reply on the row; See everyone's replies opens the session Who's in", async () => {
+    meFetch(hatOf("parent", ["p1"], ["Sam Smith"]));
+    await load(makeData({ players: kids, fixtures: [game()], sessions: [training()] }));
+    await expectChip("Parent of Sam");
+    fireEvent.click((await screen.findAllByText("Training", { selector: ".wk-title" }))[0].closest(".wk-row"));
+    const card = (await screen.findByText("Who's training?", { selector: ".label" })).closest(".card");
+    expect(card.querySelector(".wi-count").textContent).toBe("0 in · 0 out · 3 no reply");
+    expect(within(card).getByText("Sam S.")).toBeTruthy();
+    expect(within(card).queryByText("Alex S.")).toBeNull();
+    expect(screen.queryByText("Sign in to respond")).toBeNull();
+    expect(screen.queryByText(/Tap your player/)).toBeNull();
+    expect(screen.queryByText(/chase non-responders/)).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "Reply" }));
+    expect(await screen.findByText("Reply for Sam", { selector: ".rs-title" })).toBeTruthy();
+    expect(document.querySelector(".rs-sub").textContent).toBe(`Training · ${fmt(trainISO)} · 16:30`);
+    fireEvent.click(within(document.querySelector(".sheet")).getByRole("button", { name: "In" }));
+    // Back on the session sheet, with the reply on the row and in the count.
+    const card2 = (await screen.findByText("Who's training?", { selector: ".label" })).closest(".card");
+    expect(within(card2).getByRole("button", { name: "In" }).className).toBe("rr-btn in");
+    expect(card2.querySelector(".wi-count").textContent).toBe("1 in · 0 out · 2 no reply");
+    await waitFor(() => expect(lastRsvp()).toEqual({ kind: "session", id: "s1", occ: trainISO, playerId: "p1", status: "in" }));
+    expect(toast()).toBe("Sam's in for training");
+    fireEvent.click(within(card2).getByText("See everyone's replies"));
+    await waitFor(() => expect(headerTitle()).toBe("Who's in"));
+    expect(document.querySelector(".sheet")).toBeNull();
+    expect(headerKicker()).toBe(`Training · ${fmt(trainISO)} 16:30`);
+    expect(tiles()).toEqual(["1", "0", "2"]);
+    expect(within(rowOf("Sam Smith")).getByRole("button", { name: "In" }).className).toBe("rr-btn in");
+    // The training pairs with the next game, Game tab first.
+    expect(segTabs().map((b) => b.textContent)).toEqual([`${wd(gameISO)} · Game`, `${wd(trainISO)} · Training`]);
+    expect(segTabs().map((b) => b.className)).toEqual(["", "on"]);
+  });
+
+  it("a legacy guest gets 'Sign in to respond' on the session sheet", async () => {
+    await load(makeData({ players: kids, fixtures: [game()], sessions: [training()] }));
+    fireEvent.click((await screen.findAllByText("Training", { selector: ".wk-title" }))[0].closest(".wk-row"));
+    const card = (await screen.findByText("Who's training?", { selector: ".label" })).closest(".card");
+    expect(card.querySelector(".replyrows")).toBeNull();
+    fireEvent.click(within(card).getByText("Sign in to respond"));
+    expect(await screen.findByText("Who's responding?")).toBeTruthy();
+  });
+
+  it("a past training occurrence and its past game are read-only: pills only, no nudge, the 'has passed' footnote", async () => {
+    const pastISO = daysFromNow(-2), pastGameISO = daysFromNow(-1);
+    meFetch(hatOf("coach"));
+    await load(makeData({
+      players: kids,
+      fixtures: [game({ dateISO: pastGameISO, availability: { p1: { status: "in", by: "Coach" } } })],
+      sessions: [training({ weekday: new Date(pastISO + "T00:00:00").getDay(), availability: { [pastISO]: { p2: { status: "out", reason: "Sick", by: "Coach" } } } })]
+    }));
+    await expectChip("Coach");
+    // Calendar -> that day -> the training row -> the session sheet.
+    fireEvent.click(within(screen.getByRole("navigation")).getByText("Calendar"));
+    const d = new Date(pastISO + "T00:00:00");
+    if (d.getMonth() !== new Date().getMonth()) fireEvent.click(screen.getByRole("button", { name: "Previous month" }));
+    fireEvent.click(document.querySelectorAll(".cal-cell")[d.getDate() - 1]);
+    fireEvent.click(await screen.findByText("Training", { selector: ".sheet .wk-title" }));
+    const card = (await screen.findByText("Attendance", { selector: ".label" })).closest(".card");
+    expect(card.querySelector(".wi-count").textContent).toBe("0 in · 1 out · 2 no reply");
+    expect(card.querySelector(".replyrows")).toBeNull();
+    expect(screen.queryByText("Sign in to respond")).toBeNull();
+    fireEvent.click(within(card).getByText("See everyone's replies"));
+    await waitFor(() => expect(headerTitle()).toBe("Who's in"));
+    expect(headerKicker()).toBe(`Training · ${fmt(pastISO)} 16:30`);
+    expect(tiles()).toEqual(["0", "1", "2"]);
+    expect(document.querySelector(".av-seg")).toBeNull();
+    expect(document.querySelector(".av-row button")).toBeNull();
+    expect(rowOf("Alex Smith").querySelector(".st-pill").textContent).toBe("Sick");
+    expect(rowOf("Alex Smith").querySelector(".av-hint").textContent).toBe("Sick · Coach");
+    expect(screen.queryByText(/Nudge the/)).toBeNull();
+    expect(screen.getByText("This session has passed.").className).toBe("wi-foot");
+    // The game the day after pairs with it and is read-only too.
+    expect(segTabs().map((b) => b.textContent)).toEqual([`${wd(pastGameISO)} · Game`, `${wd(pastISO)} · Training`]);
+    fireEvent.click(segTabs()[0]);
+    expect(headerKicker()).toBe(`Round 7 vs Wests · ${fmt(pastGameISO)} 09:00`);
+    expect(tiles()).toEqual(["1", "0", "2"]);
+    expect(rowOf("Sam Smith").querySelector(".st-pill").className).toBe("st-pill in");
+    expect(document.querySelector(".av-seg")).toBeNull();
+    expect(screen.queryByText(/Nudge the/)).toBeNull();
+    expect(screen.getByText("This game has passed.")).toBeTruthy();
+  });
+
+  it("a training with no game to pair shows no Game / Training control; the coach nudge counts everyone", async () => {
+    await load(makeData({ players: kids, fixtures: [], sessions: [training()] }));
+    await enterCoachMode();
+    fireEvent.click((await screen.findAllByText("Training", { selector: ".wk-title" }))[0].closest(".wk-row"));
+    const card = (await screen.findByText("Who's training?", { selector: ".label" })).closest(".card");
+    fireEvent.click(within(card).getByText("See everyone's replies"));
+    await waitFor(() => expect(headerTitle()).toBe("Who's in"));
+    expect(headerKicker()).toBe(`Training · ${fmt(trainISO)} 16:30`);
+    expect(document.querySelector(".wi-seg")).toBeNull();
+    expect(tiles()).toEqual(["0", "0", "3"]);
+    expect(document.querySelectorAll(".av-seg")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Nudge the 3 who haven't replied" })).toBeTruthy();
+    expect(screen.getByText("As coach you can reply for anyone.")).toBeTruthy();
   });
 });

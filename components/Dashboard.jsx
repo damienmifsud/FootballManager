@@ -656,18 +656,10 @@ const CSS = `
 .fc-pt{font-size:13px;display:flex;gap:8px;align-items:baseline;line-height:1.35;}
 .fc-pt:before{content:"•";color:var(--pitch);flex-shrink:0;}
 .fc-foot{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4;}
-/* availability */
-.avsum{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
-.avpill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:800;}
-.avpill.in{background:#e6f6ec;color:#1f8a4c;} .avpill.out{background:#fdecec;color:var(--red);}
-.avpill.nr{background:var(--soft);color:var(--muted);}
-.avrow{display:flex;align-items:center;gap:9px;padding:9px 2px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
-.avrow:last-child{border-bottom:none;}
-.avname{flex:1;font-weight:600;font-size:14px;min-width:110px;}
-.avbtn{border:1px solid var(--line);background:#fafbfa;border-radius:9px;padding:7px 13px;font-weight:800;font-size:12.5px;cursor:pointer;color:var(--muted);}
-.avbtn.selin{background:#1E9E57;color:#fff;border-color:#1E9E57;}
-.avbtn.selout{background:var(--red);color:#fff;border-color:var(--red);}
-.avsel{border:1px solid var(--line);border-radius:9px;padding:7px 9px;font-size:12.5px;background:#fafbfa;color:var(--ink);}
+/* who's-responding picker (legacy sign-in sheet) */
+.pickrow{display:flex;align-items:center;gap:9px;padding:9px 2px;border-bottom:1px solid var(--line);cursor:pointer;}
+.pickrow:last-child{border-bottom:none;}
+.pickname{flex:1;font-weight:600;font-size:14px;min-width:110px;}
 .guesttag{font-size:9px;font-weight:800;padding:2px 6px;border-radius:5px;background:#e6f0ff;color:#2563a8;
   text-transform:uppercase;letter-spacing:.05em;margin-left:6px;vertical-align:middle;}
 .guesttag.ended{background:#eef0f2;color:#8a8f94;}
@@ -677,8 +669,6 @@ const CSS = `
 .chgrow .fld{font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#9b5b5e;min-width:64px;}
 .chg-old{text-decoration:line-through;color:var(--muted);}
 .chg-new{color:var(--red);font-weight:800;}
-.remindrow{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--line);}
-.remindrow:last-child{border-bottom:none;}
 .staffrow{display:flex;gap:12px;padding:12px 2px;border-bottom:1px solid var(--line);align-items:flex-start;}
 .staffrow:last-child{border-bottom:none;}
 .savatar{width:48px;height:48px;border-radius:50%;flex-shrink:0;object-fit:cover;background:var(--pitch);
@@ -752,6 +742,51 @@ const CSS = `
 .wi-count{font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap;}
 .softbtn{margin-top:10px;width:100%;background:var(--soft);color:var(--ink);border:none;border-radius:13px;padding:12px;font:inherit;
   font-size:14px;font-weight:800;cursor:pointer;min-height:44px;}
+/* who's in (S6): Game / Training segmented, three count tiles, the list sorted
+   in → out → no reply, the coach's nudge, the footnote. Cards inside the column
+   drop their own bottom margin — the column's gap spaces them. */
+.wi-screen{display:flex;flex-direction:column;gap:var(--card-gap);}
+.wi-screen>.card{margin-bottom:0;}
+.wi-seg{display:flex;background:var(--seg-track);border-radius:var(--r-seg);padding:3px;gap:3px;}
+.wi-seg button{flex:1;border:none;border-radius:var(--r-seg-thumb);padding:10px;font:inherit;font-size:13px;font-weight:800;cursor:pointer;min-height:40px;
+  background:transparent;color:var(--muted);}
+.wi-seg button.on{background:#fff;color:var(--ink);box-shadow:var(--seg-thumb-shadow);}
+.wi-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.wi-tile{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 8px;text-align:center;color:var(--muted);}
+.wi-tile .v{font-family:'Anton',sans-serif;font-weight:400;font-size:26px;line-height:1;}
+.wi-tile .k{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-top:5px;}
+.wi-tile.in{background:var(--green-tint);border-color:var(--green-tint);color:var(--green-strong);}
+.wi-tile.out{background:var(--red-tint);border-color:var(--red-tint);color:var(--red-strong);}
+.wi-list{padding:4px 16px;}
+.wi-empty{font-size:13px;color:var(--muted);padding:12px 0;}
+.av-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);}
+.av-row:last-child{border-bottom:none;}
+.av-row.mine{background:var(--row-mine);}
+.av-body{flex:1;min-width:0;}
+.av-name{display:flex;align-items:center;gap:6px;font-weight:800;font-size:14px;min-width:0;}
+.av-hint{font-size:12px;color:var(--muted);margin-top:1px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
+.av-reason{border:none;border-radius:999px;padding:3px 8px;font:inherit;font-size:11px;font-weight:800;background:var(--soft);color:var(--ink);cursor:pointer;}
+.av-seg{display:flex;background:var(--soft);border-radius:12px;padding:3px;gap:2px;flex-shrink:0;}
+.av-seg button{border:none;border-radius:10px;padding:8px 12px;font:inherit;font-size:13px;font-weight:800;cursor:pointer;min-height:36px;
+  background:transparent;color:var(--muted);}
+.av-seg button.in.on{background:var(--green-strong);color:#fff;}
+.av-seg button.out.on{background:var(--red-strong);color:#fff;}
+.av-row .rr-btn{padding:8px 12px;min-height:34px;}
+.st-pill{border-radius:999px;padding:5px 10px;font-size:11px;font-weight:800;flex-shrink:0;white-space:nowrap;background:var(--soft);color:var(--muted);}
+.st-pill.in{background:var(--green-tint);color:var(--green-strong);} .st-pill.out{background:var(--red-tint);color:var(--red-strong);}
+.nudge{width:100%;background:#25D366;color:#fff;border:none;border-radius:13px;padding:14px;font:inherit;font-size:15px;font-weight:800;cursor:pointer;
+  min-height:48px;display:flex;align-items:center;justify-content:center;gap:8px;}
+.fam-direct{margin:-4px 4px 0;}
+.fam-direct summary{font-size:12px;font-weight:800;color:var(--muted);cursor:pointer;padding:6px 0;list-style:none;display:flex;align-items:center;gap:4px;min-height:32px;}
+.fam-direct summary::-webkit-details-marker{display:none;}
+.fd-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);}
+.fd-row:last-child{border-bottom:none;}
+.fd-body{flex:1;min-width:0;}
+.fd-name{font-weight:800;font-size:13px;}
+.fd-who{font-size:12px;color:var(--muted);}
+.fd-link{background:var(--soft);color:var(--ink);border-radius:999px;padding:6px 10px;font-size:11px;font-weight:800;text-decoration:none;flex-shrink:0;min-height:28px;display:inline-flex;align-items:center;}
+.fd-none{font-size:11px;color:var(--muted);}
+.wi-foot{font-size:12px;color:var(--muted);padding:0 4px;line-height:1.45;}
 .dc-meta{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.4;}
 .sw{width:38px;height:22px;border-radius:999px;background:#D9D3D4;position:relative;flex-shrink:0;transition:background .18s}
 .sw::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .18s cubic-bezier(.2,.8,.2,1)}
@@ -998,7 +1033,8 @@ export default function App() {
   useEffect(() => {
     const top = stack[stack.length - 1];
     if (!data || !top) return;
-    if ((top.id === "match" || top.id === "whosin") && !(data.fixtures || []).some((f) => f.id === top.payload?.fixtureId)) back();
+    if (top.id === "match" && !(data.fixtures || []).some((f) => f.id === top.payload?.fixtureId)) back();
+    if (top.id === "whosin" && !whosInEvents(data, top.payload)) back();
     if (top.id === "player" && !(data.players || []).some((p) => p.id === top.payload?.playerId)) back();
   }, [data, stack, back]);
 
@@ -1051,16 +1087,21 @@ export default function App() {
   const screen = top ? top.id : tab;
   const screenPayload = top ? top.payload : undefined;
   const isSub = stack.length > 0;
-  // The fixture behind a pushed match / who's-in screen, read live from data.
-  const screenFixture = (screen === "match" || screen === "whosin")
-    ? (data.fixtures || []).find((f) => f.id === screenPayload?.fixtureId) || null
-    : null;
+  // The fixture behind a pushed match screen, read live from data.
+  const screenFixture = screen === "match" ? (data.fixtures || []).find((f) => f.id === screenPayload?.fixtureId) || null : null;
+  // The game / training pair behind a pushed Who's in screen (S6), and the
+  // Game / Training control's choice, kept on the stack payload so the header
+  // kicker follows the shown event.
+  const whosIn = screen === "whosin" ? whosInEvents(data, screenPayload) : null;
+  const setWhosInShow = (show) => setStack((s) => s.length ? [...s.slice(0, -1), { ...s[s.length - 1], payload: { ...(s[s.length - 1].payload || {}), show } }] : s);
   // The player behind a pushed player screen, read live from data (S5).
   const screenPlayer = screen === "player" ? (data.players || []).find((p) => p.id === screenPayload?.playerId) || null : null;
   const roundOf = (f) => (f?.round ? `Round ${f.round}` : "");
   const subTitle = screen === "settings" ? ["Team settings", data.team.name]
     : screen === "match" ? [roundOf(screenFixture) || "Match", screenFixture ? `vs ${screenFixture.opponent} · ${fmtDate(screenFixture.dateISO)}` : ""]
-    : screen === "whosin" ? ["Who's in", screenFixture ? `${roundOf(screenFixture) ? roundOf(screenFixture) + " " : ""}vs ${screenFixture.opponent} · ${fmtDate(screenFixture.dateISO)}${screenFixture.time ? " " + screenFixture.time : ""}` : ""]
+    : screen === "whosin" ? ["Who's in", !whosIn ? ""
+      : whosIn.show === "session" ? `${whosIn.session.s.title} · ${fmtDate(whosIn.session.occ)}${whosIn.session.s.time ? " " + whosIn.session.s.time : ""}`
+      : `${roundOf(whosIn.game) ? roundOf(whosIn.game) + " " : ""}vs ${whosIn.game.opponent} · ${fmtDate(whosIn.game.dateISO)}${whosIn.game.time ? " " + whosIn.game.time : ""}`]
     : screen === "player" ? [screenPlayer?.name || "Player", screenPlayer ? [screenPlayer.number ? `#${screenPlayer.number}` : "", screenPlayer.position || ""].filter(Boolean).join(" · ") : ""]
     : (SUB_TITLES[screen] || [screen, ""]);
   const chipLabel = account ? hatText : (isCoach ? "Coach" : "Parent");
@@ -1120,7 +1161,7 @@ export default function App() {
         {screen === "calendar" && <CalendarTab {...{ data, isCoach, viewer, me, setModal, openMatch, openPlayer, month: calMonth, setMonth: setCalMonth }} />}
         {screen === "results" && <ResultsTab {...{ data, stats, isCoach, setModal, openMatch, onOpen: push }} />}
         {screen === "match" && screenFixture && <MatchScreen {...{ data, f: screenFixture, persist, patchLocal, isCoach, viewer, me, setModal, onOpen: push, showToast, openPlayer }} />}
-        {screen === "whosin" && screenFixture && <WhosInScreen {...{ data, f: screenFixture, isCoach, viewer, me, setModal, patchLocal }} />}
+        {screen === "whosin" && whosIn && <WhosInScreen {...{ data, events: whosIn, setShow: setWhosInShow, isCoach, viewer, me, setModal, patchLocal, showToast }} />}
         {screen === "squad" && <SquadTab {...{ data, stats, next, isCoach, viewer, me, setModal, openPlayer }} />}
         {screen === "player" && screenPlayer && <PlayerScreen {...{ data, p: screenPlayer, next, persist, patchLocal, isCoach, viewer, me, setModal }} />}
         {screen === "ask" && <AskTab {...{ data, viewer, isCoach, account }} />}
@@ -1149,7 +1190,7 @@ export default function App() {
           close={() => setModal(null)}
         />
       ) : modal ? (
-        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast, openMatch, openPlayer }} />
+        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast, openMatch, openPlayer, onOpen: push }} />
       ) : null}
     </div>
   );
@@ -1176,24 +1217,34 @@ const replyCounts = (players, av, iso) => players.filter(p => activeOn(p, iso)).
   const st = av?.[p.id]?.status; if (st === "in") c.in++; else if (st === "out") c.out++; else c.nr++; return c;
 }, { in: 0, out: 0, nr: 0 });
 
-// The one narrow RSVP write the Home reply sheet uses: optimistic patch of the
-// fixture's availability (patchLocal — never the whole document), the same
-// /api/rsvp body the Who's in screen sends, reverted with a toast when the route refuses.
-async function sendGameReply({ fixture, playerId, status, reason, by, first, patchLocal, showToast }) {
-  const prev = fixture.availability || {};
+// The one narrow RSVP write every reply control uses (the reply sheets on
+// Home, Match detail and the session sheet; the coach's inline In / Out on
+// Who's in): optimistic patch of the event's availability (patchLocal — never
+// the whole document), one /api/rsvp POST, reverted with a toast when the
+// route refuses. kind "game" writes fixture.availability; kind "session"
+// writes session.availability[occ] (D5). `quiet` skips the success toast (a
+// reason change on a reply that already exists).
+async function sendReply({ kind = "game", fixture, session, occ, playerId, status, reason, by, first, patchLocal, showToast, quiet = false }) {
+  const isSession = kind === "session";
+  const prev = (isSession ? session.availability?.[occ] : fixture.availability) || {};
   const nextAv = { ...prev };
   const cleanReason = status === "out" ? (reason || "Away") : undefined;
   if (status == null) delete nextAv[playerId];
   else nextAv[playerId] = { status, ...(cleanReason ? { reason: cleanReason } : {}), by, at: Date.now() };
-  const setAv = (av) => patchLocal(d => ({ ...d, fixtures: (d.fixtures || []).map(x => x.id === fixture.id ? { ...x, availability: av } : x) }));
+  const setAv = (av) => patchLocal(d => isSession
+    ? { ...d, sessions: (d.sessions || []).map(x => x.id === session.id ? { ...x, availability: { ...(x.availability || {}), [occ]: av } } : x) }
+    : { ...d, fixtures: (d.fixtures || []).map(x => x.id === fixture.id ? { ...x, availability: av } : x) });
   setAv(nextAv);
-  const day = weekdayLong(fixture.dateISO) || "the game";
-  showToast(status === "in" ? `${first}'s in for ${day}` : status === "out" ? `${first}'s out for ${day}` : `${first}'s reply cleared`);
+  const what = isSession ? ((session.kind || "training") === "training" ? "training" : session.title) : (weekdayLong(fixture.dateISO) || "the game");
+  if (!quiet) showToast(status === "in" ? `${first}'s in for ${what}` : status === "out" ? `${first}'s out for ${what}` : `${first}'s reply cleared`);
   try {
+    const body = isSession
+      ? { kind: "session", id: session.id, occ, playerId, status, reason: cleanReason }
+      : { kind: "game", id: fixture.id, playerId, status, reason: cleanReason };
     const res = await fetch("/api/rsvp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "game", id: fixture.id, playerId, status, reason: cleanReason })
+      body: JSON.stringify(body)
     });
     if (!res.ok) throw new Error("rsvp " + res.status);
   } catch (e) {
@@ -1202,6 +1253,70 @@ async function sendGameReply({ fixture, playerId, status, reason, by, first, pat
     showToast(`Couldn't save ${first}'s reply — try again.`);
   }
 }
+
+// Who's in pairs a game with a training occurrence so one screen can show
+// both reply sets (README §8). For a game: the training closest before it
+// within 7 days, else the next training within 7 days of today. For a
+// training occurrence: the next game on or after it within 7 days, else the
+// next upcoming fixture. Only training-kind sessions pair; activities don't.
+const dayDiff = (a, b) => Math.round((new Date(a + "T00:00:00") - new Date(b + "T00:00:00")) / 86400000);
+const trainingOccs = (data, years) => {
+  const out = [];
+  (data.sessions || []).filter(s => (s.kind || "training") === "training").forEach(s => {
+    const seen = new Set();
+    [...years].forEach(y => occurrences(s, y).forEach(occ => { if (!seen.has(occ)) { seen.add(occ); out.push({ s, occ }); } }));
+  });
+  return out;
+};
+function pairedTraining(data, f) {
+  if (!f.dateISO) return null;
+  const todayISO = isoLocal(new Date());
+  const occs = trainingOccs(data, new Set([+f.dateISO.slice(0, 4), +todayISO.slice(0, 4)]));
+  let best = null;
+  occs.forEach(o => { const d = dayDiff(f.dateISO, o.occ); if (d > 0 && d <= 7 && (!best || o.occ > best.occ)) best = o; });
+  if (!best) occs.forEach(o => { const d = dayDiff(o.occ, todayISO); if (d >= 0 && d <= 7 && (!best || o.occ < best.occ)) best = o; });
+  return best;
+}
+function pairedGame(data, occ) {
+  let best = null;
+  (data.fixtures || []).filter(f => f.dateISO && f.status !== "cancelled").forEach(f => {
+    const d = dayDiff(f.dateISO, occ);
+    if (d >= 0 && d <= 7 && (!best || f.dateISO < best.dateISO)) best = f;
+  });
+  if (best) return best;
+  const nf = nextFixture(data);
+  return nf && nf.dateISO ? nf : null;
+}
+// The events behind a pushed Who's in screen, read live from data: the
+// anchor the payload names ({ kind: "game", fixtureId } or { kind: "session",
+// sessionId, occ }; a bare { fixtureId } is a game), its pair, and which of
+// the two is shown (`payload.show`, set by the Game / Training control).
+// null once the anchor is gone, so the screen pops.
+function whosInEvents(data, payload) {
+  const p = payload || {};
+  if (p.kind === "session") {
+    const s = (data.sessions || []).find(x => x.id === p.sessionId);
+    if (!s || !p.occ || !occurrences(s, +p.occ.slice(0, 4)).includes(p.occ)) return null;
+    const game = pairedGame(data, p.occ);
+    return { game, session: { s, occ: p.occ }, show: p.show === "game" && game ? "game" : "session" };
+  }
+  const game = (data.fixtures || []).find(f => f.id === p.fixtureId);
+  if (!game) return null;
+  const session = pairedTraining(data, game);
+  return { game, session, show: p.show === "session" && session ? "session" : "game" };
+}
+// "Sat 13 Jun" inside reminder text.
+const nudgeDate = (iso) => { if (!iso) return "date TBC"; const d = new Date(iso + "T00:00:00"); return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${d.toLocaleDateString("en-AU", { month: "short" })}`; };
+// "Sam, Alex and Milo" (a shared first name falls back to "Sam S.").
+const listNames = (players) => {
+  const firsts = players.map(p => firstName(p.name));
+  const names = players.map((p, i) => firsts.indexOf(firsts[i]) !== firsts.lastIndexOf(firsts[i]) ? shortName(p.name) : firsts[i]);
+  return names.length <= 1 ? (names[0] || "") : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+};
+// A player's family contacts: the guardians array, or the older single-parent fields.
+const guardiansOf = (p) => (p.guardians && p.guardians.length)
+  ? p.guardians.filter(g => g && (g.name || g.mobile || g.email))
+  : (p.parentName || p.parentContact) ? [{ name: p.parentName || "", mobile: p.parentContact || "", email: (p.parentEmails || [])[0] || "" }] : [];
 
 // Whose replies this viewer owns: the account's children (account mode) or
 // the per-device identity (legacy). Coaches reply for anyone from Who's in.
@@ -1418,12 +1533,19 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
 
 // Reply sheet (D1: 1a sheets for parents). Big In / Out, an optional note
 // (sent as the Out reason), closes once the reply is sent. Tapping the value
-// already chosen clears it.
+// already chosen clears it. payload: { kind: "game", fixture, playerId } or
+// { kind: "session", session, occ, playerId } (D5); a bare { fixture,
+// playerId } is a game. `returnTo` is the modal to reopen on close (the
+// session sheet hands off to this one and wants itself back).
 function ReplySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast, close }) {
-  const fixture = (data.fixtures || []).find(x => x.id === payload.fixture?.id) || payload.fixture;
+  const isSession = payload.kind === "session";
+  const fixture = isSession ? null : ((data.fixtures || []).find(x => x.id === payload.fixture?.id) || payload.fixture);
+  const session = isSession ? ((data.sessions || []).find(x => x.id === payload.session?.id) || payload.session) : null;
+  const occ = payload.occ;
   const player = data.players.find(p => p.id === payload.playerId);
   const first = firstName(player?.name) || "your player";
-  const cur = fixture?.availability?.[payload.playerId]?.status || null;
+  const av = isSession ? session?.availability?.[occ] : fixture?.availability;
+  const cur = av?.[payload.playerId]?.status || null;
   const [note, setNote] = useState("");
   const staff = getStaff(data.team);
   const head = staff.find(s => /head coach/i.test(s.role || "")) || staff[0];
@@ -1431,19 +1553,22 @@ function ReplySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast,
   const by = isCoach ? "Coach" : me ? (player?.name || "Parent") : (viewer?.label || "you");
   const choose = (val) => {
     const status = cur === val ? null : val;
-    sendGameReply({ fixture, playerId: payload.playerId, status, reason: note.trim(), by, first, patchLocal, showToast });
+    sendReply({ kind: isSession ? "session" : "game", fixture, session, occ, playerId: payload.playerId, status, reason: note.trim(), by, first, patchLocal, showToast });
     close();
   };
+  const sub = isSession
+    ? `${session.title} · ${fmtDate(occ)}${session.time ? ` · ${session.time}` : ""}`
+    : `vs ${fixture.opponent} · ${fmtDate(fixture.dateISO)}${fixture.time ? ` · ${fixture.time}` : ""}`;
   return (
     <>
       <div className="rs-title">Reply for {first}</div>
-      <div className="rs-sub">vs {fixture.opponent} · {fmtDate(fixture.dateISO)}{fixture.time ? ` · ${fixture.time}` : ""}</div>
+      <div className="rs-sub">{sub}</div>
       <div className="rs-grid">
         <button className={"rs-btn in" + (cur === "in" ? " sel" : "")} onClick={() => choose("in")}><Check size={18} />In</button>
         <button className={"rs-btn out" + (cur === "out" ? " sel" : "")} onClick={() => choose("out")}><X size={18} />Out</button>
       </div>
       <input className="rs-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note for coach (optional)" aria-label="Note for coach" />
-      <div className="rs-foot">{coachFirst ? `Coach ${coachFirst} sees` : "The coach sees"} replies straight away. You can change it any time before kick-off.</div>
+      <div className="rs-foot">{coachFirst ? `Coach ${coachFirst} sees` : "The coach sees"} replies straight away. You can change it any time before {isSession ? "it starts" : "kick-off"}.</div>
     </>
   );
 }
@@ -2459,8 +2584,10 @@ function LineupRulesCard({ team, patchLocal }) {
 /* ============================================================
    MODALS
 ============================================================ */
-function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast, openMatch, openPlayer }) {
+function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast, openMatch, openPlayer, onOpen }) {
   const close = () => setModal(null);
+  // A reply sheet opened from another sheet goes back to it once the reply is sent.
+  const closeReply = () => (modal.payload?.returnTo ? setModal(modal.payload.returnTo) : close());
   return (
     <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) close(); }}>
       <div className="sheet">
@@ -2469,9 +2596,9 @@ function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach
         {modal.type === "pin" && <PinSheet {...{ data, setIsCoach, close }} />}
         {modal.type === "signin" && !me && <SignInSheet {...{ data, viewer, setViewer, close }} />}
         {modal.type === "fixture" && <FixtureSheet {...{ data, persist, payload: modal.payload, close }} />}
-        {modal.type === "reply" && <ReplySheet {...{ data, payload: modal.payload, isCoach, viewer, me, patchLocal, showToast, close }} />}
+        {modal.type === "reply" && <ReplySheet {...{ data, payload: modal.payload, isCoach, viewer, me, patchLocal, showToast, close: closeReply }} />}
         {modal.type === "day" && <DaySheet {...{ data, iso: modal.payload?.iso, isCoach, viewer, me, setModal, openMatch, openPlayer, close }} />}
-        {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, me, setModal, close }} />}
+        {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, me, setModal, onOpen, close }} />}
         {modal.type === "sessionEdit" && <SessionEditSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "player" && <PlayerSheet {...{ data, persist, payload: modal.payload, me, close }} />}
         {modal.type === "import" && <ImportSheet {...{ data, persist, close }} />}
@@ -2619,8 +2746,8 @@ function SignInSheet({ data, viewer, setViewer, close }) {
     )}
     <div className="card" style={{ padding: "4px 12px" }}>
       {players.map(p => (
-        <div key={p.id} className="avrow" onClick={() => pick(p)} style={{ cursor: "pointer" }}>
-          <div className="avname">{p.name}{p.pin && <Lock size={11} style={{ marginLeft: 6, opacity: .5 }} />}</div>
+        <div key={p.id} className="pickrow" onClick={() => pick(p)}>
+          <div className="pickname">{p.name}{p.pin && <Lock size={11} style={{ marginLeft: 6, opacity: .5 }} />}</div>
           {viewer.pid === p.id ? <Check size={16} color="#1E9E57" /> : <ChevronRight size={15} color="var(--muted)" />}
         </div>
       ))}
@@ -2819,15 +2946,6 @@ function VideoEditor({ f, setF }) {
   );
 }
 
-// The line under an availability list in account mode, by worn hat.
-function rsvpNoteFor(me) {
-  if (me.role === "parent" && (me.playerIds || []).length) {
-    return `You're marking ${joinKidNames(me.playerNames)}. Replies save instantly and are recorded with your child's name.`;
-  }
-  if (me.role === "coach") return "Switch to coach mode from the Viewing as chip to mark anyone.";
-  return "Club admins can see replies but can't respond.";
-}
-
 /* ---------------- MATCH DETAIL (S3, Direction C) ---------------- */
 // A pushed screen. `f` is the fixture read live from data by App, so RSVPs
 // and plan saves show without reopening.
@@ -2972,7 +3090,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
           </div>
         )}
         {guest && <button className="btn" style={{ marginTop: 10 }} onClick={() => setModal({ type: "signin" })}>Sign in to respond</button>}
-        <button className="softbtn" onClick={() => onOpen("whosin", { fixtureId: f.id })}>See everyone's replies</button>
+        <button className="softbtn" onClick={() => onOpen("whosin", { kind: "game", fixtureId: f.id })}>See everyone's replies</button>
       </div>
     )}
 
@@ -3045,119 +3163,135 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
   </>);
 }
 
-/* ---------------- WHO'S IN (S3; S6 restyles it) ---------------- */
-// The full availability list for a game. Writes go through /api/rsvp and the
-// optimistic state lives on the fixture in data (patchLocal), so Home and
-// Match detail counts stay in step; a refused write reverts.
-function WhosInScreen({ data, f, isCoach, viewer, me, setModal, patchLocal }) {
-  const avail = f.availability || {};
+/* ---------------- WHO'S IN (S6, Direction C) ---------------- */
+// A pushed screen. `events` is whosInEvents(): the game and/or training
+// occurrence, and which is shown. Everything renders from the event in data
+// (patchLocal writes through sendReply), so Home, Match detail and the
+// session sheet counts stay in step; a refused write reverts with a toast.
+// Permission mirror of /api/rsvp: the coach marks anyone (inline In / Out,
+// D1 1b); a parent only their own children (the reply sheet, D1 1a); viewers
+// nobody. Past events are read-only.
+function WhosInScreen({ data, events, setShow, isCoach, viewer, me, setModal, patchLocal, showToast }) {
+  const { game, session, show } = events;
+  const isSession = show === "session";
+  const f = game, s = session?.s, occ = session?.occ;
+  const dateISO = isSession ? occ : f.dateISO;
+  const time = isSession ? s.time : f.time;
+  const avail = (isSession ? s.availability?.[occ] : f.availability) || {};
+  const todayISO = isoLocal(new Date());
+  const past = isSession ? occ < todayISO : fixtureState(f).past;
   const account = !!me;
-  const ownIds = me ? (me.playerIds || []) : null;
-  const canEdit = (pid) => isCoach || (account ? ownIds.includes(pid) : (viewer?.kind === "parent" && viewer.pid === pid));
-  const byFor = (pid) => isCoach ? "Coach" : account ? (data.players.find((p) => p.id === pid)?.name || "Parent") : (viewer?.label || "you");
-  const writeAv = (av) => patchLocal(d => ({ ...d, fixtures: (d.fixtures || []).map(x => x.id === f.id ? { ...x, availability: av } : x) }));
+  const guest = !me && !isCoach && viewer?.kind !== "parent";
+  const ownIds = account ? (me.role === "parent" ? (me.playerIds || []) : []) : (viewer?.kind === "parent" && viewer.pid ? [viewer.pid] : []);
+  const ownNames = account ? (me.playerNames || []) : (viewer?.label ? [viewer.label] : []);
 
-  const setAv = async (pid, patch) => {
-    const cur = avail[pid] || {};
-    const merged = { ...cur, ...patch };
-    const status = merged.status ?? null;
-    const reason = status === "out" ? (merged.reason || "Away") : undefined;
-    const optimistic = status == null
-      ? null
-      : { status, ...(reason ? { reason } : {}), by: byFor(pid), at: Date.now() };
-    const nextAvail = { ...avail };
-    if (optimistic == null) delete nextAvail[pid]; else nextAvail[pid] = optimistic;
-    writeAv(nextAvail);
-    try {
-      const res = await fetch("/api/rsvp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "game", id: f.id, playerId: pid, status, reason })
-      });
-      if (!res.ok) throw new Error("rsvp " + res.status);
-    } catch (e) {
-      writeAv(avail);
-      console.error("Could not save availability:", e);
-    }
+  const order = { in: 0, out: 1 };
+  const rows = data.players.filter(p => activeOn(p, dateISO))
+    .sort((a, b) => ((order[avail[a.id]?.status] ?? 2) - (order[avail[b.id]?.status] ?? 2)) || ((a.number || 0) - (b.number || 0)));
+  const counts = replyCounts(data.players, avail, dateISO);
+  const noReply = rows.filter(p => !avail[p.id]?.status);
+
+  const target = isSession ? { kind: "session", session: s, occ } : { kind: "game", fixture: f };
+  const mark = (p, status, reason, quiet) => sendReply({ ...target, playerId: p.id, status, reason, by: "Coach", first: firstName(p.name), patchLocal, showToast, quiet });
+  const openSheet = (p) => setModal({ type: "reply", payload: { ...target, playerId: p.id } });
+
+  // D7: nothing is sent from here. The reminder is copied and WhatsApp opened
+  // with it; the toast says exactly that.
+  const eventName = isSession ? s.title : `${f.round ? `Round ${f.round} ` : ""}vs ${f.opponent}`;
+  const reminder = `${eventName}, ${nudgeDate(dateISO)}${time ? " " + time : ""}. Still need In or Out from ${listNames(noReply)}. Reply on the team page please.`;
+  const nudge = () => {
+    try { const c = navigator.clipboard; if (c?.writeText) Promise.resolve(c.writeText(reminder)).catch(() => {}); } catch {}
+    window.open("https://wa.me/?text=" + encodeURIComponent(reminder), "_blank", "noopener");
+    showToast("Reminder copied — paste it in the group");
   };
+  const familyText = (p, parent) => `Hi${parent ? " " + parent : ""}, could you mark ${firstName(p.name)} In or Out for ${eventName} (${nudgeDate(dateISO)}) on the team page? Thanks.`;
+  const n = noReply.length;
 
-  const players = data.players.filter(p => activeOn(p, f.dateISO)).sort((a, b) => a.number - b.number);
-  const counts = players.reduce((c, p) => {
-    const s = avail[p.id]?.status;
-    if (s === "in") c.in++; else if (s === "out") c.out++; else c.nr++;
-    return c;
-  }, { in: 0, out: 0, nr: 0 });
-  const nonResponders = players.filter(p => !avail[p.id]?.status);
-  const remindText = (p) =>
-    `Hi${p.parentName ? " " + p.parentName.split(" ")[0] : ""}! Quick one — could you mark ${p.name} In or Out for Round ${f.round} vs ${f.opponent} (${fmtDate(f.dateISO)}) on the team page? Thanks! ⚽`;
-  const groupNudge = `⚽ Round ${f.round} vs ${f.opponent} — ${fmtDate(f.dateISO)} ${f.time}\nStill need In/Out from: ${nonResponders.map(p => p.name).join(", ")}\nPlease respond on the team page 🙏`;
+  const foot = past ? `This ${isSession ? "session" : "game"} has passed.`
+    : isCoach ? "As coach you can reply for anyone."
+    : ownIds.length ? `You can reply for ${joinKidNames(ownNames)}. Coaches can reply for anyone.`
+    : guest ? null : "Only coaches and families can reply.";
 
   return (
-    <div className="card">
-      <div className="avsum">
-        <span className="avpill in"><Check size={13} />{counts.in} in</span>
-        <span className="avpill out"><X size={13} />{counts.out} out</span>
-        <span className="avpill nr">{counts.nr} no reply</span>
-      </div>
-      {!account && viewer?.kind !== "parent" && !isCoach && (
-        <button className="btn" style={{ marginBottom: 12 }} onClick={() => setModal({ type: "signin" })}>
-          Sign in to mark your child
-        </button>
-      )}
-      {players.length === 0 && <div className="note">No players on the list for this date.</div>}
-      {players.map(p => {
-        const a = avail[p.id] || {};
-        const editable = canEdit(p.id);
-        return (
-          <div className="avrow" key={p.id} style={editable ? undefined : { opacity: .82 }}>
-            <div className="avname">
-              {p.number}. {p.name}
-              {a.by && a.status && <div className="note" style={{ fontSize: 10.5, fontWeight: 500 }}>{a.status === "in" ? "In" : "Out"} · {a.by}{a.at ? " · " + fmtWhen(a.at) : ""}</div>}
-            </div>
-            {editable ? <>
-              <button className={"avbtn" + (a.status === "in" ? " selin" : "")}
-                onClick={() => setAv(p.id, { status: a.status === "in" ? null : "in", reason: undefined })}>In</button>
-              <button className={"avbtn" + (a.status === "out" ? " selout" : "")}
-                onClick={() => setAv(p.id, { status: a.status === "out" ? null : "out", reason: a.reason || "Away" })}>Out</button>
-              {a.status === "out" && (
-                <select className="avsel" value={a.reason || "Away"} onChange={e => setAv(p.id, { status: "out", reason: e.target.value })}>
-                  {ABSENCE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-              )}
-            </> : (
-              <span className={"avpill " + (a.status === "in" ? "in" : a.status === "out" ? "out" : "nr")}>
-                {a.status === "in" ? "In" : a.status === "out" ? (a.reason || "Out") : "—"}
-              </span>
-            )}
-          </div>
-        );
-      })}
-      <div className="note" style={{ marginTop: 10 }}>
-        {isCoach ? "As coach you can mark anyone." : account ? rsvpNoteFor(me) : viewer?.kind === "parent"
-          ? `You're marking ${viewer.label}. Replies save instantly and are recorded with your name.`
-          : "Open Viewing as and sign in to respond for your child."}
-      </div>
-
-      {isCoach && nonResponders.length > 0 && (
-        <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-          <div className="label" style={{ marginBottom: 8 }}>Coach tools — chase non-responders</div>
-          {nonResponders.map(p => (
-            <div className="remindrow" key={p.id}>
-              <div style={{ flex: 1, fontSize: 13.5 }}>
-                <b>{p.name}</b>{p.parentName ? <span className="note"> · {p.parentName}</span> : ""}
-              </div>
-              {p.parentContact ? (
-                <a className="washare" style={{ padding: "5px 10px", fontSize: 11.5 }}
-                  href={`https://wa.me/${intlPhone(p.parentContact)}?text=${encodeURIComponent(remindText(p))}`}
-                  target="_blank" rel="noopener noreferrer">Remind</a>
-              ) : <span className="note" style={{ fontSize: 11 }}>no contact</span>}
-            </div>
-          ))}
-          <a className="washare" style={{ marginTop: 10 }}
-            href={"https://wa.me/?text=" + encodeURIComponent(groupNudge)}
-            target="_blank" rel="noopener noreferrer">Nudge the group</a>
+    <div className="wi-screen">
+      {game && session && (
+        <div className="wi-seg" role="tablist" aria-label="Game or training">
+          <button role="tab" aria-selected={!isSession} className={isSession ? "" : "on"} onClick={() => setShow("game")}>{WEEKDAYS[new Date(game.dateISO + "T00:00:00").getDay()]} · Game</button>
+          <button role="tab" aria-selected={isSession} className={isSession ? "on" : ""} onClick={() => setShow("session")}>{WEEKDAYS[new Date(session.occ + "T00:00:00").getDay()]} · Training</button>
         </div>
       )}
+
+      <div className="wi-tiles">
+        <div className="wi-tile in"><div className="v">{counts.in}</div><div className="k">In</div></div>
+        <div className="wi-tile out"><div className="v">{counts.out}</div><div className="k">Out</div></div>
+        <div className="wi-tile nr"><div className="v">{counts.nr}</div><div className="k">No reply</div></div>
+      </div>
+
+      <div className="card wi-list">
+        {rows.length === 0 && <div className="wi-empty">No players on the list for this date.</div>}
+        {rows.map(p => {
+          const a = avail[p.id] || {};
+          const mine = ownIds.includes(p.id);
+          const coachRow = isCoach && !past;
+          const parentRow = !isCoach && !past && mine;
+          const tail = [a.by, a.at ? fmtWhen(a.at) : null].filter(Boolean).join(" · ");
+          const hint = a.status ? [a.status === "in" ? "In" : (a.reason || "Out"), tail].filter(Boolean).join(" · ") : "No reply yet";
+          return (
+            <div className={"av-row" + (mine ? " mine" : "")} key={p.id}>
+              <span className="avatar">{initials(p.name)}</span>
+              <div className="av-body">
+                <div className="av-name"><span>{p.name}</span>{p.position && <span className={"pos-pill pos-" + p.position}>{p.position}</span>}</div>
+                <div className="av-hint">
+                  {coachRow && a.status === "out" ? (<>
+                    <select className="av-reason" aria-label={`Why ${firstName(p.name)} is out`} value={a.reason || "Away"} onChange={e => mark(p, "out", e.target.value, true)}>
+                      {ABSENCE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    {tail && <span>· {tail}</span>}
+                  </>) : hint}
+                </div>
+              </div>
+              {coachRow ? (
+                <div className="av-seg">
+                  <button className={"in" + (a.status === "in" ? " on" : "")} onClick={() => mark(p, a.status === "in" ? null : "in")}>In</button>
+                  <button className={"out" + (a.status === "out" ? " on" : "")} onClick={() => mark(p, a.status === "out" ? null : "out", a.reason || "Away")}>Out</button>
+                </div>
+              ) : parentRow ? (
+                <button className={"rr-btn" + (a.status ? " " + a.status : "")} onClick={() => openSheet(p)}>
+                  {a.status === "in" ? "In" : a.status === "out" ? "Out" : "Reply"}
+                </button>
+              ) : (
+                <span className={"st-pill " + (a.status || "nr")}>{a.status === "in" ? "In" : a.status === "out" ? (a.reason || "Out") : "No reply"}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {isCoach && !past && n > 0 && (<>
+        <button className="nudge" onClick={nudge}><MessageCircle size={17} />Nudge the {n} who {n === 1 ? "hasn't" : "haven't"} replied</button>
+        <details className="fam-direct">
+          <summary>Message a family directly</summary>
+          {noReply.map(p => {
+            const gs = guardiansOf(p);
+            const g = gs.find(x => x.mobile) || gs[0] || {};
+            const parent = g.name ? firstName(g.name) : "";
+            return (
+              <div className="fd-row" key={p.id}>
+                <div className="fd-body">
+                  <div className="fd-name">{p.name}</div>
+                  {parent && <div className="fd-who">{parent}</div>}
+                </div>
+                {g.mobile
+                  ? <a className="fd-link" href={`https://wa.me/${intlPhone(g.mobile)}?text=${encodeURIComponent(familyText(p, parent))}`} target="_blank" rel="noopener noreferrer">Remind</a>
+                  : <span className="fd-none">no contact</span>}
+              </div>
+            );
+          })}
+        </details>
+      </>)}
+
+      {foot ? <div className="wi-foot">{foot}</div>
+        : <button className="btn" onClick={() => setModal({ type: "signin" })}>Sign in to respond</button>}
     </div>
   );
 }
@@ -3504,52 +3638,25 @@ function ResetSheet({ data, persist, close }) {
   </>);
 }
 
-function SessionSheet({ data, persist, payload: s, occ, isCoach, viewer, me, setModal, close }) {
+function SessionSheet({ data, persist, payload, occ, isCoach, viewer, me, setModal, onOpen, close }) {
+  // Read the session live from data so a reply sent from here shows at once.
+  const s = (data.sessions || []).find(x => x.id === payload.id) || payload;
   const showISO = occ || s.dateISO;
   const Icon = s.kind === "event" ? Star : Dumbbell;
   const del = () => { persist({ ...data, sessions: (data.sessions || []).filter(x => x.id !== s.id), isSample: false }); close(); };
 
-  // Attendance is stored per-occurrence: s.availability[occurrenceISO][playerId] = { status, reason, by, at }
-  const past = showISO && showISO < isoLocal(new Date());
-  const account = !!me;
-  const ownIds = me ? (me.playerIds || []) : null;
-  const canEdit = (pid) => isCoach || (account ? ownIds.includes(pid) : (viewer?.kind === "parent" && viewer.pid === pid));
-  const byFor = (pid) => isCoach ? "Coach" : account ? (data.players.find((p) => p.id === pid)?.name || "Parent") : (viewer?.label || "you");
-  const dayAvail = (s.availability && s.availability[showISO]) || {};
-  const [avail, setAvail] = useState(dayAvail);
-const setAv = async (pid, patch) => {
-    const cur = avail[pid] || {};
-    const merged = { ...cur, ...patch };
-    const status = merged.status ?? null;
-    const reason = status === "out" ? (merged.reason || "Away") : undefined;
-    const optimistic = status == null
-      ? null
-      : { status, ...(reason ? { reason } : {}), by: byFor(pid), at: Date.now() };
-    const nextAvail = { ...avail };
-    if (optimistic == null) delete nextAvail[pid]; else nextAvail[pid] = optimistic;
-    setAvail(nextAvail);
-    try {
-      const res = await fetch("/api/rsvp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "session", id: s.id, occ: showISO, playerId: pid, status, reason })
-      });
-      if (!res.ok) throw new Error("rsvp " + res.status);
-    } catch (e) {
-      setAvail(avail);
-      console.error("Could not save availability:", e);
-    }
-  };
-  const aplayers = data.players.filter(p => activeOn(p, showISO)).sort((a, b) => a.number - b.number);
-  const counts = aplayers.reduce((c, p) => {
-    const st = avail[p.id]?.status;
-    if (st === "in") c.in++; else if (st === "out") c.out++; else c.nr++;
-    return c;
-  }, { in: 0, out: 0, nr: 0 });
-  const nonResponders = aplayers.filter(p => !avail[p.id]?.status);
-  const remindText = (p) =>
-    `Hi${p.parentName ? " " + p.parentName.split(" ")[0] : ""}! Quick one — could you mark ${p.name} In or Out for ${s.title} on ${fmtDate(showISO)}${s.time ? " at " + s.time : ""} on the team page? Thanks! ⚽`;
-  const groupNudge = `📋 ${s.title} — ${fmtDate(showISO)}${s.time ? " " + s.time : ""}\nStill need In/Out from: ${nonResponders.map(p => p.name).join(", ")}\nPlease respond on the team page 🙏`;
+  // Attendance is stored per occurrence: s.availability[occurrenceISO][playerId]
+  // = { status, reason, by, at }. This card mirrors Match detail's Who's in:
+  // counts, the parent's own-child reply rows, and the full list on Who's in.
+  const past = !!showISO && showISO < isoLocal(new Date());
+  const avail = (s.availability && s.availability[showISO]) || {};
+  const own = ownPlayers(data, { isCoach, me, viewer }).filter(p => activeOn(p, showISO));
+  const guest = !me && !isCoach && viewer?.kind !== "parent";
+  const aplayers = data.players.filter(p => activeOn(p, showISO));
+  const counts = replyCounts(data.players, avail, showISO);
+  const self = { type: "session", payload: s, occ };
+  const openReply = (p) => setModal({ type: "reply", payload: { kind: "session", session: s, occ: showISO, playerId: p.id, returnTo: self } });
+  const seeAll = () => { close(); onOpen("whosin", { kind: "session", sessionId: s.id, occ: showISO }); };
   return (<>
     <SheetHead title={s.title} close={close} />
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
@@ -3570,73 +3677,19 @@ const setAv = async (pid, patch) => {
 
     {s.notes && <div className="card"><div className="label" style={{ marginBottom: 6 }}>Notes</div><div className="note" style={{ fontSize: 13.5 }}>{s.notes}</div></div>}
 
-    {aplayers.length > 0 && (
-      <div className="card">
-        <div className="label" style={{ marginBottom: 10 }}>
-          {past ? "Attendance" : (s.kind === "event" ? "Who's coming? Tap your player" : "Who's training? Tap your player")}
+    {showISO && aplayers.length > 0 && (
+      <div className="card whosin">
+        <div className="wi-head">
+          <span className="label">{past ? "Attendance" : s.kind === "event" ? "Who's coming?" : "Who's training?"}</span>
+          <span className="wi-count">{counts.in} in · {counts.out} out · {counts.nr} no reply</span>
         </div>
-        <div className="avsum">
-          <span className="avpill in"><Check size={13} />{counts.in} in</span>
-          <span className="avpill out"><X size={13} />{counts.out} out</span>
-          <span className="avpill nr">{counts.nr} no reply</span>
-        </div>
-        {!past && !account && viewer?.kind !== "parent" && !isCoach && (
-          <button className="btn" style={{ marginBottom: 12 }} onClick={() => { close(); setModal({ type: "signin" }); }}>
-            Sign in to mark your child
-          </button>
-        )}
-        {aplayers.map(p => {
-          const a = avail[p.id] || {};
-          const editable = !past && canEdit(p.id);
-          return (
-            <div className="avrow" key={p.id} style={editable ? undefined : { opacity: .82 }}>
-              <div className="avname">
-                {p.number}. {p.name}
-                {a.by && a.status && <div className="note" style={{ fontSize: 10.5, fontWeight: 500 }}>{a.status === "in" ? "In" : "Out"} · {a.by}{a.at ? " · " + fmtWhen(a.at) : ""}</div>}
-              </div>
-              {editable ? <>
-                <button className={"avbtn" + (a.status === "in" ? " selin" : "")}
-                  onClick={() => setAv(p.id, { status: a.status === "in" ? null : "in", reason: undefined })}>In</button>
-                <button className={"avbtn" + (a.status === "out" ? " selout" : "")}
-                  onClick={() => setAv(p.id, { status: a.status === "out" ? null : "out", reason: a.reason || "Away" })}>Out</button>
-                {a.status === "out" && (
-                  <select className="avsel" value={a.reason || "Away"} onChange={e => setAv(p.id, { status: "out", reason: e.target.value })}>
-                    {ABSENCE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                )}
-              </> : (
-                <span className={"avpill " + (a.status === "in" ? "in" : a.status === "out" ? "out" : "nr")}>
-                  {a.status === "in" ? "In" : a.status === "out" ? (a.reason || "Out") : "—"}
-                </span>
-              )}
-            </div>
-          );
-        })}
-        <div className="note" style={{ marginTop: 10 }}>
-          {past ? "This session has passed." : isCoach ? "As coach you can mark anyone." : account ? rsvpNoteFor(me) : viewer?.kind === "parent"
-            ? `You're marking ${viewer.label}. Replies save instantly and are recorded with your name.`
-            : "Open Viewing as and sign in to respond for your child."}
-        </div>
-        {!past && isCoach && nonResponders.length > 0 && (
-          <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-            <div className="label" style={{ marginBottom: 8 }}>Coach tools — chase non-responders</div>
-            {nonResponders.map(p => (
-              <div className="remindrow" key={p.id}>
-                <div style={{ flex: 1, fontSize: 13.5 }}>
-                  <b>{p.name}</b>{p.parentName ? <span className="note"> · {p.parentName}</span> : ""}
-                </div>
-                {p.parentContact ? (
-                  <a className="washare" style={{ padding: "5px 10px", fontSize: 11.5 }}
-                    href={`https://wa.me/${intlPhone(p.parentContact)}?text=${encodeURIComponent(remindText(p))}`}
-                    target="_blank" rel="noopener noreferrer">Remind</a>
-                ) : <span className="note" style={{ fontSize: 11 }}>no contact</span>}
-              </div>
-            ))}
-            <a className="washare" style={{ marginTop: 10 }}
-              href={"https://wa.me/?text=" + encodeURIComponent(groupNudge)}
-              target="_blank" rel="noopener noreferrer">Nudge the group</a>
+        {!past && own.length > 0 && (
+          <div className="replyrows">
+            {own.map(p => <ReplyRow key={p.id} p={p} status={avail[p.id]?.status || null} onTap={() => openReply(p)} />)}
           </div>
         )}
+        {!past && guest && <button className="btn" style={{ marginTop: 10 }} onClick={() => setModal({ type: "signin" })}>Sign in to respond</button>}
+        <button className="softbtn" onClick={seeAll}>See everyone's replies</button>
       </div>
     )}
 
