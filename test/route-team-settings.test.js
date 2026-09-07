@@ -102,7 +102,7 @@ describe("POST /api/team-settings — validation", () => {
     expect(setData).not.toHaveBeenCalled();
   });
 
-  it("400s when the body isn't an object or names none of the three settings", async () => {
+  it("400s when the body isn't an object or names none of the settings", async () => {
     coachSession();
     const { POST } = await loadRoute({ authOn: true });
     for (const body of [null, "junk", 42, [], {}, { fixtureId: "f1", plan: {} }, { features: { fruitDuty: false } }]) {
@@ -383,5 +383,41 @@ describe("POST /api/team-settings — narrow write", () => {
     expect(JSON.stringify(saved.fixtures)).toBe(JSON.stringify(fresh.fixtures));
     expect(JSON.stringify(saved.players)).toBe(JSON.stringify(fresh.players));
     expect(JSON.stringify(saved.sessions)).toBe(JSON.stringify(fresh.sessions));
+  });
+});
+
+describe("POST /api/team-settings — season", () => {
+  const SEASON = { startISO: "2027-02-01", endISO: "2027-11-30" };
+
+  it("round-trips a valid window, keeping every other team key and the rest of the document", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { season: { ...SEASON, extra: 1 } } }));
+    expect(res.status).toBe(200);
+    const saved = setData.mock.calls[0][1];
+    expect(saved.team).toEqual({ ...DATA().team, season: SEASON });
+    expectRestUntouched(saved, DATA());
+    expect(await res.json()).toEqual({ ok: true, team: { season: SEASON } });
+  });
+
+  it("null clears the window, and an invalid or inverted pair is stored as null too", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    getData.mockResolvedValue({ ...DATA(), team: { ...DATA().team, season: SEASON } });
+    let res = await POST(fakeRequest({ body: { season: null } }));
+    expect(res.status).toBe(200);
+    expect(setData.mock.calls[0][1].team.season).toBeNull();
+    expect(await res.json()).toEqual({ ok: true, team: { season: null } });
+    res = await POST(fakeRequest({ body: { season: { startISO: "2027-11-30", endISO: "2027-02-01" } } }));
+    expect(setData.mock.calls[1][1].team.season).toBeNull();
+    res = await POST(fakeRequest({ body: { season: "2027" } }));
+    expect(setData.mock.calls[2][1].team.season).toBeNull();
+  });
+
+  it("a parent can't set the season", async () => {
+    parentSession();
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await POST(fakeRequest({ body: { season: SEASON } }))).status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
   });
 });

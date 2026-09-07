@@ -22,7 +22,7 @@ describe("GET /api/calendar", () => {
 
   it("serves the team's ICS feed for a valid key", async () => {
     teamByCalendarKey.mockReturnValue({ slug: "a", name: "Team A" });
-    getData.mockResolvedValue({ team: { name: "Team A" }, fixtures: [], sessions: [], players: [] });
+    getData.mockResolvedValue({ team: { name: "Team A", season: { startISO: "2026-01-01", endISO: "2026-12-31" } }, fixtures: [], sessions: [], players: [] });
     const res = await GET(fakeRequest({ url: "https://x.test/api/calendar?key=key-a" }));
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/calendar");

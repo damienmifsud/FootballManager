@@ -5,7 +5,7 @@
 // (editing an env-defined team takes it over into the store).
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { parsePlayerImport } from "@/lib/majestri";
-import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES } from "@/lib/teamSetup";
+import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES, seasonLabel } from "@/lib/teamSetup";
 import { downscaleImage } from "@/lib/clientImage";
 
 const C = { red: "#C8102E", ink: "#1d1417", muted: "#7a6f72", line: "#eee", soft: "#f6f2f3", ok: "#1E9E57" };
@@ -30,9 +30,15 @@ function friendlyCode() {
 const slugify = (name) => String(name || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 
 const WEEKDAYS = [["1", "Mon"], ["2", "Tue"], ["3", "Wed"], ["4", "Thu"], ["5", "Fri"], ["6", "Sat"], ["0", "Sun"]];
+// Season window (team.season): weekly training and the calendar only run
+// inside it; blank means the team follows the current calendar year.
+const BLANK_SEASON = { startISO: "", endISO: "" };
+const seasonForEdit = (season) => ({ startISO: season?.startISO || "", endISO: season?.endISO || "" });
+const thisYear = new Date().getFullYear();
+const SEASON_YEARS = [thisYear - 1, thisYear, thisYear + 1, thisYear + 2];
 const BLANK = {
   name: "", ageGroup: "U8", password: "", coachEmails: "",
-  division: "", whatsapp: "",
+  division: "", whatsapp: "", season: { ...BLANK_SEASON },
   squadi: { competitionId: "", divisionId: "", teamId: "" },
   importText: "",
   training: [], // { weekday, time, endTime, location }
@@ -78,13 +84,13 @@ export default function TeamWizard() {
   };
   const feedUrl = (t) => `${window.location.origin}/api/calendar?key=${t.calendarKey}`;
 
-  const openCreate = () => { setCreated(null); setEditSlug(null); setForm({ ...BLANK, features: { ...DEFAULT_FEATURES }, parentsSee: { ...DEFAULT_PARENTS_SEE }, training: [], password: friendlyCode() }); };
+  const openCreate = () => { setCreated(null); setEditSlug(null); setForm({ ...BLANK, season: { ...BLANK_SEASON }, features: { ...DEFAULT_FEATURES }, parentsSee: { ...DEFAULT_PARENTS_SEE }, training: [], password: friendlyCode() }); };
   const openEdit = (t) => {
     setCreated(null); setEditSlug(t.slug);
     setForm({
       name: t.name, ageGroup: t.ageGroup || "U8", password: t.password,
       coachEmails: (t.coachEmails || []).join(", "),
-      division: t.division || "", whatsapp: t.whatsapp || "",
+      division: t.division || "", whatsapp: t.whatsapp || "", season: seasonForEdit(t.season),
       squadi: { competitionId: t.squadi?.competitionId || "", divisionId: t.squadi?.divisionId || "", teamId: t.squadi?.teamId || "" },
       importText: "", training: [],
       features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
@@ -138,10 +144,11 @@ export default function TeamWizard() {
   const submit = async () => {
     setBusy(true); setErr("");
     const squadi = (form.squadi.competitionId || form.squadi.divisionId || form.squadi.teamId) ? form.squadi : null;
+    const season = form.season.startISO || form.season.endISO ? { startISO: form.season.startISO, endISO: form.season.endISO } : null;
     const payload = {
       name: form.name, ageGroup: form.ageGroup, password: form.password.trim(),
       coachEmails: form.coachEmails, ...(squadi ? { squadi } : {}),
-      division: form.division, whatsapp: form.whatsapp, features: form.features, parentsSee: form.parentsSee,
+      division: form.division, whatsapp: form.whatsapp, season, features: form.features, parentsSee: form.parentsSee,
       staff: form.staff.filter((s) => s.name.trim()).map(({ role, name, mobile, email }) => ({ role, name, mobile, email })),
       coachPin: form.coachPin,
       ...(form.logo ? { logo: form.logo } : {}), // only when a new file was chosen
@@ -211,6 +218,7 @@ export default function TeamWizard() {
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span style={{ fontWeight: 800, fontSize: 14.5 }}>{t.name}</span>
                 {t.ageGroup && <span style={{ ...chip, background: C.soft, color: C.muted }}>{t.ageGroup}</span>}
+                {t.season && <span style={{ ...chip, background: C.soft, color: C.muted }}>{seasonLabel(t.season)}</span>}
                 {srcChip(t)}
                 <span style={{ flex: 1 }} />
                 <button style={{ ...btn, padding: "4px 9px", fontSize: 11.5 }} onClick={() => openDashboard(t)}>Open ▸</button>
@@ -285,7 +293,7 @@ export default function TeamWizard() {
           <input style={inp} placeholder="coach@example.com, another@example.com" value={form.coachEmails}
             onChange={(e) => setForm((f) => ({ ...f, coachEmails: e.target.value }))} />
           <div style={hint}>
-            Emails here get coach-level access. Anyone on the staff list {editSlug ? "below" : "in step 10"} with an
+            Emails here get coach-level access. Anyone on the staff list {editSlug ? "below" : "in step 11"} with an
             email gets it too, with their title shown in the app.
           </div>
 
@@ -336,7 +344,37 @@ export default function TeamWizard() {
                 </div>
               )}
 
-              <span style={fieldLb}>7 · Weekly training schedule (optional)</span>
+            </>
+          )}
+
+          <span style={fieldLb}>{editSlug ? "Season" : "7 · Season"} — when the team is active (optional)</span>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {SEASON_YEARS.map((yr) => {
+              const on = form.season.startISO === `${yr}-01-01` && form.season.endISO === `${yr}-12-31`;
+              return (
+                <button key={yr} type="button" onClick={() => setForm((f) => ({ ...f, season: { startISO: `${yr}-01-01`, endISO: `${yr}-12-31` } }))}
+                  style={{ ...chip, cursor: "pointer", border: "1px solid " + (on ? C.red : C.line), background: on ? C.red : "#fff", color: on ? "#fff" : C.ink, padding: "6px 12px" }}>
+                  {yr}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <input type="date" aria-label="Season starts" style={{ ...inp, flex: "1 1 140px" }} value={form.season.startISO}
+              onChange={(e) => setForm((f) => ({ ...f, season: { ...f.season, startISO: e.target.value } }))} />
+            <span style={{ fontSize: 12, color: C.muted }}>to</span>
+            <input type="date" aria-label="Season finishes" style={{ ...inp, flex: "1 1 140px" }} value={form.season.endISO}
+              onChange={(e) => setForm((f) => ({ ...f, season: { ...f.season, endISO: e.target.value } }))} />
+            {(form.season.startISO || form.season.endISO) && (
+              <button type="button" style={{ background: "none", border: "none", color: C.red, fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0 }}
+                onClick={() => setForm((f) => ({ ...f, season: { ...BLANK_SEASON } }))}>Clear</button>
+            )}
+          </div>
+          <div style={hint}>Weekly training and the calendar only run inside this window. Leave blank to follow the current calendar year.</div>
+
+          {!editSlug && (
+            <>
+              <span style={fieldLb}>8 · Weekly training schedule (optional)</span>
               <div style={hint}>
                 These become recurring sessions on the team calendar — and flow into every parent's
                 subscribed calendar automatically, exactly like Squadi-synced games.
@@ -365,7 +403,7 @@ export default function TeamWizard() {
             </>
           )}
 
-          <span style={fieldLb}>{editSlug ? "Features" : "8 · Features"} — what this team uses</span>
+          <span style={fieldLb}>{editSlug ? "Features" : "9 · Features"} — what this team uses</span>
           <div style={hint}>Turn off anything that isn't relevant — the dashboard hides it for everyone on this team.</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
             {Object.keys(DEFAULT_FEATURES).map((k) => {
@@ -379,7 +417,7 @@ export default function TeamWizard() {
             })}
           </div>
 
-          <span style={fieldLb}>{editSlug ? "Parents can see" : "9 · Parents can see"} — what parents see of match day</span>
+          <span style={fieldLb}>{editSlug ? "Parents can see" : "10 · Parents can see"} — what parents see of match day</span>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
             {Object.keys(DEFAULT_PARENTS_SEE).map((k) => {
               const on = !!form.parentsSee[k];
@@ -393,7 +431,7 @@ export default function TeamWizard() {
           </div>
           <div style={hint}>You can change this any time in Settings.</div>
 
-          <span style={fieldLb}>{editSlug ? "Team identity" : "10 · Team identity"} — logo, staff & coach PIN (all optional)</span>
+          <span style={fieldLb}>{editSlug ? "Team identity" : "11 · Team identity"} — logo, staff & coach PIN (all optional)</span>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             {form.logo
               ? <img src={form.logo} alt="" style={{ width: 44, height: 44, objectFit: "contain", borderRadius: 10, background: C.soft }} />

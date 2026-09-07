@@ -3,7 +3,8 @@ import {
   DEFAULT_FEATURES, teamFeatures, sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo,
   DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamParentsSee, sanitizeParentsSee,
   BUILTIN_RULES, DEFAULT_RULES, teamRules, sanitizeRules,
-  sanitizeCoachFields, formationFits, sanitizeMatchFormat
+  sanitizeCoachFields, formationFits, sanitizeMatchFormat,
+  sanitizeSeason, teamSeason, seasonLabel, seasonYears, seasonMonths
 } from "@/lib/teamSetup";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 
@@ -364,5 +365,57 @@ describe("sanitizeMatchFormat", () => {
     expect(sanitizeMatchFormat({ hasGK: false }, "U9")).toMatchObject({ playersOnField: 7, hasGK: false, formation: "2-3-2" });
     expect(sanitizeMatchFormat({ playersOnField: 11, hasGK: false }, "U11").formation).toBe("4-4-3");
     expect(sanitizeMatchFormat({ playersOnField: 3, hasGK: true }, "U7").formation).toBe("2");
+  });
+});
+
+describe("season window", () => {
+  it("sanitizeSeason keeps a valid ordered pair and trims", () => {
+    expect(sanitizeSeason({ startISO: " 2027-02-01 ", endISO: "2027-11-30" })).toEqual({ startISO: "2027-02-01", endISO: "2027-11-30" });
+    expect(sanitizeSeason({ startISO: "2026-06-01", endISO: "2026-06-01" })).toEqual({ startISO: "2026-06-01", endISO: "2026-06-01" }); // one day is fine
+  });
+
+  it("sanitizeSeason returns null for junk, half-filled, invalid, inverted or over-cap windows", () => {
+    expect(sanitizeSeason(null)).toBeNull();
+    expect(sanitizeSeason("2026")).toBeNull();
+    expect(sanitizeSeason({})).toBeNull();
+    expect(sanitizeSeason({ startISO: "2026-02-01" })).toBeNull();
+    expect(sanitizeSeason({ startISO: "", endISO: "2026-11-30" })).toBeNull();
+    expect(sanitizeSeason({ startISO: "2026-02-30", endISO: "2026-11-30" })).toBeNull(); // not a real date
+    expect(sanitizeSeason({ startISO: "01/02/2026", endISO: "2026-11-30" })).toBeNull();
+    expect(sanitizeSeason({ startISO: "2026-11-30", endISO: "2026-02-01" })).toBeNull(); // inverted
+    expect(sanitizeSeason({ startISO: "2026-01-01", endISO: "2027-07-02" })).toBeNull(); // > 18 months
+    expect(sanitizeSeason({ startISO: "2026-01-01", endISO: "2027-07-01" })).toEqual({ startISO: "2026-01-01", endISO: "2027-07-01" }); // exactly 18 months
+  });
+
+  it("teamSeason returns the stored window, else the calendar year of todayISO", () => {
+    expect(teamSeason({ season: { startISO: "2027-02-01", endISO: "2027-11-30" } }, "2026-09-07")).toEqual({ startISO: "2027-02-01", endISO: "2027-11-30" });
+    expect(teamSeason({}, "2026-09-07")).toEqual({ startISO: "2026-01-01", endISO: "2026-12-31" });
+    expect(teamSeason(undefined, "2027-01-01")).toEqual({ startISO: "2027-01-01", endISO: "2027-12-31" });
+    expect(teamSeason({ season: { startISO: "bad", endISO: "2027-11-30" } }, "2026-12-31")).toEqual({ startISO: "2026-01-01", endISO: "2026-12-31" });
+    const y = String(new Date().getFullYear());
+    expect(teamSeason({})).toEqual({ startISO: `${y}-01-01`, endISO: `${y}-12-31` }); // defaults to today
+  });
+
+  it("seasonLabel: one year, or 'YYYY/YY' across a boundary", () => {
+    expect(seasonLabel({ startISO: "2026-01-01", endISO: "2026-12-31" })).toBe("2026");
+    expect(seasonLabel({ startISO: "2026-10-01", endISO: "2027-03-31" })).toBe("2026/27");
+    expect(seasonLabel({ startISO: "2029-10-01", endISO: "2030-03-31" })).toBe("2029/30");
+  });
+
+  it("seasonYears lists the distinct years ascending", () => {
+    expect(seasonYears({ startISO: "2026-01-01", endISO: "2026-12-31" })).toEqual([2026]);
+    expect(seasonYears({ startISO: "2026-10-01", endISO: "2027-03-31" })).toEqual([2026, 2027]);
+    expect(seasonYears({})).toEqual([]);
+  });
+
+  it("seasonMonths walks from the start month to the end month, across a year boundary", () => {
+    expect(seasonMonths({ startISO: "2027-02-15", endISO: "2027-04-30" })).toEqual([
+      { year: 2027, month: 1 }, { year: 2027, month: 2 }, { year: 2027, month: 3 }
+    ]);
+    expect(seasonMonths({ startISO: "2026-11-01", endISO: "2027-01-31" })).toEqual([
+      { year: 2026, month: 10 }, { year: 2026, month: 11 }, { year: 2027, month: 0 }
+    ]);
+    expect(seasonMonths({ startISO: "2026-01-01", endISO: "2026-12-31" })).toHaveLength(12);
+    expect(seasonMonths({ startISO: "2026-12-31", endISO: "2026-01-01" })).toEqual([]);
   });
 });

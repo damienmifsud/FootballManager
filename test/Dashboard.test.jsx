@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 import App from "@/components/Dashboard";
-import { isoLocal, SEASON, fmtDate } from "@/lib/dashboardData";
+import { isoLocal, fmtDate } from "@/lib/dashboardData";
 import { signOut } from "next-auth/react";
 
 // The Viewing-as sheet's Sign out calls Auth.js's signOut; under test it just records the call.
@@ -1216,7 +1216,7 @@ describe("S1 shell — header, nav, back stack, toast", () => {
     fireEvent.click(screen.getByText("All stats ›"));
     expect(await screen.findByText("Top scorers")).toBeTruthy();
     expect(headerTitle()).toBe("Stats");
-    expect(headerKicker()).toBe("Season 2026");
+    expect(headerKicker()).toBe(`Season ${new Date().getFullYear()}`); // unset season: the current calendar year
     fireEvent.click(screen.getByText("Squad"));
     expect(await screen.findByText("Sam Smith")).toBeTruthy();
     expect(headerTitle()).toBe("Test FC");
@@ -1838,10 +1838,10 @@ describe("S4 Calendar — Direction C", () => {
   it("the header kicker reads the shown month on Calendar and returns to division · age group on Home", async () => {
     await load(makeData());
     toCalendar();
-    expect(headerKicker()).toBe(`${monthName(m)} ${SEASON}`);
-    expect(screen.getByText(`${monthName(m)} ${SEASON}`, { selector: ".cg-month" })).toBeTruthy();
+    expect(headerKicker()).toBe(`${monthName(m)} ${y}`);
+    expect(screen.getByText(`${monthName(m)} ${y}`, { selector: ".cg-month" })).toBeTruthy();
     toOther();
-    expect(headerKicker()).toBe(`${monthName(other)} ${SEASON}`);
+    expect(headerKicker()).toBe(`${monthName(other)} ${y}`);
     fireEvent.click(within(screen.getByRole("navigation")).getByText("Home"));
     expect(headerKicker()).toBe("Div 1 · U8");
   });
@@ -3138,7 +3138,7 @@ describe("S8 Stats — Direction C", () => {
     await load(makeData({ players: kids, fixtures: season() }));
     await toStats();
     expect(headerTitle()).toBe("Stats");
-    expect(headerKicker()).toBe(`Season ${SEASON}`);
+    expect(headerKicker()).toBe(`Season ${new Date().getFullYear()}`);
     expect(tiles()).toEqual(["Played=3:tile", "Won=1:tile won", "Drew=1:tile drew", "Lost=1:tile lost", "Pts=4:tile pts"]);
     expect(document.querySelector(".st-tiles").className).toBe("tiles st-tiles");
   });
@@ -3437,5 +3437,144 @@ describe("S9 Ask — Direction C", () => {
     expect(screen.queryByPlaceholderText("Ask about the team…")).toBeNull();
     expect(document.querySelector(".ask-chip")).toBeNull();
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+  });
+});
+
+/* ---------------- Season window ---------------- */
+// team.season bounds the Calendar tab, weekly training and the Stats kicker.
+// The window is computed from today (next year, so today is never inside it)
+// rather than pinned, so the suite keeps meaning the same thing every year.
+describe("Season window — calendar, training and stats", () => {
+  const thisYear = new Date().getFullYear();
+  const Y = thisYear + 1;
+  const monthName = (yr, mo) => new Date(yr, mo, 1).toLocaleDateString("en-AU", { month: "long" });
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); render(<App />); return waitForLoaded(); };
+  const toCalendar = () => fireEvent.click(within(screen.getByRole("navigation")).getByText("Calendar"));
+  const prevBtn = () => screen.getByRole("button", { name: "Previous month" });
+  const nextBtn = () => screen.getByRole("button", { name: "Next month" });
+  const gridMonth = () => document.querySelector(".cg-month").textContent;
+  const withSeason = (startISO, endISO, over = {}) => makeData({ team: { ...makeData().team, season: { startISO, endISO } }, ...over });
+
+  it("a next-year season opens on its first month when today is outside it, the kicker reads that month, and ‹ › stop at the window's ends", async () => {
+    await load(withSeason(`${Y}-02-01`, `${Y}-11-30`, { fixtures: [] }));
+    toCalendar();
+    expect(headerKicker()).toBe(`February ${Y}`);
+    expect(gridMonth()).toBe(`February ${Y}`);
+    expect(prevBtn().disabled).toBe(true);
+    expect(nextBtn().disabled).toBe(false);
+    for (let i = 0; i < 9; i++) fireEvent.click(nextBtn());
+    expect(headerKicker()).toBe(`November ${Y}`);
+    expect(nextBtn().disabled).toBe(true);
+    fireEvent.click(nextBtn()); // no-op at the end
+    expect(gridMonth()).toBe(`November ${Y}`);
+    fireEvent.click(prevBtn());
+    expect(gridMonth()).toBe(`October ${Y}`);
+    // The grid is that month's, not the current one.
+    expect(document.querySelectorAll(".cal-cell").length).toBe(31);
+  });
+
+  it("a season spanning the year boundary navigates from October to March across the two years", async () => {
+    await load(withSeason(`${thisYear}-10-01`, `${Y}-03-31`, { fixtures: [] }));
+    toCalendar();
+    // Walk to the start, then to the end, counting months: Oct, Nov, Dec, Jan, Feb, Mar.
+    while (!prevBtn().disabled) fireEvent.click(prevBtn());
+    expect(gridMonth()).toBe(`October ${thisYear}`);
+    const seen = [gridMonth()];
+    while (!nextBtn().disabled) { fireEvent.click(nextBtn()); seen.push(gridMonth()); }
+    expect(seen).toEqual([`October ${thisYear}`, `November ${thisYear}`, `December ${thisYear}`, `January ${Y}`, `February ${Y}`, `March ${Y}`]);
+    expect(headerKicker()).toBe(`March ${Y}`);
+  });
+
+  it("an unbounded weekly training only appears inside the window (no dots before the season starts, rows only from its first day)", async () => {
+    // Season starts mid-February: Tuesdays before the 15th get no training dot.
+    const session = { id: "s1", title: "Training", kind: "training", recur: "weekly", weekday: 2, time: "16:30", location: "Park", availability: {} };
+    await load(withSeason(`${Y}-02-15`, `${Y}-11-30`, { fixtures: [], sessions: [session] }));
+    toCalendar();
+    expect(gridMonth()).toBe(`February ${Y}`);
+    const dotted = [...document.querySelectorAll(".cal-cell")].filter((c) => c.querySelector(".cal-dot.training")).map((c) => +c.querySelector(".n").textContent);
+    expect(dotted.length).toBeGreaterThan(0);
+    expect(dotted.every((d) => d >= 15)).toBe(true);
+    expect(dotted.every((d) => new Date(Y, 1, d).getDay() === 2)).toBe(true);
+    const rows = [...document.querySelectorAll(".callist .wk-row")];
+    expect(rows.length).toBe(dotted.length);
+    expect(rows.every((r) => +r.querySelector(".wk-num").textContent >= 15)).toBe(true);
+    // Last month of the window: a Tuesday after 30 November isn't there.
+    while (!nextBtn().disabled) fireEvent.click(nextBtn());
+    expect(gridMonth()).toBe(`November ${Y}`);
+    const nov = [...document.querySelectorAll(".cal-cell")].filter((c) => c.querySelector(".cal-dot.training")).map((c) => +c.querySelector(".n").textContent);
+    expect(nov.length).toBeGreaterThan(0);
+    expect(nov.every((d) => d <= 30 && new Date(Y, 10, d).getDay() === 2)).toBe(true);
+  });
+
+  it("the Stats kicker reads the season label: one year, or a spanning 'YYYY/YY'", async () => {
+    await load(withSeason(`${Y}-02-01`, `${Y}-11-30`));
+    fireEvent.click(screen.getByText("All stats ›"));
+    await screen.findByText("Top scorers");
+    expect(headerKicker()).toBe(`Season ${Y}`);
+    cleanup();
+    await load(withSeason(`${thisYear}-10-01`, `${Y}-03-31`));
+    fireEvent.click(screen.getByText("All stats ›"));
+    await screen.findByText("Top scorers");
+    expect(headerKicker()).toBe(`Season ${thisYear}/${String(Y).slice(2)}`);
+  });
+});
+
+describe("Settings — season card", () => {
+  const thisYear = new Date().getFullYear();
+  const Y = thisYear + 1;
+  const startInput = () => screen.getByLabelText("Season starts");
+  const endInput = () => screen.getByLabelText("Season finishes");
+
+  it("shows the effective calendar-year window when unset, saves both dates through /api/team-settings and shows the new window", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await enterCoachMode();
+    await openSettings();
+    expect(screen.getByText("Season", { selector: ".label" })).toBeTruthy();
+    expect(screen.getByText(`Following the calendar year: 1 Jan – 31 Dec ${thisYear}`)).toBeTruthy();
+    expect(screen.getByText("Weekly training and the calendar only run inside this window. Leave blank to follow the current calendar year.")).toBeTruthy();
+    fireEvent.change(startInput(), { target: { value: `${Y}-02-01` } });
+    expect(callTo("/api/team-settings")).toBeUndefined(); // half a window: nothing sent yet
+    fireEvent.change(endInput(), { target: { value: `${Y}-11-30` } });
+    await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy());
+    const body = bodyOf("/api/team-settings");
+    expect(body).toEqual({ season: { startISO: `${Y}-02-01`, endISO: `${Y}-11-30` } });
+    expect(await screen.findByText(`1 Feb – 30 Nov ${Y}`)).toBeTruthy();
+    expect(screen.queryByText(/Following the calendar year/)).toBeNull();
+    expect(storage.set).not.toHaveBeenCalled(); // narrow route only, no whole-document write
+  });
+
+  it("clearing both dates sends season: null; a failed save reverts and shows the error", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ team: { ...makeData().team, season: { startISO: `${Y}-02-01`, endISO: `${Y}-11-30` } } })) });
+    render(<App />);
+    await enterCoachMode();
+    await openSettings();
+    expect(screen.getByText(`1 Feb – 30 Nov ${Y}`)).toBeTruthy();
+    expect(startInput().value).toBe(`${Y}-02-01`);
+    fireEvent.change(startInput(), { target: { value: "" } });
+    fireEvent.change(endInput(), { target: { value: "" } });
+    await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy());
+    expect(bodyOf("/api/team-settings")).toEqual({ season: null });
+    expect(await screen.findByText(`Following the calendar year: 1 Jan – 31 Dec ${thisYear}`)).toBeTruthy();
+    // Now every save fails: the window reverts to what was stored.
+    fetch.mockImplementation(() => Promise.resolve({ ok: false, json: async () => ({}) }));
+    fireEvent.change(startInput(), { target: { value: `${Y}-03-01` } });
+    fireEvent.change(endInput(), { target: { value: `${Y}-09-30` } });
+    expect(await screen.findByText("Couldn't save — try again.")).toBeTruthy();
+    expect(screen.getByText(`Following the calendar year: 1 Jan – 31 Dec ${thisYear}`)).toBeTruthy();
+  });
+
+  it("a spanning season reads with both years and an inverted pair is refused locally", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ team: { ...makeData().team, season: { startISO: `${thisYear}-10-01`, endISO: `${Y}-03-31` } } })) });
+    render(<App />);
+    await enterCoachMode();
+    await openSettings();
+    expect(screen.getByText(`1 Oct ${thisYear} – 31 Mar ${Y}`)).toBeTruthy();
+    fireEvent.change(endInput(), { target: { value: `${thisYear}-09-01` } });
+    expect(await screen.findByText(/must be on or after it starts/)).toBeTruthy();
+    expect(callTo("/api/team-settings")).toBeUndefined();
   });
 });

@@ -11,14 +11,15 @@ import {
 // Pure data/display helpers live in lib/dashboardData.js so they can be unit
 // tested; everything below (ICS export, components) uses them from here.
 import {
-  isoLocal, SEASON, addDays, computeStats, nextFixture, isPastGame, fmtDate,
+  isoLocal, addDays, computeStats, nextFixture, isPastGame, fmtDate,
   countdown, ytId, videoKind, mapsUrl, activeOn, intlPhone, recentChanges,
   initials, secToClock, clockToSec, occurrences, monthItems, upcomingItems,
   nextBirthdays
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport } from "@/lib/majestri";
-import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules } from "@/lib/teamSetup";
+import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths } from "@/lib/teamSetup";
+import { seasonICS } from "@/lib/ics";
 import {
   FORMATION_PRESETS, fallbackFormation, defaultFormatForAgeGroup, resolveFormat, parseFormation,
   makePositions, computeAutoSubs, computeSegments, sanitizeAssignments, rosterForFixture
@@ -60,6 +61,7 @@ function sampleData() {
   const players = names.map(([n, num, p]) => ({ id: uid(), name: n, number: num, position: p }));
   const g = (i, n) => [{ pid: players[i].id, n }];
   const today = new Date();
+  const SEASON = today.getFullYear(); // sample data lives in the current calendar year
   const d = (offset) => {
     const x = new Date(today); x.setDate(today.getDate() + offset);
     return x.toISOString().slice(0, 10);
@@ -198,9 +200,13 @@ function vevent(ev) {
   out.push("END:VEVENT");
   return out;
 }
-function veventWeekly(s) {
-  const occ = occurrences(s); if (!occ.length) return [];
-  const until = (s.untilISO || `${SEASON}-12-31`).replace(/-/g, "") + "T235959";
+// The weekly series for one session, bounded by the team's season window
+// (the same rule lib/ics applies to the subscribable feed).
+function veventWeekly(s, season) {
+  const occ = seasonYears(season).flatMap(y => occurrences(s, y, season));
+  if (!occ.length) return [];
+  const untilISO = s.untilISO && s.untilISO < season.endISO ? s.untilISO : season.endISO;
+  const until = untilISO.replace(/-/g, "") + "T235959";
   const out = ["BEGIN:VEVENT", `UID:${s.id}@fqdash`, `DTSTAMP:${stamp()}`, `SUMMARY:${esc(s.title)}`,
     `DTSTART:${compact(occ[0], s.time)}`, `DTEND:${compact(occ[0], s.endTime || addMin(s.time, 90))}`,
     `RRULE:FREQ=WEEKLY;BYDAY=${BYDAY[s.weekday]};UNTIL=${until}`];
@@ -211,24 +217,7 @@ function veventWeekly(s) {
 }
 const wrapICS = (name, body) => ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//FQ Team Dashboard//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", `X-WR-CALNAME:${esc(name)}`, `X-WR-TIMEZONE:${TZ}`, ...body, "END:VCALENDAR"].join("\r\n");
 const singleICS = (ev) => wrapICS(ev.title, vevent(ev));
-function seasonICS(data) {
-  const body = [];
-  data.fixtures.forEach(f => { if (f.dateISO && new Date(f.dateISO + "T00:00:00").getFullYear() === SEASON) body.push(...vevent(gameEv(f, data.team.name))); });
-  (data.sessions || []).forEach(s => {
-    if (s.recur === "weekly") body.push(...veventWeekly(s));
-    else occurrences(s).forEach(iso => body.push(...vevent(sessionEv(s, iso))));
-  });
-  (data.players || []).forEach(p => {
-    if (!p.dob || p.dob.length < 10) return;
-    const iso = `${SEASON}-${p.dob.slice(5, 10)}`;
-    if (isNaN(new Date(iso + "T00:00:00"))) return;
-    if (!activeOn(p, iso)) return;
-    const by = parseInt(p.dob.slice(0, 4), 10);
-    const title = by > 1990 ? `🎂 ${p.name} turns ${SEASON - by}` : `🎂 ${p.name}'s birthday`;
-    body.push(...vevent({ uid: "bday" + p.id, title, dateISO: iso, allDay: true }));
-  });
-  return wrapICS(`${data.team.name} ${SEASON}`, body);
-}
+// seasonICS (the whole-season export) is shared with the feed route: lib/ics.js.
 function downloadICS(filename, text) {
   try {
     const blob = new Blob([text], { type: "text/calendar;charset=utf-8" });
@@ -975,7 +964,7 @@ function matchDayStages(data, f, todayISO) {
 // Settings is titled inline (its kicker is the team name).
 const SUB_TITLES = {
   duties: ["Duties", "Fruit and goalkeeper rota"],
-  stats: ["Stats", `Season ${SEASON}`]
+  stats: ["Stats", "Season"] // kicker completed with the season label below
 };
 // The Duties kicker names the duties this team runs: "Fruit and goalkeeper
 // rota" (the default), "Fruit, goalkeeper and jersey rota", "Fruit rota", …
@@ -1000,9 +989,11 @@ export default function App() {
   const [viewer, setViewerState] = useState(() => readIdentity() || { kind: "guest" });
   const setViewer = (v) => { setViewerState(v); saveIdentity(v); };
   const [modal, setModal] = useState(null); // {type, payload}
-  // The month the Calendar tab shows (index within SEASON). Lives here so the
-  // root header's kicker can read it.
-  const [calMonth, setCalMonth] = useState(() => { const t = new Date(); return t.getFullYear() === SEASON ? t.getMonth() : 0; });
+  // The month the Calendar tab shows ({ year, month }) within the team's
+  // season window. Lives here so the root header's kicker can read it. Until
+  // the user navigates (or if the season changes under it) it is today's month
+  // when that falls inside the window, else the season's first month.
+  const [calMonthPick, setCalMonth] = useState(null);
   // Server-side identity/role (account mode). undefined until /api/me has
   // answered; null in legacy team-code mode (or when the call failed); the
   // account payload otherwise. Nothing coach-shaped renders while undefined,
@@ -1185,6 +1176,11 @@ export default function App() {
   // The player behind a pushed player screen, read live from data (S5).
   const screenPlayer = screen === "player" ? (data.players || []).find((p) => p.id === screenPayload?.playerId) || null : null;
   const roundOf = (f) => (f?.round ? `Round ${f.round}` : "");
+  // The team's season window drives the Calendar range, the Stats kicker and
+  // the ICS export; the shown calendar month is resolved against it.
+  const season = teamSeason(data.team);
+  const calMonths = seasonMonths(season);
+  const calMonth = (calMonthPick && calMonths.find((m) => sameMonth(m, calMonthPick))) || defaultCalMonth(calMonths);
   const subTitle = screen === "settings" ? ["Team settings", data.team.name]
     : screen === "match" ? [roundOf(screenFixture) || "Match", screenFixture ? `vs ${screenFixture.opponent} · ${fmtDate(screenFixture.dateISO)}` : ""]
     : screen === "whosin" ? ["Who's in", !whosIn ? ""
@@ -1192,6 +1188,7 @@ export default function App() {
       : `${roundOf(whosIn.game) ? roundOf(whosIn.game) + " " : ""}vs ${whosIn.game.opponent} · ${fmtDate(whosIn.game.dateISO)}${whosIn.game.time ? " " + whosIn.game.time : ""}`]
     : screen === "player" ? [screenPlayer?.name || "Player", screenPlayer ? [screenPlayer.number ? `#${screenPlayer.number}` : "", screenPlayer.position || ""].filter(Boolean).join(" · ") : ""]
     : screen === "duties" ? [SUB_TITLES.duties[0], dutiesKicker(data.team)]
+    : screen === "stats" ? [SUB_TITLES.stats[0], `Season ${seasonLabel(season)}`]
     : (SUB_TITLES[screen] || [screen, ""]);
   const chipLabel = account ? hatText : (isCoach ? "Coach" : "Parent");
   // Root kicker: the shown month on Calendar, "n players · m coaches" on Squad,
@@ -1247,7 +1244,7 @@ export default function App() {
         )}
 
         {screen === "home" && <HomeTab {...{ data, stats, next, setModal, viewer, me, isCoach, openMatch, onOpen: push, onTab: goTab }} />}
-        {screen === "calendar" && <CalendarTab {...{ data, isCoach, viewer, me, setModal, openMatch, openPlayer, month: calMonth, setMonth: setCalMonth }} />}
+        {screen === "calendar" && <CalendarTab {...{ data, isCoach, viewer, me, setModal, openMatch, openPlayer, season, months: calMonths, month: calMonth, setMonth: setCalMonth }} />}
         {screen === "results" && <ResultsTab {...{ data, stats, isCoach, setModal, openMatch, onOpen: push }} />}
         {screen === "match" && screenFixture && <MatchScreen {...{ data, f: screenFixture, persist, patchLocal, isCoach, viewer, me, setModal, onOpen: push, showToast, openPlayer }} />}
         {screen === "whosin" && whosIn && <WhosInScreen {...{ data, events: whosIn, setShow: setWhosInShow, isCoach, viewer, me, setModal, patchLocal, showToast }} />}
@@ -1292,8 +1289,15 @@ const shortName = (name) => {
   return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : (parts[0] || "");
 };
 const monthLong = (d) => d.toLocaleDateString("en-AU", { month: "long" });
-// "June 2026" for the Calendar header kicker and grid head (month index within SEASON).
-const monthYearLabel = (month) => `${monthLong(new Date(SEASON, month, 1))} ${SEASON}`;
+// "June 2026" for the Calendar header kicker and grid head ({ year, month }).
+const monthYearLabel = ({ year, month }) => `${monthLong(new Date(year, month, 1))} ${year}`;
+const sameMonth = (a, b) => !!a && !!b && a.year === b.year && a.month === b.month;
+// Today's month when the season window covers it, else the window's first month.
+const defaultCalMonth = (months) => {
+  const t = new Date();
+  const now = { year: t.getFullYear(), month: t.getMonth() };
+  return months.find((m) => sameMonth(m, now)) || months[0] || now;
+};
 // "SAT 13 JUNE" (uppercased by CSS) for the match-up centre.
 const matchDate = (iso) => { if (!iso) return "Date TBC"; const d = new Date(iso + "T00:00:00"); return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${monthLong(d)}`; };
 // "Thu, 18 June" for birthday rows.
@@ -1351,9 +1355,10 @@ async function sendReply({ kind = "game", fixture, session, occ, playerId, statu
 const dayDiff = (a, b) => Math.round((new Date(a + "T00:00:00") - new Date(b + "T00:00:00")) / 86400000);
 const trainingOccs = (data, years) => {
   const out = [];
+  const season = teamSeason(data.team);
   (data.sessions || []).filter(s => (s.kind || "training") === "training").forEach(s => {
     const seen = new Set();
-    [...years].forEach(y => occurrences(s, y).forEach(occ => { if (!seen.has(occ)) { seen.add(occ); out.push({ s, occ }); } }));
+    [...years].forEach(y => occurrences(s, y, season).forEach(occ => { if (!seen.has(occ)) { seen.add(occ); out.push({ s, occ }); } }));
   });
   return out;
 };
@@ -1385,7 +1390,7 @@ function whosInEvents(data, payload) {
   const p = payload || {};
   if (p.kind === "session") {
     const s = (data.sessions || []).find(x => x.id === p.sessionId);
-    if (!s || !p.occ || !occurrences(s, +p.occ.slice(0, 4)).includes(p.occ)) return null;
+    if (!s || !p.occ || !occurrences(s, +p.occ.slice(0, 4), teamSeason(data.team)).includes(p.occ)) return null;
     const game = pairedGame(data, p.occ);
     return { game, session: { s, occ: p.occ }, show: p.show === "game" && game ? "game" : "session" };
   }
@@ -1725,7 +1730,7 @@ function AddToCalendarCard({ data }) {
   }, []);
   const webcal = feed ? feed.replace(/^https?:/, "webcal:") : null;
   const copy = () => { navigator.clipboard?.writeText(feed); setCopied(true); setTimeout(() => setCopied(false), 2000); };
-  const download = () => downloadICS(`${data.team.name}-${SEASON}-season.ics`, seasonICS(data));
+  const download = () => downloadICS(`${data.team.name}-${seasonLabel(teamSeason(data.team))}-season.ics`, seasonICS(data));
   return (
     <div className="card subcard">
       <div className="label">Add to your calendar</div>
@@ -1767,26 +1772,28 @@ const calOpenFor = (it, { openMatch, openPlayer, setModal }) => it.kind === "gam
   : it.kind === "birthday"
     ? () => openPlayer(it.ref)
     : () => setModal({ type: "session", payload: it.ref, occ: it.occ });
-const monthISO = (month, d) => `${SEASON}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+const monthISO = ({ year, month }, d) => `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
-function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, openPlayer, month, setMonth }) {
+function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, openPlayer, season, months, month, setMonth }) {
   const today = new Date();
   const todayISO = isoLocal(today);
-  const inSeason = today.getFullYear() === SEASON;
-  const [selISO, setSelISO] = useState(inSeason ? todayISO : `${SEASON}-01-01`);
+  const inSeason = todayISO >= season.startISO && todayISO <= season.endISO;
+  const [selISO, setSelISO] = useState(inSeason ? todayISO : monthISO(month, 1));
   const own = ownPlayers(data, { isCoach, me, viewer });
+  const { year } = month;
+  const idx = months.findIndex((m) => sameMonth(m, month));
 
-  const items = useMemo(() => monthItems(data, SEASON, month), [data, month]);
+  const items = useMemo(() => monthItems(data, month.year, month.month), [data, month.year, month.month]);
   const byDay = useMemo(() => {
     const m = {}; items.forEach(it => { (m[it.dateISO] = m[it.dateISO] || []).push(it); }); return m;
   }, [items]);
 
   // Month grid, Monday-first: leading blanks, then one button per day.
-  const first = new Date(SEASON, month, 1);
+  const first = new Date(year, month.month, 1);
   const lead = (first.getDay() + 6) % 7;
-  const daysInMonth = new Date(SEASON, month + 1, 0).getDate();
+  const daysInMonth = new Date(year, month.month + 1, 0).getDate();
   const monthName = monthLong(first);
-  const isThisMonth = inSeason && today.getMonth() === month;
+  const isThisMonth = today.getFullYear() === year && today.getMonth() === month.month;
   const listItems = isThisMonth ? items.filter(it => it.dateISO >= todayISO) : items;
   const hasEvent = items.some(it => it.kind === "event");
 
@@ -1799,9 +1806,9 @@ function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, openPlaye
     <>
       <div className="card calgrid">
         <div className="cg-head">
-          <button className="cg-nav" aria-label="Previous month" disabled={month === 0} onClick={() => setMonth(Math.max(0, month - 1))}><ChevronLeft size={16} strokeWidth={2.2} /></button>
+          <button className="cg-nav" aria-label="Previous month" disabled={idx <= 0} onClick={() => { if (idx > 0) setMonth(months[idx - 1]); }}><ChevronLeft size={16} strokeWidth={2.2} /></button>
           <span className="cg-month">{monthYearLabel(month)}</span>
-          <button className="cg-nav" aria-label="Next month" disabled={month === 11} onClick={() => setMonth(Math.min(11, month + 1))}><ChevronRight size={16} strokeWidth={2.2} /></button>
+          <button className="cg-nav" aria-label="Next month" disabled={idx < 0 || idx >= months.length - 1} onClick={() => { if (idx >= 0 && idx < months.length - 1) setMonth(months[idx + 1]); }}><ChevronRight size={16} strokeWidth={2.2} /></button>
         </div>
         <div className="cg-dow">{["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <span key={i}>{d}</span>)}</div>
         <div className="cg-cells">
@@ -2600,6 +2607,7 @@ function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal,
       </div>
 
       {isCoach && <>
+        <SeasonCard team={data.team} patchLocal={patchLocal} />
         <ParentsSeeCard team={data.team} patchLocal={patchLocal} />
         <MatchFormatCards team={data.team} patchLocal={patchLocal} />
         <LineupRulesCard team={data.team} patchLocal={patchLocal} />
@@ -2658,8 +2666,8 @@ function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal,
           For a calendar that stays in sync for everyone, keep one <b>shared Google Calendar</b> as the master: Gmail parents add it directly, and Outlook/Microsoft 365 parents use <b>Add calendar → Subscribe from web</b> with its internet (ICS) address. Both then auto-update from the one calendar. Use this dashboard as the front-end and the buttons as the on-ramp.
         </div>
         <button className="btn ghost" style={{ marginTop: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
-          onClick={() => downloadICS(`${data.team.name}-${SEASON}-season.ics`, seasonICS(data))}>
-          <Download size={16} />Export full 2026 season (.ics)
+          onClick={() => downloadICS(`${data.team.name}-${seasonLabel(teamSeason(data.team))}-season.ics`, seasonICS(data))}>
+          <Download size={16} />Export full {seasonLabel(teamSeason(data.team))} season (.ics)
         </button>
       </div>
     </>
@@ -2670,6 +2678,58 @@ function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal,
    Each card writes one team.* field through /api/team-settings and patches
    local state with what the server echoes back. */
 const teamPatch = (patchLocal, patch) => patchLocal((d) => ({ ...d, team: { ...d.team, ...patch } }));
+
+// "1 Feb – 30 Nov 2027" / "1 Oct 2026 – 31 Mar 2027" for the Season card.
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function seasonRange({ startISO, endISO }) {
+  const dm = (iso) => `${+iso.slice(8, 10)} ${MONTHS_SHORT[+iso.slice(5, 7) - 1]}`;
+  const y1 = startISO.slice(0, 4), y2 = endISO.slice(0, 4);
+  return y1 === y2 ? `${dm(startISO)} – ${dm(endISO)} ${y2}` : `${dm(startISO)} ${y1} – ${dm(endISO)} ${y2}`;
+}
+
+// Season window: two dates saved together through the narrow route once both
+// are set (or both cleared); a half-filled pair waits. Optimistic, reverted on
+// failure. Blank follows the current calendar year.
+function SeasonCard({ team, patchLocal }) {
+  const stored = sanitizeSeason(team.season);
+  const [draft, setDraft] = useState({ startISO: stored?.startISO || "", endISO: stored?.endISO || "" });
+  const [err, setErr] = useState("");
+  const storedKey = `${stored?.startISO || ""}|${stored?.endISO || ""}`;
+  useEffect(() => { setDraft({ startISO: stored?.startISO || "", endISO: stored?.endISO || "" }); }, [storedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const effective = teamSeason(team);
+
+  const change = async (patch) => {
+    const next = { ...draft, ...patch };
+    setDraft(next);
+    setErr("");
+    const both = next.startISO && next.endISO, neither = !next.startISO && !next.endISO;
+    if (!both && !neither) return; // wait for the other date
+    const season = both ? sanitizeSeason(next) : null;
+    if (both && !season) { setErr("Season finishes must be on or after it starts, and no more than 18 months later."); return; }
+    if ((season?.startISO || "") === (stored?.startISO || "") && (season?.endISO || "") === (stored?.endISO || "")) return;
+    const prev = team.season;
+    teamPatch(patchLocal, { season });
+    try {
+      const res = await fetchJson("/api/team-settings", { season });
+      if (res?.team && "season" in res.team) teamPatch(patchLocal, { season: res.team.season });
+    } catch (e) {
+      teamPatch(patchLocal, { season: prev });
+      setErr(saveErrorText(e));
+    }
+  };
+  return (
+    <div className="card">
+      <div className="label" style={{ marginBottom: 12 }}>Season</div>
+      <div className="row2">
+        <div className="field"><label>Season starts</label><input className="inp" type="date" aria-label="Season starts" value={draft.startISO} onChange={(e) => change({ startISO: e.target.value })} /></div>
+        <div className="field"><label>Season finishes</label><input className="inp" type="date" aria-label="Season finishes" value={draft.endISO} onChange={(e) => change({ endISO: e.target.value })} /></div>
+      </div>
+      <div className="note">{stored ? seasonRange(effective) : `Following the calendar year: ${seasonRange(effective)}`}</div>
+      {err && <div className="note" style={{ color: "var(--red)", marginTop: 8 }}>{err}</div>}
+      <div className="note" style={{ marginTop: 8 }}>Weekly training and the calendar only run inside this window. Leave blank to follow the current calendar year.</div>
+    </div>
+  );
+}
 
 // What parents see: switches in three groups, saved one toggle at a time
 // (optimistic, reverted on failure).
@@ -4008,7 +4068,7 @@ function SessionSheet({ data, persist, payload, occ, isCoach, viewer, me, setMod
 
     <CalAdd
       ev={sessionEv(s, showISO)}
-      icsText={s.recur === "weekly" ? wrapICS(s.title, veventWeekly(s)) : undefined}
+      icsText={s.recur === "weekly" ? wrapICS(s.title, veventWeekly(s, teamSeason(data.team))) : undefined}
       label={s.recur === "weekly" ? "Add to your calendar (.ics adds every week)" : "Add to your calendar"}
     />
     {s.recur === "weekly" && <div className="note" style={{ marginTop: 6 }}>Google/Outlook buttons add this one session; the .ics adds the whole weekly series.</div>}
@@ -4023,14 +4083,16 @@ function SessionSheet({ data, persist, payload, occ, isCoach, viewer, me, setMod
 }
 
 function SessionEditSheet({ data, persist, payload, close }) {
-  const blank = { id: uid(), title: "Training", kind: "training", recur: "weekly", weekday: 2, startISO: `${SEASON}-02-01`, untilISO: `${SEASON}-09-15`, dateISO: "", time: "17:30", endTime: "19:00", location: "", notes: "" };
+  // Blank From/Until means "the whole season": the team's window bounds every weekly session.
+  const blank = { id: uid(), title: "Training", kind: "training", recur: "weekly", weekday: 2, startISO: "", untilISO: "", dateISO: "", time: "17:30", endTime: "19:00", location: "", notes: "" };
   const [s, setS] = useState(payload ? { ...blank, ...payload } : blank);
   const save = () => {
     const exists = (data.sessions || []).some(x => x.id === s.id);
     const sessions = exists ? data.sessions.map(x => x.id === s.id ? s : x) : [...(data.sessions || []), s];
     persist({ ...data, sessions, isSample: false }); close();
   };
-  const MIN = `${SEASON}-01-01`, MAX = `${SEASON}-12-31`;
+  const season = teamSeason(data.team);
+  const MIN = season.startISO, MAX = season.endISO;
   return (<>
     <SheetHead title={payload ? "Edit activity" : "Add training / activity"} close={close} />
     <div className="field"><label>Type</label>
@@ -4065,7 +4127,7 @@ function SessionEditSheet({ data, persist, payload, close }) {
         <div className="field"><label>From</label><input className="inp" type="date" min={MIN} max={MAX} value={s.startISO} onChange={e => setS({ ...s, startISO: e.target.value })} /></div>
         <div className="field"><label>Until</label><input className="inp" type="date" min={MIN} max={MAX} value={s.untilISO} onChange={e => setS({ ...s, untilISO: e.target.value })} /></div>
       </div>
-      <div className="note" style={{ marginTop: -4, marginBottom: 12 }}>Shows on every {FULLDAYS[s.weekday]} between these dates (2026 only).</div>
+      <div className="note" style={{ marginTop: -4, marginBottom: 12 }}>Shows on every {FULLDAYS[s.weekday]} between these dates — leave them blank for the whole {seasonLabel(season)} season.</div>
     </>)}
 
     <div className="field"><label>Notes (optional)</label><textarea className="inp" rows={2} value={s.notes} onChange={e => setS({ ...s, notes: e.target.value })} /></div>

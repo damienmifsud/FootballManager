@@ -180,6 +180,38 @@ describe("occurrences", () => {
     for (const iso of occ) expect(new Date(iso + "T00:00:00").getDay()).toBe(2);
     expect(occ[0] >= "2026-06-01" && occ[occ.length - 1] <= "2026-06-30").toBe(true);
   });
+  it("defaults to the current year, not a fixed season", () => {
+    expect(occurrences({ recur: "weekly", weekday: 2, startISO: "2026-06-01", untilISO: "2026-06-30" }).length).toBe(5);
+    vi.setSystemTime(new Date(2027, 5, 18));
+    expect(occurrences({ dateISO: "2027-05-10" })).toEqual(["2027-05-10"]);
+    expect(occurrences({ dateISO: "2026-05-10" })).toEqual([]);
+  });
+  it("clamps a weekly session to the season window (before its start, after its end)", () => {
+    const win = { startISO: "2026-02-15", endISO: "2026-11-30" };
+    const occ = occurrences({ recur: "weekly", weekday: 2 }, 2026, win);
+    expect(occ[0]).toBe("2026-02-17"); // first Tuesday on/after 15 Feb
+    expect(occ[occ.length - 1]).toBe("2026-11-24"); // last Tuesday on/before 30 Nov
+    expect(occ.every((iso) => iso >= win.startISO && iso <= win.endISO)).toBe(true);
+    expect(occ.length).toBe(41);
+  });
+  it("the session's own from/until narrows further inside the window, and an empty overlap gives nothing", () => {
+    const win = { startISO: "2026-02-15", endISO: "2026-11-30" };
+    const occ = occurrences({ recur: "weekly", weekday: 2, startISO: "2026-03-01", untilISO: "2026-03-31" }, 2026, win);
+    expect(occ).toEqual(["2026-03-03", "2026-03-10", "2026-03-17", "2026-03-24", "2026-03-31"]);
+    expect(occurrences({ recur: "weekly", weekday: 2, startISO: "2026-12-01" }, 2026, win)).toEqual([]);
+    expect(occurrences({ recur: "weekly", weekday: 2 }, 2027, win)).toEqual([]); // window entirely in 2026
+  });
+  it("a window across the year boundary only yields the part in the asked year, and an 18-month run is never truncated", () => {
+    const win = { startISO: "2026-10-01", endISO: "2027-03-31" };
+    const in2026 = occurrences({ recur: "weekly", weekday: 6 }, 2026, win);
+    const in2027 = occurrences({ recur: "weekly", weekday: 6 }, 2027, win);
+    expect(in2026[0]).toBe("2026-10-03");
+    expect(in2026[in2026.length - 1]).toBe("2026-12-26");
+    expect(in2027[0]).toBe("2027-01-02");
+    expect(in2027[in2027.length - 1]).toBe("2027-03-27");
+    const long = occurrences({ recur: "weekly", weekday: 1, startISO: "2026-01-01", untilISO: "2026-12-31" }, 2026);
+    expect(long.length).toBe(52); // the old 60-week guard never bit here; the 120 cap never will
+  });
 });
 
 describe("monthItems", () => {
@@ -209,6 +241,30 @@ describe("monthItems", () => {
     expect(monthItems(d, 2026, 5)[0].title).toBe("Sam's birthday");
     expect(upcomingItems(d, "2026-06-14", 7)[0].title).toBe("Sam's birthday");
   });
+  it("shows no weekly training outside the team's season window; fixtures are explicit dates and stay", () => {
+    const d = {
+      team: { season: { startISO: "2026-03-01", endISO: "2026-09-30" } },
+      fixtures: [{ id: "f1", dateISO: "2026-11-07", time: "09:00", opponent: "Cup" }],
+      sessions: [{ id: "s1", title: "Training", recur: "weekly", weekday: 2, time: "17:00" }], // unbounded, as the wizard seeds it
+      players: []
+    };
+    expect(monthItems(d, 2026, 1).filter((i) => i.kind === "training")).toEqual([]); // February: before the season
+    expect(monthItems(d, 2026, 2).filter((i) => i.kind === "training").length).toBe(5); // March: 5 Tuesdays
+    expect(monthItems(d, 2026, 10).filter((i) => i.kind === "training")).toEqual([]); // November: after the season
+    expect(monthItems(d, 2026, 10).map((i) => i.title)).toEqual(["vs Cup"]);
+  });
+  it("works for a 2027 season", () => {
+    const d = {
+      team: { season: { startISO: "2027-02-01", endISO: "2027-11-30" } },
+      fixtures: [], players: [],
+      sessions: [{ id: "s1", title: "Training", recur: "weekly", weekday: 3, time: "17:00" }]
+    };
+    const feb = monthItems(d, 2027, 1);
+    expect(feb.length).toBe(4); // Wednesdays in February 2027: 3, 10, 17, 24
+    expect(feb[0].dateISO).toBe("2027-02-03");
+    expect(monthItems(d, 2027, 0)).toEqual([]); // January 2027 is outside
+    expect(monthItems(d, 2026, 5)).toEqual([]); // and so is all of 2026
+  });
 });
 
 describe("upcomingItems", () => {
@@ -224,6 +280,19 @@ describe("upcomingItems", () => {
     expect(titles).toContain("Sam turns 8"); // plain text, no emoji (S4)
     expect(titles).toContain("Training");
     expect(titles).not.toContain("vs Far"); // outside the 7-day window
+  });
+  it("clamps weekly training to the season window", () => {
+    const data = {
+      team: { season: { startISO: "2026-06-22", endISO: "2026-12-31" } },
+      fixtures: [{ id: "f1", dateISO: "2026-06-20", time: "09:00", opponent: "Wests" }],
+      sessions: [{ id: "s1", title: "Training", recur: "weekly", weekday: 2, time: "17:00" }],
+      players: []
+    };
+    const items = upcomingItems(data, "2026-06-18", 7); // 18th–24th; the season starts on the 22nd
+    expect(items.map((i) => i.title)).toEqual(["vs Wests", "Training"]);
+    expect(items[1].dateISO).toBe("2026-06-23"); // Tuesday the 16th is gone, the 23rd stays
+    const none = upcomingItems({ ...data, team: { season: { startISO: "2026-07-01", endISO: "2026-12-31" } } }, "2026-06-18", 7);
+    expect(none.map((i) => i.title)).toEqual(["vs Wests"]);
   });
 });
 
