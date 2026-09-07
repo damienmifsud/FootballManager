@@ -1,0 +1,44 @@
+/* Olympic FC team hub — colour tokens (Direction C delta applied, Sep 2026).
+   Mirror these in the :root of components/Dashboard.jsx's CSS block.
+   Removed on purpose: --header-grad, --board-grad, --board-1, --board-2,
+   --board-line, --page-glow, --shadow-crest (no gradients, no dark chrome). */
+:root {
+  /* brand */
+  --pitch: #C8102E;            /* club red */
+  --pitch-d: #7A0A1B;
+  --ink: #1A1012;
+  --muted: #6B5A5D;
+  --paper: #F4F4F3;
+  --card: #FFFFFF;
+  --soft: #F1EDEE;
+  --line: #E7E3E3;
+
+  /* results */
+  --win: #1E9E57;
+  --draw: #9AA3A6;
+  --red: #E5484D;              /* loss, danger */
+  --amber: #F6A623;            /* upcoming kick-off */
+  --whatsapp: #25D366;         /* WhatsApp actions only */
+
+  /* tints and their strong text */
+  --red-tint: #FDEAEC;   --red-strong: #C0393D;
+  --amber-tint: #FFF1DA; --amber-strong: #B3760A;
+  --green-tint: #E6F6EC; --green-strong: #1F8A4C;
+  --blue-tint: #E6F0FF;  --blue-strong: #2563A8;
+  --pink-tint: #FCE7F3;  --pink-strong: #BE185D;
+  --pitch-tint: var(--red-tint);
+
+  /* chrome */
+  --header-bg: rgba(255,255,255,.96);  --header-blur: 10px;
+  --nav-bg: rgba(255,255,255,.96);     --nav-blur: 12px;   --nav-inset: 14px;
+  --nav-active-bg: #FDEAEC;  --nav-active-fg: var(--pitch);  --nav-idle-fg: var(--muted);
+  --sheet-overlay: rgba(26,16,18,.38);
+  --toast-bg: var(--ink);
+
+  /* misc */
+  --chart-against: #D9D3D4;    /* Stats bars: For = --ink, Against = this */
+  --row-mine: #FFF7F8;         /* the viewer's own child row */
+  --seg-track: var(--line);
+  --ev-game: var(--pitch);  --ev-training: var(--amber);  --ev-event: var(--blue-strong);  --ev-birthday: #BE185D;
+  --crest-ring: 0 0 0 2px var(--pitch);   /* Olympic's side only */
+}

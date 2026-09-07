@@ -28,6 +28,7 @@ import {
 } from "@/lib/planner";
 import { shapeCall } from "@/lib/shapes";
 import { downscaleImage } from "@/lib/clientImage";
+import { crestFor, OUR_CREST } from "@/lib/clubs";
 import { hatLabel, joinNames as joinKidNames } from "@/lib/hats";
 import { signOut } from "next-auth/react";
 
@@ -259,7 +260,7 @@ function outlookUrl(ev) {
    one dark floodlit scoreboard hero, pitch green + lime + amber.
 ============================================================ */
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Anton&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=DM+Mono:wght@500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,800&family=DM+Mono:wght@500&display=swap');
 :root{
   --pitch:#C8102E; --pitch-d:#7A0A1B; --ink:#1A1012; --muted:#6b5a5d;
   --lime:#FFFFFF; --amber:#F6A623; --paper:#F4F4F3; --card:#ffffff;
@@ -368,8 +369,8 @@ const CSS = `
 .pnum.photo{object-fit:cover;}
 .numbadge{position:absolute;bottom:-4px;right:-4px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;
   background:var(--pitch);color:#fff;font-family:'Anton';font-size:11px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;}
-.crest{width:30px;height:30px;object-fit:contain;flex-shrink:0;vertical-align:middle;}
-.crest-lg{width:40px;height:40px;object-fit:contain;flex-shrink:0;}
+.crest{width:30px;height:30px;object-fit:cover;border-radius:50%;flex-shrink:0;vertical-align:middle;}
+.crest-lg{width:40px;height:40px;object-fit:cover;border-radius:50%;flex-shrink:0;}
 .askmsg{padding:11px 14px;border-radius:14px;margin-bottom:10px;font-size:14px;line-height:1.5;max-width:90%;white-space:pre-wrap;}
 .askmsg.you{background:var(--pitch);color:#fff;margin-left:auto;border-bottom-right-radius:4px;}
 .askmsg.bot{background:var(--soft);color:var(--ink);border-bottom-left-radius:4px;}
@@ -556,7 +557,7 @@ const CSS = `
 .sqmatch{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;}
 .sqteam{display:flex;align-items:center;gap:9px;min-width:0;}
 .sqteam.away{flex-direction:row-reverse;text-align:right;}
-.sqcrest{width:34px;height:34px;border-radius:9px;flex:0 0 34px;object-fit:contain;background:#fff;}
+.sqcrest{width:34px;height:34px;border-radius:50%;flex:0 0 34px;object-fit:cover;background:#fff;}
 .sqcrest-ph{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:var(--muted);background:var(--soft);}
 .sqname{flex:1;min-width:0;font-weight:700;font-size:14.5px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .squs .sqname{color:var(--pitch);}
@@ -839,7 +840,7 @@ export default function App() {
       <div className="head">
         <div className="htop">
           {(data.team.logo || true) && (
-            <img className="hlogo" src={data.team.logo || "/logo.png"} alt=""
+            <img className="hlogo" src={data.team.logo || OUR_CREST} alt=""
               onError={(e) => { e.currentTarget.style.display = "none"; }} />
           )}
           <div style={{ minWidth: 0 }}>
@@ -1020,7 +1021,7 @@ function HomeTab({ data, stats, next, pname, setModal }) {
       {next && counts && activePlayers.length > 0 && (
         <div className="card" onClick={() => setModal({ type: "match", payload: next })} style={{ cursor: "pointer" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 10 }}>
-            {next.opponentLogo && <img className="crest" src={next.opponentLogo} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ marginTop: 2 }} />}
+            {crestFor(next.opponent) && <img className="crest" src={crestFor(next.opponent)} alt="" style={{ marginTop: 2 }} />}
             <div style={{ minWidth: 0 }}>
               <div className="label">Who's playing?</div>
               <div style={{ fontWeight: 800, fontSize: 16, marginTop: 3 }}>
@@ -1296,7 +1297,7 @@ function FixturesTab({ data, isCoach, pname, setModal, persist }) {
   const fixtures = [...data.fixtures].sort((a, b) => a.round - b.round);
   const del = (id) => persist({ ...data, fixtures: data.fixtures.filter(f => f.id !== id), isSample: false });
   const usName = data.team.name;
-  const usLogo = data.team.logo || "/logo.png";
+  const usLogo = data.team.logo || OUR_CREST;
 
   // Crest as image when we have one, else a soft tile with the team's initials.
   const crest = (logo, name) => logo
@@ -1317,8 +1318,8 @@ function FixturesTab({ data, isCoach, pname, setModal, persist }) {
           // Home team sits left, away right — flip when Olympic is away.
           const homeName = home ? usName : f.opponent;
           const awayName = home ? f.opponent : usName;
-          const homeLogo = home ? usLogo : (f.opponentLogo || "");
-          const awayLogo = home ? (f.opponentLogo || "") : usLogo;
+          const homeLogo = home ? usLogo : (crestFor(f.opponent) || "");
+          const awayLogo = home ? (crestFor(f.opponent) || "") : usLogo;
           const hs = home ? f.us : f.them;
           const as = home ? f.them : f.us;
           return (
@@ -2481,7 +2482,7 @@ const setAv = async (pid, patch) => {
     <SheetHead title={`Round ${f.round}`} close={close} />
     <div className="matchscore">
       <div className="vs" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-        {f.opponentLogo && <img className="crest-lg" src={f.opponentLogo} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+        {crestFor(f.opponent) && <img className="crest-lg" src={crestFor(f.opponent)} alt="" />}
         <span>{home ? us : them} vs {home ? them : us}</span>
       </div>
       {f.status === "cancelled"
