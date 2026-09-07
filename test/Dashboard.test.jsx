@@ -971,6 +971,30 @@ describe("Settings — match format autosave", () => {
     expect(storage.set).not.toHaveBeenCalled();
   });
 
+  it("offers 4v4, 5v5, 7v7, 9v9 and 11v11; tapping 5v5 saves a keeper and a 1-2-1 shape", async () => {
+    stubNarrowRoutes();
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) }); // U8 -> 7v7 default
+    render(<App />);
+    await enterCoachMode();
+    await openSettings();
+    const card = (await screen.findByText("Match format")).closest(".card");
+    const sizes = [...card.querySelectorAll(".chips .chip")].map((b) => b.textContent);
+    expect(sizes).toEqual(["4v4", "5v5", "7v7", "9v9", "11v11"]);
+    fireEvent.click(screen.getByRole("button", { name: "5v5" }));
+    await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy(), { timeout: 2500 });
+    const body = bodyOf("/api/team-settings");
+    expect(body.matchFormat).toMatchObject({ playersOnField: 5, hasGK: true, formation: "1-2-1" });
+    expect(await screen.findByText("Saved")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "5v5" }).className).toContain("act");
+    // Home shape chips now list the four-outfield presets.
+    expect(screen.getByRole("button", { name: "1-2-1" }).className).toContain("act");
+    expect(screen.getByRole("button", { name: /^2-2/ })).toBeTruthy();
+    // Keeper off keeps five on the pitch and moves to a five-outfield shape.
+    fireEvent.click(screen.getByRole("switch", { name: "Keeper" }));
+    const lastBody = () => JSON.parse(fetch.mock.calls.filter((c) => String(c[0]).includes("/api/team-settings")).at(-1)[1].body);
+    await waitFor(() => expect(lastBody().matchFormat).toMatchObject({ playersOnField: 5, hasGK: false, formation: "2-2-1" }), { timeout: 2500 });
+  });
+
   it("tapping a home-shape chip saves the new formation", async () => {
     stubNarrowRoutes();
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) }); // 7v7, 2-3-1 default
