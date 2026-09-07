@@ -1,12 +1,12 @@
 "use client";
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
-  Home, CalendarDays, Users, Apple, BarChart3, ShieldCheck, Plus, Pencil,
+  Home, CalendarDays, Users, Apple, ShieldCheck, Plus, Pencil,
   Trash2, X, Lock, Unlock, Trophy, MapPin, Clock, ChevronRight, Check,
   Settings as SettingsIcon, Star, Goal, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, ExternalLink, Download, Target,
   Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt, Flag, GripVertical,
-  ChevronDown, Eye, User, LogOut
+  Eye, User, LogOut
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LabelList
@@ -262,53 +262,47 @@ function outlookUrl(ev) {
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,800&family=DM+Mono:wght@500&display=swap');
 :root{
-  --pitch:#C8102E; --pitch-d:#7A0A1B; --ink:#1A1012; --muted:#6b5a5d;
+  /* Direction C (Sep 2026): no gradients, no dark chrome, no page glow. Mirrors
+     .claude/skills/olympic-fc-team-hub-design/tokens/*.css. */
+  --pitch:#C8102E; --pitch-d:#7A0A1B; --ink:#1A1012; --muted:#6B5A5D;
   --lime:#FFFFFF; --amber:#F6A623; --paper:#F4F4F3; --card:#ffffff;
-  --line:#e7e3e3; --red:#E5484D; --soft:#f1edee; --win:#1E9E57;
+  --line:#E7E3E3; --red:#E5484D; --soft:#F1EDEE; --win:#1E9E57;
+  --red-tint:#FDEAEC; --red-strong:#C0393D; --amber-strong:#B3760A; --green-strong:#1F8A4C;
+  --blue-tint:#E6F0FF; --blue-strong:#2563A8; --pink-tint:#FCE7F3; --pink-strong:#BE185D;
+  --ev-birthday:#BE185D; --chart-against:#D9D3D4; --row-mine:#FFF7F8;
+  --card-gap:14px;
+  --header-bg:rgba(255,255,255,.96); --header-blur:10px;
+  --nav-bg:rgba(255,255,255,.96); --nav-blur:12px; --nav-inset:14px;
+  --nav-active-bg:#FDEAEC; --nav-active-fg:var(--pitch); --nav-idle-fg:var(--muted);
+  --shadow-nav:0 10px 30px rgba(26,16,18,.14);
+  --sheet-overlay:rgba(26,16,18,.38); --shadow-sheet:0 -10px 30px rgba(26,16,18,.18);
+  --toast-bg:var(--ink); --shadow-toast:0 10px 30px rgba(20,6,10,.3);
+  --crest-ring:0 0 0 2px var(--pitch);
+  --seg-track:var(--line); --seg-thumb-shadow:0 1px 2px rgba(10,30,18,.08);
+  --r-sheet:20px; --r-seg:13px; --r-seg-thumb:11px; --r-icon-sm:9px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+/* Bottom clearance (brief override 2): nav bottom offset 14 + nav height 62
+   (48 item + 6×2 padding + 1×2 border) + 38 content clearance = 114px. */
 .fqd{font-family:'DM Sans',system-ui,sans-serif;color:var(--ink);background:var(--paper);
-  min-height:100vh;max-width:560px;margin:0 auto;position:relative;padding-bottom:92px;
-  background-image:radial-gradient(circle at 50% 0,rgba(200,16,46,.06),transparent 60%);}
+  min-height:100vh;max-width:560px;margin:0 auto;position:relative;padding-bottom:114px;}
 .fqd h1,.fqd h2,.fqd h3,.disp{font-family:'Anton',sans-serif;font-weight:400;letter-spacing:.01em;text-transform:uppercase;}
 .num{font-family:'DM Mono',monospace;}
-.head{background:linear-gradient(160deg,var(--pitch) 0%,var(--pitch-d) 100%);color:#fff;
-  padding:18px 20px 22px;position:sticky;top:0;z-index:20;
-  border-bottom:3px solid var(--lime);}
-.head .htop{display:flex;align-items:center;gap:12px;padding-right:84px;}
-.head .hlogo{width:46px;height:46px;object-fit:contain;flex-shrink:0;
-  filter:drop-shadow(0 2px 6px rgba(0,0,0,.35));}
-.head .kicker{font-size:11px;letter-spacing:.18em;color:var(--lime);text-transform:uppercase;font-weight:700;}
-.head .tname{font-size:30px;line-height:.95;margin:4px 0 2px;}
-.head .sub{font-size:12px;color:rgba(255,255,255,.7);font-weight:500;}
-.coachbtn{position:absolute;top:18px;right:18px;display:flex;align-items:center;gap:6px;
-  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;
-  padding:7px 11px;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;}
-.coachbtn.on{background:var(--lime);color:var(--pitch-d);border-color:var(--lime);}
-.head .ctxbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px -20px -22px;padding:8px 20px;
-  background:rgba(0,0,0,.22);border-top:1px solid rgba(255,255,255,.12);font-size:12px;}
-.ctxbar .fld{display:flex;align-items:center;gap:6px;min-width:0;}
-.ctxbar label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:rgba(255,255,255,.65);white-space:nowrap;}
-.ctxbar select{appearance:none;-webkit-appearance:none;background:rgba(255,255,255,.14);color:#fff;
-  border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:5px 26px 5px 10px;font:inherit;font-size:12px;font-weight:700;
-  max-width:220px;text-overflow:ellipsis;cursor:pointer;
-  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='white' stroke-width='1.6' fill='none'/></svg>");
-  background-repeat:no-repeat;background-position:right 10px center;}
-.ctxbar select option{color:#1A1012;}
-.ctxbar .static{font-weight:700;color:#fff;}
-.ctxbar .pill{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);color:#fff;
-  padding:5px 10px;border-radius:999px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;}
-.ctxbar .spacer{flex:1;}
-.ctxbar details{position:relative;}
-.ctxbar summary{list-style:none;display:flex;align-items:center;gap:6px;cursor:pointer;background:rgba(255,255,255,.14);
-  border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:5px 10px;font-weight:700;max-width:220px;}
-.ctxbar summary::-webkit-details-marker{display:none;}
-.ctxbar summary span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.ctxbar .menu{position:absolute;right:0;top:calc(100% + 6px);background:#fff;color:var(--ink);border-radius:12px;
-  box-shadow:0 10px 30px rgba(20,6,10,.35);min-width:180px;padding:6px;z-index:40;}
-.ctxbar .menu a,.ctxbar .menu button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:none;
-  font:inherit;font-size:13px;font-weight:600;color:var(--ink);padding:9px 10px;border-radius:8px;cursor:pointer;text-decoration:none;}
-.ctxbar .menu a:hover,.ctxbar .menu button:hover{background:var(--soft);}
+/* header — white 96% + blur, hairline below, sticky. Root variant: crest + team
+   name + kicker; sub variant: back button + title + kicker. Condenses (kicker
+   hidden) after 24px of window scroll. */
+.head{position:sticky;top:0;z-index:20;background:var(--header-bg);color:var(--ink);
+  backdrop-filter:blur(var(--header-blur));-webkit-backdrop-filter:blur(var(--header-blur));
+  border-bottom:1px solid var(--line);padding:12px 16px 10px;display:flex;align-items:center;gap:10px;}
+.head .hcrest{width:30px;height:31px;object-fit:contain;flex-shrink:0;}
+.head .backbtn{width:36px;height:36px;border-radius:12px;border:none;background:var(--soft);color:var(--ink);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-left:-4px;padding:0;}
+.head .hbody{flex:1;min-width:0;}
+.head .hname{font-weight:800;font-size:14px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.head .hname.sub{font-size:15px;}
+.head .hkick{font-size:11px;color:var(--muted);font-weight:600;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hatchip{background:var(--nav-active-bg);color:var(--pitch);border:none;border-radius:999px;padding:6px 10px;
+  font:inherit;font-size:10.5px;font-weight:800;min-height:32px;cursor:pointer;flex-shrink:0;white-space:nowrap;}
 .wrap{padding:16px 16px 8px;}
 .banner{background:#fff8e6;border:1px solid #f3dca0;color:#7a5a12;border-radius:14px;
   padding:11px 13px;font-size:12.5px;display:flex;gap:9px;align-items:flex-start;margin-bottom:14px;}
@@ -389,22 +383,47 @@ const CSS = `
 .scorer-row:last-child{border-bottom:none;}
 .rank{width:24px;font-family:'Anton';font-size:16px;color:var(--muted);text-align:center;}
 .rank.gold{color:var(--amber);}
-/* nav */
-.nav{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);width:calc(100% - 28px);max-width:532px;
-  background:rgba(24,8,12,.95);backdrop-filter:blur(12px);border-radius:20px;display:flex;
-  padding:8px 6px;z-index:30;box-shadow:0 10px 30px rgba(20,6,10,.4);border:1px solid #45121d;}
-.nav button{flex:1;background:none;border:none;color:rgba(255,255,255,.55);display:flex;
-  flex-direction:column;align-items:center;gap:3px;padding:6px 2px;cursor:pointer;font-size:9.5px;
-  font-weight:700;letter-spacing:.03em;border-radius:13px;transition:.18s;}
-.nav button.active{color:var(--pitch-d);background:var(--lime);}
+/* nav — five roots; slides away while a text field has focus */
+.nav{position:fixed;bottom:var(--nav-inset);left:var(--nav-inset);right:var(--nav-inset);margin:0 auto;max-width:532px;
+  background:var(--nav-bg);backdrop-filter:blur(var(--nav-blur));-webkit-backdrop-filter:blur(var(--nav-blur));
+  border:1px solid var(--line);border-radius:20px;display:flex;padding:6px;z-index:30;box-shadow:var(--shadow-nav);
+  transition:transform .26s cubic-bezier(.2,.8,.2,1);}
+.nav.hide{transform:translateY(160px);}
+.nav button{flex:1;min-height:48px;background:none;border:none;color:var(--nav-idle-fg);display:flex;
+  flex-direction:column;align-items:center;gap:3px;padding:7px 2px;cursor:pointer;font:inherit;font-size:10px;
+  font-weight:700;letter-spacing:.03em;border-radius:14px;transition:background .18s,color .18s;}
+.nav button.active{color:var(--nav-active-fg);background:var(--nav-active-bg);}
 .nav button span{text-transform:uppercase;}
-/* modal */
-.ov{position:fixed;inset:0;background:rgba(6,18,11,.5);z-index:50;display:flex;align-items:flex-end;
+/* toast — bottom = 14 nav offset + 62 nav height + 16 = 92px */
+.toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);z-index:60;background:var(--toast-bg);color:#fff;
+  border-radius:999px;padding:10px 16px;font-size:13px;font-weight:700;text-align:center;max-width:calc(100% - 32px);
+  box-shadow:var(--shadow-toast);animation:toastin .2s ease;cursor:pointer;}
+@keyframes toastin{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+/* sheet */
+.ov{position:fixed;inset:0;background:var(--sheet-overlay);z-index:50;display:flex;align-items:flex-end;
   justify-content:center;animation:fade .2s;}
 @keyframes fade{from{opacity:0}to{opacity:1}}
-.sheet{background:#fff;width:100%;max-width:560px;border-radius:22px 22px 0 0;max-height:90vh;overflow-y:auto;
-  padding:20px 18px 30px;animation:rise .26s cubic-bezier(.2,.8,.2,1);}
+.sheet{background:#fff;width:100%;max-width:560px;border-radius:var(--r-sheet) var(--r-sheet) 0 0;max-height:82vh;overflow-y:auto;
+  padding:10px 16px 44px;box-shadow:var(--shadow-sheet);animation:rise .26s cubic-bezier(.2,.8,.2,1);}
 @keyframes rise{from{transform:translateY(40px)}to{transform:translateY(0)}}
+.sheet .grab{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 14px;}
+/* viewing-as sheet */
+.hs-title{font-size:20px;font-weight:800;line-height:1.2;}
+.hs-sub{font-size:13px;color:var(--muted);margin-top:4px;}
+.hs-list{margin-top:10px;}
+.hs-row{width:100%;background:none;border:none;border-bottom:1px solid var(--line);padding:14px 0;display:flex;align-items:center;
+  gap:12px;cursor:pointer;text-align:left;color:var(--ink);min-height:56px;font:inherit;text-decoration:none;}
+.hs-row .disc,.hs-row .ico{width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:800;flex-shrink:0;background:var(--soft);color:var(--muted);}
+.hs-row .ico{color:var(--ink);}
+.hs-row .disc.on{background:var(--pitch);color:#fff;}
+.hs-row .txt{flex:1;min-width:0;}
+.hs-row .txt b{display:block;font-size:15px;font-weight:800;}
+.hs-row .txt span{display:block;font-size:12px;color:var(--muted);margin-top:1px;}
+.hs-label{margin-top:16px;}
+.hs-out{margin-top:14px;background:none;border:none;color:var(--muted);font:inherit;font-size:13px;font-weight:700;cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px;padding:8px 0;min-height:40px;}
+.ghostlink{background:none;border:none;color:var(--pitch);font:inherit;font-size:12px;font-weight:800;cursor:pointer;padding:8px 0 0;}
 .sheet .sh-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
 .sheet h2{font-size:22px;}
 .xbtn{background:var(--soft);border:none;border-radius:10px;width:34px;height:34px;display:flex;
@@ -690,10 +709,22 @@ function matchDayStages(data, f, todayISO) {
 /* ============================================================
    APP
 ============================================================ */
+// Sub-screens pushed over a root tab, with their header title and kicker.
+// Settings is titled inline (its kicker is the team name).
+const SUB_TITLES = {
+  duties: ["Duties", "Fruit and goalkeeper rota"],
+  stats: ["Stats", `Season ${SEASON}`]
+};
+
 export default function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Chrome navigation: `tab` is the active bottom-nav root; `stack` holds the
+  // sub-screens pushed on top of it (duties, stats, settings), last on top.
   const [tab, setTab] = useState("home");
+  const [stack, setStack] = useState([]);
+  // Coach mode. Account mode derives it from the server-resolved role (no
+  // toggle); legacy team-code mode enters it from the Viewing-as sheet.
   const [isCoach, setIsCoach] = useState(false);
   const [viewer, setViewerState] = useState(() => readIdentity() || { kind: "guest" });
   const setViewer = (v) => { setViewerState(v); saveIdentity(v); };
@@ -703,8 +734,37 @@ export default function App() {
   // account payload otherwise. Nothing coach-shaped renders while undefined,
   // so a slow answer can't expose the legacy PIN toggle to a parent.
   const [me, setMe] = useState(undefined);
-  // One-line status under the header: a refused write, an undone save.
-  const [notice, setNotice] = useState(null);
+  // Toast: one short line saying what just happened (a refused write, an
+  // undone save). 2.2s, then gone. Every notice surfaces here.
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+  const showToast = useCallback((msg) => {
+    clearTimeout(toastTimer.current);
+    setToast(msg);
+    toastTimer.current = setTimeout(() => setToast(null), 2200);
+  }, []);
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+  const setNotice = showToast;
+  // Header condenses (kicker hidden) after 24px of window scroll — the .fqd
+  // column is the page, so the window is what scrolls.
+  const [condensed, setCondensed] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setCondensed((window.scrollY || 0) > 24);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  // The nav slides away while a text field anywhere in .fqd has focus. React's
+  // onFocus/onBlur on the root are focusin/focusout, so they bubble from inputs.
+  const [typing, setTyping] = useState(false);
+  const isTextField = (el) => !!(el && el.matches && el.matches("input,textarea,select")) && !/^(checkbox|radio)$/i.test(el.type || "");
+  const onFocusIn = (e) => { if (isTextField(e.target)) setTyping(true); };
+  const onFocusOut = (e) => { if (isTextField(e.target)) setTyping(false); };
+  // Account mode: the server-resolved role IS coach mode.
+  useEffect(() => { if (me) setIsCoach(me.role === "coach"); }, [me]);
+  const scrollTop = () => { const el = typeof document !== "undefined" && (document.scrollingElement || document.documentElement); if (el) el.scrollTop = 0; };
+  const push = useCallback((id) => { setStack((s) => [...s, id]); scrollTop(); }, []);
+  const back = useCallback(() => { setStack((s) => s.slice(0, -1)); scrollTop(); }, []);
+  const goTab = (id) => { setTab(id); setStack([]); scrollTop(); };
   // Latest data for optimistic writes to roll back to (persist/savePlan are
   // stable callbacks, so they read it through a ref rather than a dep).
   const dataRef = useRef(null);
@@ -784,11 +844,10 @@ export default function App() {
     );
   }
 
-  // Account mode: the server-resolved role decides who can even see the coach
-  // toggle (parents, viewers and club admins are read-only; the server blocks
-  // their writes regardless). The coach PIN is a legacy-mode device.
+  // Account mode: the server-resolved role decides coach mode (parents,
+  // viewers and club admins are read-only; the server blocks their writes
+  // regardless). The coach PIN is a legacy-mode device.
   const account = !!me;
-  const canCoach = me === undefined ? false : (me ? me.role === "coach" : true);
   // The hat being worn on this team (account mode), for the header chip.
   const currentHat = me
     ? ((me.hats || []).find((h) => h.role === me.role) || { role: me.role, playerNames: me.playerNames, staffRole: me.staffRole, admin: me.admin })
@@ -814,11 +873,23 @@ export default function App() {
     try { await fetch("/api/logout", { method: "POST" }); } catch {}
     try { await signOut({ callbackUrl: "/login" }); } catch { window.location.href = "/login"; }
   };
+  // Legacy mode only: Coach mode / Leave coach mode from the Viewing-as sheet.
+  // Leaving also drops the coach-only Settings screen off the stack.
   const toggleCoach = () => {
-    if (isCoach) { setIsCoach(false); return; }
-    if (me) { if (me.role === "coach") setIsCoach(true); return; } // verified server-side, no PIN
-    if (data.team.coachPin) setModal({ type: "pin" });
-    else setIsCoach(true);
+    if (isCoach) { setIsCoach(false); setStack((s) => s.filter((x) => x !== "settings")); setModal(null); return; }
+    if (data.team.coachPin) { setModal({ type: "pin" }); return; }
+    setIsCoach(true); setModal(null);
+  };
+  // What the header shows: a root tab (crest + team) or a pushed sub-screen (back + title).
+  const screen = stack.length ? stack[stack.length - 1] : tab;
+  const isSub = stack.length > 0;
+  const subTitle = screen === "settings" ? ["Team settings", data.team.name] : (SUB_TITLES[screen] || [screen, ""]);
+  const chipLabel = account ? hatText : (isCoach ? "Coach" : "Parent");
+  // Everything the Viewing-as sheet needs from here.
+  const hatSheet = {
+    isAdmin, wear, strongestRoleOf, signOut: signOutEverywhere, toggleCoach,
+    openSettings: () => { setModal(null); push("settings"); },
+    openSignin: () => setModal({ type: "signin" })
   };
 
   const exitViewAs = async () => {
@@ -827,7 +898,7 @@ export default function App() {
   };
 
   return (
-    <div className="fqd">
+    <div className="fqd" onFocus={onFocusIn} onBlur={onFocusOut}>
       <style>{CSS}</style>
 
       {me?.viewingAs && (
@@ -837,107 +908,48 @@ export default function App() {
         </div>
       )}
 
-      <div className="head">
-        <div className="htop">
-          {(data.team.logo || true) && (
-            <img className="hlogo" src={data.team.logo || OUR_CREST} alt=""
-              onError={(e) => { e.currentTarget.style.display = "none"; }} />
-          )}
-          <div style={{ minWidth: 0 }}>
-            <div className="kicker">{data.team.division} · {data.team.ageGroup}</div>
-            <div className="tname">{data.team.name}</div>
-            <div className="sub">{(() => {
-              const st = getStaff(data.team);
-              const hc = st.find(s => /head/i.test(s.role))?.name || data.team.headCoach;
-              const ac = st.find(s => /assist/i.test(s.role))?.name || data.team.assistantCoach;
-              return [hc && `Coach ${hc}`, ac && `Asst ${ac}`].filter(Boolean).join(" · ");
-            })()}</div>
-          </div>
+      <header className="head">
+        {isSub ? (
+          <button className="backbtn" aria-label="Back" onClick={back}><ChevronLeft size={18} /></button>
+        ) : (
+          <img className="hcrest" src={data.team.logo || OUR_CREST} alt=""
+            onError={(e) => { const el = e.currentTarget; if (el.getAttribute("src") !== OUR_CREST) el.src = OUR_CREST; else el.style.display = "none"; }} />
+        )}
+        <div className="hbody">
+          <div className={"hname" + (isSub ? " sub" : "")}>{isSub ? subTitle[0] : data.team.name}</div>
+          {!condensed && <div className="hkick">{isSub ? subTitle[1] : `${data.team.division} · ${data.team.ageGroup}`}</div>}
         </div>
-        {canCoach && (
-          <button className={"coachbtn" + (isCoach ? " on" : "")} onClick={toggleCoach}>
-            {isCoach ? <Unlock size={13} /> : <Lock size={13} />}{isCoach ? "Coach" : "View"}
-          </button>
-        )}
-        {me !== undefined && (
-          <div className="ctxbar">
-            {account ? (<>
-              <div className="fld">
-                <label htmlFor="ctx-team">Team</label>
-                <select id="ctx-team" aria-label="Team" value={me.teamSlug || ""}
-                  onChange={(e) => {
-                    const slug = e.target.value;
-                    if (slug === "__new") { window.location.href = "/admin"; return; }
-                    const team = (me.teams || []).find((t) => t.teamSlug === slug);
-                    wear(slug, strongestRoleOf(team) || me.role);
-                  }}>
-                  {(me.teams || []).map((t) => <option key={t.teamSlug} value={t.teamSlug}>{t.teamName}</option>)}
-                  {isAdmin && <option value="__new">Create a team…</option>}
-                </select>
-              </div>
-              <div className="fld">
-                <label htmlFor={(me.hats || []).length > 1 ? "ctx-hat" : undefined}>Viewing as</label>
-                {(me.hats || []).length > 1 ? (
-                  <select id="ctx-hat" aria-label="Viewing as" value={me.role || ""} onChange={(e) => wear(me.teamSlug, e.target.value)}>
-                    {me.hats.map((h) => <option key={h.role} value={h.role}>{hatLabel(h)}</option>)}
-                  </select>
-                ) : (
-                  <span className="static">{hatText}</span>
-                )}
-              </div>
-            </>) : (me === null && !isCoach && (
-              <button className="pill" onClick={() => setModal({ type: "signin" })}>
-                {viewer.kind === "parent" ? <><User size={12} />{viewer.label}</> : "Sign in to respond"}
-              </button>
-            ))}
-            <span className="spacer" />
-            <details>
-              <summary aria-label="Account menu">
-                <User size={12} /><span>{account ? me.email : "Account"}</span><ChevronDown size={12} />
-              </summary>
-              <div className="menu">
-                {isAdmin && <a href="/admin"><SettingsIcon size={14} />Club admin</a>}
-                <button onClick={signOutEverywhere}><LogOut size={14} />Sign out</button>
-              </div>
-            </details>
-          </div>
-        )}
-      </div>
+        <button className="hatchip" aria-label="Viewing as" onClick={() => setModal({ type: "hats" })}>{chipLabel}</button>
+      </header>
 
       <div className="wrap">
-        {notice && (
-          <div className="banner" role="status">
-            <Info size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-            <span>{notice}</span>
-            <button aria-label="Dismiss" onClick={() => setNotice(null)} style={{ padding: "4px 6px", display: "flex" }}><X size={14} /></button>
-          </div>
-        )}
         {data.isSample && (
           <div className="banner">
             <Info size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-            <span>This is example data so you can see the layout. Switch to <b>Coach</b> mode (top right) to edit your real squad, fixtures and duties.</span>
+            <span>This is example data so you can see the layout. Open <b>Viewing as</b> (top right) and choose Coach mode to edit your real squad, fixtures and duties.</span>
           </div>
         )}
 
-        {tab === "home" && <HomeTab {...{ data, stats, next, pname, setModal, viewer }} />}
-        {tab === "calendar" && <CalendarTab {...{ data, isCoach, setModal }} />}
-        {tab === "fixtures" && <FixturesTab {...{ data, isCoach, pname, setModal, persist }} />}
-        {tab === "squad" && <SquadTab {...{ data, stats, isCoach, setModal, persist }} />}
-        {tab === "duties" && <DutiesTab {...{ data, isCoach, pname, setModal }} />}
-        {tab === "stats" && <StatsTab {...{ data, stats, pname }} />}
-        {tab === "ask" && <AskTab {...{ data, viewer, isCoach, account }} />}
-        {tab === "settings" && <SettingsTab {...{ data, isCoach, persist, patchLocal, setIsCoach, setModal, account }} />}
+        {screen === "home" && <HomeTab {...{ data, stats, next, pname, setModal, viewer, onOpen: push }} />}
+        {screen === "calendar" && <CalendarTab {...{ data, isCoach, setModal }} />}
+        {screen === "results" && <FixturesTab {...{ data, isCoach, pname, setModal, persist }} />}
+        {screen === "squad" && <SquadTab {...{ data, stats, isCoach, setModal, persist }} />}
+        {screen === "ask" && <AskTab {...{ data, viewer, isCoach, account }} />}
+        {screen === "duties" && <DutiesTab {...{ data, isCoach, pname, setModal }} />}
+        {screen === "stats" && <StatsTab {...{ data, stats, pname }} />}
+        {screen === "settings" && <SettingsTab {...{ data, isCoach, persist, patchLocal, setIsCoach, setModal, account }} />}
       </div>
 
-      <nav className="nav" style={{ padding: "8px 2px" }}>
-        {[["home", Home, "Home"], ["calendar", Calendar, "Calendar"], ["fixtures", ClipboardList, "Results"],
-        ["squad", Users, "Squad"], ["duties", Apple, "Duties"], ["stats", BarChart3, "Stats"], ["ask", Sparkles, "Ask"],
-        ...(isCoach ? [["settings", SettingsIcon, "Settings"]] : [])].map(([id, Ic, lbl]) => (
-          <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} style={{ fontSize: 8.5 }}>
+      <nav className={"nav" + (typing ? " hide" : "")} aria-label="Main">
+        {[["home", Home, "Home"], ["calendar", Calendar, "Calendar"], ["results", Trophy, "Results"],
+        ["squad", Users, "Squad"], ["ask", Sparkles, "Ask"]].map(([id, Ic, lbl]) => (
+          <button key={id} className={tab === id ? "active" : ""} onClick={() => goTab(id)}>
             <Ic size={18} /><span>{lbl}</span>
           </button>
         ))}
       </nav>
+
+      {toast && <div className="toast" role="status" onClick={() => setToast(null)}>{toast}</div>}
 
       {modal && modal.type === "plan" ? (
         <MatchDayPlanner
@@ -948,14 +960,14 @@ export default function App() {
           close={() => setModal(null)}
         />
       ) : modal ? (
-        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me }} />
+        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet }} />
       ) : null}
     </div>
   );
 }
 
 /* ---------------- HOME ---------------- */
-function HomeTab({ data, stats, next, pname, setModal }) {
+function HomeTab({ data, stats, next, pname, setModal, onOpen }) {
   const avail = next?.availability || {};
   const activePlayers = next ? data.players.filter(p => activeOn(p, next.dateISO)) : [];
   const counts = next ? activePlayers.reduce((c, p) => {
@@ -992,7 +1004,7 @@ function HomeTab({ data, stats, next, pname, setModal }) {
           )}
         </div>
       ) : (
-        <div className="card"><div className="empty"><div className="disp">No upcoming match</div><div className="note">Add fixtures in the Fixtures tab.</div></div></div>
+        <div className="card"><div className="empty"><div className="disp">No upcoming match</div><div className="note">Add fixtures under Results.</div><button className="ghostlink" style={{ marginTop: 10 }} onClick={() => onOpen("duties")}>Duties ›</button></div></div>
       )}
 
       {next && (() => {
@@ -1005,7 +1017,8 @@ function HomeTab({ data, stats, next, pname, setModal }) {
         ].filter(Boolean);
         if (!tiles.length) return null;
         return (
-          <div className="duties">
+          <div className="duties" role="button" tabIndex={0} aria-label="Duties" style={{ cursor: "pointer" }}
+            onClick={() => onOpen("duties")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen("duties"); } }}>
             {tiles.map(({ cls, Icon, label, who }) => (
               <div className={"duty " + cls} key={label}>
                 <div className="ic"><Icon size={18} /></div>
@@ -1122,6 +1135,9 @@ function HomeTab({ data, stats, next, pname, setModal }) {
           {[[stats.played, "Played"], [stats.gf, "For"], [stats.ga, "Against"], [stats.gf - stats.ga >= 0 ? "+" + (stats.gf - stats.ga) : stats.gf - stats.ga, "Diff"]].map(([v, k]) => (
             <div className="stat" key={k}><div className="v">{v}</div><div className="k">{k}</div></div>
           ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button className="ghostlink" onClick={() => onOpen("stats")}>All stats ›</button>
         </div>
         {stats.form.length > 0 && (<>
           <div className="label" style={{ marginTop: 14 }}>Recent form</div>
@@ -1766,7 +1782,7 @@ function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal,
   const save = () => persist({ ...data, team: { ...data.team, ...t }, isSample: false });
   return (
     <>
-      {!isCoach && <div className="banner"><Lock size={15} /><span>Switch to Coach mode (top-right lock) to edit team details and manage data.</span></div>}
+      {!isCoach && <div className="banner"><Lock size={15} /><span>Switch to coach mode from the Viewing as chip to edit team details and manage data.</span></div>}
       <div className="card">
         <div className="label" style={{ marginBottom: 12 }}>Team details</div>
         <div className="field"><label>Team name</label><input className="inp" disabled={!isCoach} value={t.name} onChange={e => setT({ ...t, name: e.target.value })} /></div>
@@ -2107,11 +2123,13 @@ function LineupRulesCard({ team, patchLocal }) {
 /* ============================================================
    MODALS
 ============================================================ */
-function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me }) {
+function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet }) {
   const close = () => setModal(null);
   return (
     <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) close(); }}>
       <div className="sheet">
+        <div className="grab" />
+        {modal.type === "hats" && <HatsSheet {...hatSheet} {...{ data, me, isCoach, viewer, close }} />}
         {modal.type === "pin" && <PinSheet {...{ data, setIsCoach, close }} />}
         {modal.type === "signin" && !me && <SignInSheet {...{ data, viewer, setViewer, close }} />}
         {modal.type === "fixture" && <FixtureSheet {...{ data, persist, payload: modal.payload, close }} />}
@@ -2126,6 +2144,58 @@ function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach
       </div>
     </div>
   );
+}
+
+// Viewing-as sheet (header hat chip). Account mode: this team's hats, other
+// teams, Create a team (admins), Team settings (coach), Club admin, Sign out.
+// Legacy team-code mode: Coach mode / Leave coach mode and the per-device
+// "who's responding" identity instead of hats.
+function HatsSheet({ data, me, isCoach, viewer, isAdmin, wear, strongestRoleOf, signOut, openSettings, toggleCoach, openSignin }) {
+  const hats = me ? (me.hats || []) : [];
+  const others = me ? (me.teams || []).filter((t) => t.teamSlug !== me.teamSlug) : [];
+  const hatInitials = (h) => {
+    if (h.role === "coach") return "C";
+    if (h.role !== "parent") return "V";
+    const names = h.playerNames || [];
+    return names.length === 1 ? initials(names[0]) : (names.map((n) => (firstName(n)[0] || "")).join("").slice(0, 3).toUpperCase() || "P");
+  };
+  const hatSub = (h) => h.role === "coach" ? "Edit fixtures, scores and duties"
+    : h.role === "parent" ? `Reply for ${joinKidNames(h.playerNames)} and see the team`
+    : "Read everything, change nothing";
+  const Row = ({ href, onClick, lead, title, sub, right }) => {
+    const inner = <>{lead}<span className="txt"><b>{title}</b>{sub && <span>{sub}</span>}</span>{right}</>;
+    return href ? <a className="hs-row" href={href}>{inner}</a> : <button className="hs-row" onClick={onClick}>{inner}</button>;
+  };
+  return (<>
+    <div className="hs-title">Viewing as</div>
+    <div className="hs-sub">{hats.length > 1 ? "You're both a coach and a parent here. Pick a hat." : "Switch team, open settings or sign out."}</div>
+    <div className="hs-list">
+      {hats.map((h) => {
+        const worn = h.role === me.role;
+        return <Row key={h.role} onClick={() => wear(me.teamSlug, h.role)}
+          lead={<span className={"disc" + (worn ? " on" : "")}>{hatInitials(h)}</span>}
+          title={hatLabel(h)} sub={hatSub(h)}
+          right={worn ? <Check size={18} color="var(--pitch)" strokeWidth={2.5} aria-label="Current hat" /> : null} />;
+      })}
+      {me === null && (<>
+        <Row onClick={toggleCoach} lead={<span className="ico">{isCoach ? <Unlock size={16} /> : <Lock size={16} />}</span>}
+          title={isCoach ? "Leave coach mode" : "Coach mode"}
+          sub={isCoach ? "Back to the parent view" : (data.team.coachPin ? "Needs the coach PIN" : "Edit fixtures, scores and duties")} />
+        {!isCoach && <Row onClick={openSignin} lead={<span className="ico"><User size={16} /></span>}
+          title={viewer.kind === "parent" ? `Responding as ${viewer.label}` : "Sign in to respond"}
+          sub={viewer.kind === "parent" ? "Tap to change who replies from this device" : "Pick your child so replies are recorded as you"} />}
+      </>)}
+      {others.length > 0 && (<>
+        <div className="label hs-label">Other teams</div>
+        {others.map((t) => <Row key={t.teamSlug} onClick={() => wear(t.teamSlug, strongestRoleOf(t) || me.role)}
+          lead={<span className="disc">{initials(t.teamName)}</span>} title={t.teamName} sub={hatLabel(t.hats?.[0])} />)}
+      </>)}
+      {isAdmin && <Row href="/admin" lead={<span className="ico"><Plus size={16} /></span>} title="Create a team" />}
+      {isCoach && <Row onClick={openSettings} lead={<span className="ico"><SettingsIcon size={16} /></span>} title="Team settings" sub="Details, match format, duties and what parents can see" />}
+      {isAdmin && <Row href="/admin" lead={<span className="ico"><SettingsIcon size={16} /></span>} title="Club admin" />}
+    </div>
+    <button className="hs-out" onClick={signOut}><LogOut size={15} />Sign out</button>
+  </>);
 }
 
 function SheetHead({ title, close }) {
@@ -2418,7 +2488,7 @@ function rsvpNoteFor(me) {
   if (me.role === "parent" && (me.playerIds || []).length) {
     return `You're marking ${joinKidNames(me.playerNames)}. Replies save instantly and are recorded with your child's name.`;
   }
-  if (me.role === "coach") return "Switch to Coach mode (top right) to mark anyone.";
+  if (me.role === "coach") return "Switch to coach mode from the Viewing as chip to mark anyone.";
   return "Club admins can see replies but can't respond.";
 }
 
@@ -2614,7 +2684,7 @@ const setAv = async (pid, patch) => {
         <div className="note" style={{ marginTop: 10 }}>
           {isCoach ? "As coach you can mark anyone." : account ? rsvpNoteFor(me) : viewer?.kind === "parent"
             ? `You're marking ${viewer.label}. Replies save instantly and are recorded with your name.`
-            : "Sign in (top right) to respond for your child."}
+            : "Open Viewing as and sign in to respond for your child."}
         </div>
 
         {isCoach && nonResponders.length > 0 && (
@@ -3125,7 +3195,7 @@ const setAv = async (pid, patch) => {
         <div className="note" style={{ marginTop: 10 }}>
           {past ? "This session has passed." : isCoach ? "As coach you can mark anyone." : account ? rsvpNoteFor(me) : viewer?.kind === "parent"
             ? `You're marking ${viewer.label}. Replies save instantly and are recorded with your name.`
-            : "Sign in (top right) to respond for your child."}
+            : "Open Viewing as and sign in to respond for your child."}
         </div>
         {!past && isCoach && nonResponders.length > 0 && (
           <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
