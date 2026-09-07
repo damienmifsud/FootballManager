@@ -106,27 +106,56 @@ describe("App — account-mode roles (/api/me)", () => {
       return Promise.resolve({ ok: false, json: async () => ({}) });
     });
   };
+  // /api/me payload builders in the hat-picker shape.
+  const coachHat = { role: "coach", playerIds: [], playerNames: [] };
+  const parentHat = (ids, names) => ({ role: "parent", playerIds: ids, playerNames: names });
+  const viewerHat = { role: "viewer", playerIds: [], playerNames: [], clubAdmin: true };
+  const account = (over = {}) => {
+    const hats = over.hats || [coachHat];
+    const worn = hats.find((h) => h.role === (over.role || "coach")) || hats[0];
+    return {
+      mode: "account", email: "x@a.com", admin: false, teamSlug: "a", teamName: "Test FC", role: "coach",
+      playerIds: worn.playerIds, playerNames: worn.playerNames, hats,
+      teams: [{ teamSlug: "a", teamName: "Test FC", hats }], canSwitch: false, memberships: [], ...over
+    };
+  };
+  const threeKids = [
+    { id: "p1", name: "Sam Smith", number: 7, position: "FWD" },
+    { id: "p2", name: "Alex Smith", number: 8, position: "MID" },
+    { id: "p3", name: "Milo Park", number: 9, position: "DEF" }
+  ];
+  const openMatch = async () => {
+    fireEvent.click(await screen.findByText("Who's playing?"));
+    await screen.findByText("Who's playing? Tap your player");
+  };
+  const clearCookies = () => document.cookie.split(";").forEach((c) => {
+    const k = c.split("=")[0].trim();
+    if (k) document.cookie = `${k}=; path=/; max-age=0`;
+  });
 
-  it("hides the coach toggle entirely for a parent", async () => {
-    meFetch({ mode: "account", email: "mum@a.com", admin: false, teamSlug: "a", role: "parent", memberships: [] });
+  it("hides the coach toggle entirely for a parent, and shows the parent chip instead of the legacy sign-in", async () => {
+    meFetch(account({ email: "mum@a.com", role: "parent", hats: [parentHat(["p1"], ["Sam Smith"])] }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await screen.findByText(/Div 1 · U8/);
-    await waitFor(() => expect(screen.queryByRole("button", { name: /View/ })).toBeNull());
+    expect(await screen.findByText("Viewing as Parent of Sam")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /View/ })).toBeNull();
     expect(screen.queryByText("Settings")).toBeNull();
+    expect(screen.queryByText(/Sign in to respond/)).toBeNull();
   });
 
   it("hides the coach toggle and the respond button for a view-only club admin", async () => {
-    meFetch({ mode: "account", email: "td@club.com", admin: false, teamSlug: "a", role: "viewer", memberships: [] });
+    meFetch(account({ email: "td@club.com", role: "viewer", hats: [viewerHat] }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await screen.findByText(/Div 1 · U8/);
-    await waitFor(() => expect(screen.queryByRole("button", { name: /View/ })).toBeNull());
+    expect(await screen.findByText("Viewing as Club admin (view only)")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /View/ })).toBeNull();
     expect(screen.queryByText(/Sign in to respond/)).toBeNull();
   });
 
   it("lets a server-verified coach enter coach mode without the PIN", async () => {
-    meFetch({ mode: "account", email: "coach@a.com", admin: false, teamSlug: "a", role: "coach", memberships: [] });
+    meFetch(account({ email: "coach@a.com" }));
     // A coachPin is set, but the server-verified role skips the PIN sheet.
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ team: { name: "Test FC", division: "Div 1", ageGroup: "U8", coachPin: "1234" } })) });
     render(<App />);
@@ -135,6 +164,132 @@ describe("App — account-mode roles (/api/me)", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalled());
     fireEvent.click(viewBtn);
     expect(await screen.findByText("Settings")).toBeTruthy();
+  });
+
+  it("shows a plain 'Viewing as Coach' chip (not a button) when there is nothing to switch to", async () => {
+    meFetch(account({ email: "coach@a.com" }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    const chip = await screen.findByText("Viewing as Coach");
+    expect(chip.closest("button")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Switch team or role" })).toBeNull();
+  });
+
+  it("canSwitch: the chip is a button that opens the hats sheet; picking a hat sets the team_slug and act_as cookies", async () => {
+    clearCookies();
+    const hats = [coachHat, parentHat(["p1"], ["Sam Smith"])];
+    meFetch(account({
+      email: "both@a.com", hats, canSwitch: true,
+      teams: [{ teamSlug: "a", teamName: "Test FC", hats }, { teamSlug: "bees", teamName: "Bees FC", hats: [coachHat] }]
+    }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    const chip = await screen.findByRole("button", { name: "Switch team or role" });
+    expect(chip.textContent).toContain("Viewing as Coach");
+    fireEvent.click(chip);
+
+    expect(await screen.findByRole("heading", { name: "Viewing as" })).toBeTruthy();
+    // Two "Coach" rows: this team's (worn) and Bees FC's.
+    const coachRows = screen.getAllByRole("button", { name: "Coach" });
+    expect(coachRows).toHaveLength(2);
+    expect(coachRows[0].getAttribute("aria-current")).toBe("true");
+    expect(coachRows[1].getAttribute("aria-current")).toBeNull();
+    const parentRow = screen.getByRole("button", { name: "Parent of Sam" });
+    expect(parentRow.getAttribute("aria-current")).toBeNull();
+    expect(screen.getByText("Other teams")).toBeTruthy();
+    expect(screen.getByText("Bees FC")).toBeTruthy();
+
+    fireEvent.click(parentRow);
+    expect(document.cookie).toContain("team_slug=a");
+    expect(document.cookie).toContain("act_as=parent");
+    clearCookies();
+  });
+
+  it("a coach-parent wearing the parent hat gets the parent experience: no coach toggle, In/Out for both of their kids only", async () => {
+    meFetch(account({ email: "both@a.com", role: "parent", hats: [coachHat, parentHat(["p1", "p2"], ["Sam Smith", "Alex Smith"])], canSwitch: true }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players: threeKids })) });
+    render(<App />);
+    expect(await screen.findByText("Viewing as Parent of Sam & Alex")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /View/ })).toBeNull();
+    await openMatch();
+    expect(screen.getAllByRole("button", { name: "In" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Out" })).toHaveLength(2);
+    // Milo's row is read-only (a pill, not buttons) and no legacy sign-in button appears.
+    const milo = screen.getByText(/Milo Park/).closest(".avrow");
+    expect(milo.querySelector(".avbtn")).toBeNull();
+    expect(milo.querySelector(".avpill")).toBeTruthy();
+    expect(screen.queryByText("Sign in to mark your child")).toBeNull();
+    expect(screen.getByText(/You're marking Sam & Alex\./)).toBeTruthy();
+  });
+
+  it("a view-only club admin gets no In/Out buttons and no sign-in button in the match sheet", async () => {
+    meFetch(account({ email: "td@club.com", role: "viewer", hats: [viewerHat] }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ players: threeKids })) });
+    render(<App />);
+    await screen.findByText("Viewing as Club admin (view only)");
+    await openMatch();
+    expect(screen.queryByRole("button", { name: "In" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Out" })).toBeNull();
+    expect(screen.queryByText("Sign in to mark your child")).toBeNull();
+    expect(screen.getByText("Club admins can see replies but can't respond.")).toBeTruthy();
+  });
+
+  it("shows no View/Coach toggle at all until /api/me has answered", async () => {
+    fetch.mockImplementation((url) => {
+      if (String(url).includes("/api/me")) return new Promise(() => {}); // never answers
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await screen.findByText(/Div 1 · U8/);
+    expect(screen.queryByRole("button", { name: /View/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Coach/ })).toBeNull();
+    expect(screen.queryByText(/Sign in to respond/)).toBeNull();
+  });
+
+  it("viewingAs: a coach edit writes nothing and shows the read-only notice", async () => {
+    meFetch(account({ email: "admin@club.com", admin: true, realAdmin: true, viewingAs: "coach@a.com" }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /View/ }));
+    fireEvent.click(await screen.findByText("Settings")); // proves coach mode; also the Club admin link is there
+    expect(screen.getByRole("link", { name: /Club admin/ }).getAttribute("href")).toBe("/admin");
+    fireEvent.click(screen.getByText("Results"));
+    fireEvent.click(await screen.findByText("Add fixture"));
+    fireEvent.click(await screen.findByRole("button", { name: "Save fixture" }));
+    expect(await screen.findByText("Read only while viewing as coach@a.com.")).toBeTruthy();
+    expect(storage.set).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByText(/Read only while viewing as/)).toBeNull();
+  });
+
+  it("hides the Coach PIN field and the PIN advice in Settings in account mode", async () => {
+    meFetch(account({ email: "coach@a.com" }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /View/ }));
+    fireEvent.click(await screen.findByText("Settings"));
+    await screen.findByText("Team details");
+    expect(screen.queryByText("Coach PIN (guards editing)")).toBeNull();
+    expect(screen.getByText(/Sign-in decides who can edit/)).toBeTruthy();
+    expect(screen.queryByText(/set a PIN above/)).toBeNull();
+  });
+});
+
+describe("App — failed saves are undone", () => {
+  it("reverts the data and shows the notice when window.storage.set rejects", async () => {
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    storage.set.mockRejectedValue(new Error("quota"));
+    const { container } = render(<App />);
+    await waitForLoaded();
+    fireEvent.click(screen.getByRole("button", { name: /View/ }));
+    fireEvent.click(screen.getByText("Results"));
+    await screen.findByText("Add fixture");
+    expect(container.querySelectorAll(".sqrow")).toHaveLength(1);
+    fireEvent.click(screen.getByText("Add fixture"));
+    fireEvent.click(await screen.findByRole("button", { name: "Save fixture" }));
+    expect(await screen.findByText(/Couldn't save — your change was undone\. quota/)).toBeTruthy();
+    await waitFor(() => expect(container.querySelectorAll(".sqrow")).toHaveLength(1));
   });
 });
 

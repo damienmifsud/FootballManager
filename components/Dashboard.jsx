@@ -5,7 +5,8 @@ import {
   Trash2, X, Lock, Unlock, Trophy, MapPin, Clock, ChevronRight, Check,
   Settings as SettingsIcon, Star, Goal, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, ExternalLink, Download, Target,
-  Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt, Flag, GripVertical
+  Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt, Flag, GripVertical,
+  ChevronDown, Eye, User
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LabelList
@@ -27,6 +28,7 @@ import {
 } from "@/lib/planner";
 import { shapeCall } from "@/lib/shapes";
 import { downscaleImage } from "@/lib/clientImage";
+import { hatLabel, joinNames as joinKidNames } from "@/lib/hats";
 
 /* ============================================================
    STORAGE
@@ -673,8 +675,17 @@ export default function App() {
   const [viewer, setViewerState] = useState(() => readIdentity() || { kind: "guest" });
   const setViewer = (v) => { setViewerState(v); saveIdentity(v); };
   const [modal, setModal] = useState(null); // {type, payload}
-  // Server-side identity/role (account mode). null until known / in legacy mode.
-  const [me, setMe] = useState(null);
+  // Server-side identity/role (account mode). undefined until /api/me has
+  // answered; null in legacy team-code mode (or when the call failed); the
+  // account payload otherwise. Nothing coach-shaped renders while undefined,
+  // so a slow answer can't expose the legacy PIN toggle to a parent.
+  const [me, setMe] = useState(undefined);
+  // One-line status under the header: a refused write, an undone save.
+  const [notice, setNotice] = useState(null);
+  // Latest data for optimistic writes to roll back to (persist/savePlan are
+  // stable callbacks, so they read it through a ref rather than a dep).
+  const dataRef = useRef(null);
+  dataRef.current = data;
 
   // load
   useEffect(() => {
@@ -693,14 +704,24 @@ export default function App() {
     // of the client-side PIN toggle (which the server would refuse anyway).
     fetch("/api/me", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (j?.mode === "account") setMe(j); })
-      .catch(() => {});
+      .then((j) => setMe(j?.mode === "account" ? j : null))
+      .catch(() => setMe(null));
   }, []);
 
+  const saveFailed = (e) => {
+    const msg = e && e.message ? String(e.message) : "";
+    setNotice("Couldn't save — your change was undone." + (msg ? " " + msg : ""));
+  };
+
+  // Whole-document write. Optimistic, but undone (and announced) when storage
+  // refuses; a super admin viewing as someone else never writes at all.
   const persist = useCallback(async (next) => {
+    if (me?.viewingAs) { setNotice(`Read only while viewing as ${me.viewingAs}.`); return; }
+    const prev = dataRef.current;
     setData(next);
-    try { await window.storage.set(KEY, JSON.stringify(next), true); } catch (e) { console.error(e); }
-  }, []);
+    try { await window.storage.set(KEY, JSON.stringify(next), true); }
+    catch (e) { console.error(e); setData(prev); saveFailed(e); }
+  }, [me]);
 
   // Local-only patch: the narrow routes have already written the field, so
   // only React state needs to catch up (never a whole-document storage write).
@@ -712,6 +733,8 @@ export default function App() {
   // The plan's first-block keeper writes back to the fixture's in-goal duty
   // (gk) when the planner passes one.
   const savePlan = useCallback(async (fixtureId, plan, gk) => {
+    if (me?.viewingAs) { setNotice(`Read only while viewing as ${me.viewingAs}.`); return; }
+    const prev = dataRef.current;
     setData((d) => d ? {
       ...d,
       fixtures: (d.fixtures || []).map((f) => f.id === fixtureId ? { ...f, plan, ...(gk !== undefined ? { gk } : {}) } : f)
@@ -723,8 +746,8 @@ export default function App() {
         body: JSON.stringify({ fixtureId, plan, ...(gk !== undefined ? { gk } : {}) })
       });
       if (!res.ok) throw new Error("plan save " + res.status);
-    } catch (e) { console.error("Could not save game plan:", e); }
-  }, []);
+    } catch (e) { console.error("Could not save game plan:", e); setData(prev); saveFailed(e); }
+  }, [me]);
 
   const stats = useMemo(() => data ? computeStats(data) : null, [data]);
   const next = useMemo(() => data ? nextFixture(data) : null, [data]);
@@ -741,7 +764,13 @@ export default function App() {
   // Account mode: the server-resolved role decides who can even see the coach
   // toggle (parents, viewers and club admins are read-only; the server blocks
   // their writes regardless). The coach PIN is a legacy-mode device.
-  const canCoach = !me || me.role === "coach";
+  const account = !!me;
+  const canCoach = me === undefined ? false : (me ? me.role === "coach" : true);
+  // The hat being worn on this team (account mode), for the header chip.
+  const currentHat = me
+    ? ((me.hats || []).find((h) => h.role === me.role) || { role: me.role, playerNames: me.playerNames, staffRole: me.staffRole, admin: me.admin })
+    : null;
+  const hatText = me ? (me.role || !me.admin ? hatLabel(currentHat) : "Super admin") : "";
   const toggleCoach = () => {
     if (isCoach) { setIsCoach(false); return; }
     if (me) { if (me.role === "coach") setIsCoach(true); return; } // verified server-side, no PIN
@@ -760,7 +789,7 @@ export default function App() {
 
       {me?.viewingAs && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 400, background: "#E07B1F", color: "#fff", fontFamily: "system-ui,sans-serif", fontWeight: 700, fontSize: 12.5, padding: "8px 12px", display: "flex", justifyContent: "center", alignItems: "center", gap: 12, boxShadow: "0 2px 10px rgba(0,0,0,.25)" }}>
-          <span>👁 Viewing as {me.viewingAs} — read only</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Eye size={14} />Viewing as {me.viewingAs} — read only</span>
           <button onClick={exitViewAs} style={{ background: "#fff", color: "#E07B1F", border: "none", borderRadius: 999, padding: "3px 12px", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>Exit</button>
         </div>
       )}
@@ -779,7 +808,11 @@ export default function App() {
               const hc = st.find(s => /head/i.test(s.role))?.name || data.team.headCoach;
               const ac = st.find(s => /assist/i.test(s.role))?.name || data.team.assistantCoach;
               return [hc && `Coach ${hc}`, ac && `Asst ${ac}`].filter(Boolean).join(" · ");
-            })()}</div>
+            })()}{me?.admin && (
+              <a href="/admin" style={{ color: "inherit", fontWeight: 700, marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 3, textDecoration: "none", borderBottom: "1px solid rgba(255,255,255,.4)" }}>
+                <SettingsIcon size={11} />Club admin
+              </a>
+            )}</div>
           </div>
         </div>
         {canCoach && (
@@ -787,14 +820,31 @@ export default function App() {
             {isCoach ? <Unlock size={13} /> : <Lock size={13} />}{isCoach ? "Coach" : "View"}
           </button>
         )}
-        {!isCoach && me?.role !== "viewer" && (
+        {account ? (
+          me.canSwitch ? (
+            <button className="whoami" aria-label="Switch team or role" onClick={() => setModal({ type: "hats" })}>
+              <User size={12} /><span>Viewing as {hatText}</span><ChevronDown size={12} />
+            </button>
+          ) : (
+            <span className="whoami" style={{ cursor: "default" }}>
+              <User size={12} /><span>Viewing as {hatText}</span>
+            </span>
+          )
+        ) : (me === null && !isCoach && (
           <button className="whoami" onClick={() => setModal({ type: "signin" })}>
-            {viewer.kind === "parent" ? `👤 ${viewer.label}` : "Sign in to respond"}
+            {viewer.kind === "parent" ? <><User size={12} />{viewer.label}</> : "Sign in to respond"}
           </button>
-        )}
+        ))}
       </div>
 
       <div className="wrap">
+        {notice && (
+          <div className="banner" role="status">
+            <Info size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>{notice}</span>
+            <button aria-label="Dismiss" onClick={() => setNotice(null)} style={{ padding: "4px 6px", display: "flex" }}><X size={14} /></button>
+          </div>
+        )}
         {data.isSample && (
           <div className="banner">
             <Info size={15} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -808,8 +858,8 @@ export default function App() {
         {tab === "squad" && <SquadTab {...{ data, stats, isCoach, setModal, persist }} />}
         {tab === "duties" && <DutiesTab {...{ data, isCoach, pname, setModal }} />}
         {tab === "stats" && <StatsTab {...{ data, stats, pname }} />}
-        {tab === "ask" && <AskTab {...{ data, viewer, isCoach }} />}
-        {tab === "settings" && <SettingsTab {...{ data, isCoach, persist, patchLocal, setIsCoach, setModal }} />}
+        {tab === "ask" && <AskTab {...{ data, viewer, isCoach, account }} />}
+        {tab === "settings" && <SettingsTab {...{ data, isCoach, persist, patchLocal, setIsCoach, setModal, account }} />}
       </div>
 
       <nav className="nav" style={{ padding: "8px 2px" }}>
@@ -831,7 +881,7 @@ export default function App() {
           close={() => setModal(null)}
         />
       ) : modal ? (
-        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer }} />
+        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me }} />
       ) : null}
     </div>
   );
@@ -1489,8 +1539,10 @@ function KnowledgeEditor({ data, persist, isCoach }) {
   </>);
 }
 
-function AskTab({ data, viewer, isCoach }) {
-  const allowed = isCoach || viewer?.kind === "parent";
+function AskTab({ data, viewer, isCoach, account }) {
+  // Account mode: the server already knows who is asking. Legacy mode still
+  // needs the device identity or coach mode.
+  const allowed = account ? true : (isCoach || viewer?.kind === "parent");
   const [q, setQ] = useState("");
   const [msgs, setMsgs] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -1621,7 +1673,7 @@ const teamDetails = (team) => {
   return d;
 };
 
-function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal }) {
+function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal, account }) {
   // Draft of the Team-details fields only (name, age group, division, logo,
   // staff, WhatsApp, PIN). data.team also changes when a settings card writes
   // parentsSee/matchFormat/rules through its narrow route, so the draft only
@@ -1694,7 +1746,7 @@ function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal 
         {isCoach ? <>
           <div className="label" style={{ marginBottom: 12 }}>Sharing & access</div>
           <div className="field"><label>WhatsApp group invite link</label><input className="inp" value={t.whatsapp || ""} onChange={e => setT({ ...t, whatsapp: e.target.value })} placeholder="https://chat.whatsapp.com/…" /></div>
-          <div className="field"><label>Coach PIN (guards editing)</label><input className="inp" value={t.coachPin} onChange={e => setT({ ...t, coachPin: e.target.value })} placeholder="e.g. 1234 — leave blank for none" /></div>
+          {!account && <div className="field"><label>Coach PIN (guards editing)</label><input className="inp" value={t.coachPin} onChange={e => setT({ ...t, coachPin: e.target.value })} placeholder="e.g. 1234 — leave blank for none" /></div>}
           <button className="btn" onClick={save}>Save team details</button>
         </> : <div className="note">Parent contact details for each player are kept in the Squad list, visible to coaches only.</div>}
       </div>
@@ -1710,7 +1762,9 @@ function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal 
       <div className="card">
         <div className="label" style={{ marginBottom: 8 }}>How sharing works</div>
         <div className="note">
-          Everyone who opens this dashboard sees the same data, and it's saved automatically. Only people in <b>Coach mode</b> should make changes — set a PIN above so parents can't edit by accident (it's a courtesy guard, not real security). Squadi stays your source of truth: after each game, jump into Coach mode and pop the score in.
+          Everyone who opens this dashboard sees the same data, and it's saved automatically. {account
+            ? "Sign-in decides who can edit: coaches and staff with an email on the team, parents for their own child's replies."
+            : <>Only people in <b>Coach mode</b> should make changes — set a PIN above so parents can't edit by accident (it's a courtesy guard, not real security).</>} Squadi stays your source of truth: after each game, jump into Coach mode and pop the score in.
         </div>
       </div>
 
@@ -1986,19 +2040,20 @@ function LineupRulesCard({ team, patchLocal }) {
 /* ============================================================
    MODALS
 ============================================================ */
-function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer }) {
+function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me }) {
   const close = () => setModal(null);
   return (
     <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) close(); }}>
       <div className="sheet">
         {modal.type === "pin" && <PinSheet {...{ data, setIsCoach, close }} />}
-        {modal.type === "signin" && <SignInSheet {...{ data, viewer, setViewer, close }} />}
+        {modal.type === "signin" && !me && <SignInSheet {...{ data, viewer, setViewer, close }} />}
+        {modal.type === "hats" && me && <HatsSheet {...{ me, close }} />}
         {modal.type === "fixture" && <FixtureSheet {...{ data, persist, payload: modal.payload, close }} />}
-        {modal.type === "match" && <MatchSheet {...{ data, persist, payload: modal.payload, isCoach, viewer, setModal, close }} />}
-        {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, setModal, close }} />}
+        {modal.type === "match" && <MatchSheet {...{ data, persist, payload: modal.payload, isCoach, viewer, me, setModal, close }} />}
+        {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, me, setModal, close }} />}
         {modal.type === "sessionEdit" && <SessionEditSheet {...{ data, persist, payload: modal.payload, close }} />}
-        {modal.type === "player" && <PlayerSheet {...{ data, persist, payload: modal.payload, close }} />}
-        {modal.type === "playerView" && <PlayerViewSheet {...{ data, persist, patchLocal, payload: modal.payload, isCoach, viewer, close }} />}
+        {modal.type === "player" && <PlayerSheet {...{ data, persist, payload: modal.payload, me, close }} />}
+        {modal.type === "playerView" && <PlayerViewSheet {...{ data, persist, patchLocal, payload: modal.payload, isCoach, viewer, me, close }} />}
         {modal.type === "import" && <ImportSheet {...{ data, persist, close }} />}
         {modal.type === "playersImport" && <PlayersImportSheet {...{ data, persist, close }} />}
         {modal.type === "reset" && <ResetSheet {...{ data, persist, close }} />}
@@ -2104,6 +2159,44 @@ function SignInSheet({ data, viewer, setViewer, close }) {
         </div>
       ))}
     </div>
+  </>);
+}
+
+// Account mode: pick which hat to wear (coach / parent / viewer) on this team,
+// or jump to another team. The choice lives in two plain cookies the server
+// validates on every request — a cookie can only narrow what the login holds.
+function HatsSheet({ me, close }) {
+  const wear = (slug, role) => {
+    const maxAge = 60 * 60 * 24 * 180;
+    document.cookie = `team_slug=${encodeURIComponent(slug)}; path=/; max-age=${maxAge}; samesite=lax`;
+    document.cookie = `act_as=${encodeURIComponent(role)}; path=/; max-age=${maxAge}; samesite=lax`;
+    // The legacy per-device identity must not outlive a hat change.
+    document.cookie = `whoami_${slug}=; path=/; max-age=0; samesite=lax`;
+    window.location.href = "/";
+  };
+  const rowStyle = { width: "100%", background: "none", border: "none", borderBottom: "1px solid var(--line)", textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit" };
+  const row = (slug, hat, current) => (
+    <button key={slug + ":" + hat.role} className="avrow" style={rowStyle} aria-current={current ? "true" : undefined} onClick={() => wear(slug, hat.role)}>
+      <div className="avname">{hatLabel(hat)}</div>
+      {current ? <Check size={16} color="#1E9E57" /> : <ChevronRight size={15} color="var(--muted)" />}
+    </button>
+  );
+  const others = (me.teams || []).filter((t) => t.teamSlug !== me.teamSlug);
+  return (<>
+    <SheetHead title="Viewing as" close={close} />
+    <div className="label" style={{ marginBottom: 8 }}>{me.teamName}</div>
+    <div className="card" style={{ padding: "4px 12px" }}>
+      {(me.hats || []).map((h) => row(me.teamSlug, h, h.role === me.role))}
+    </div>
+    {others.length > 0 && (<>
+      <div className="label" style={{ marginBottom: 8 }}>Other teams</div>
+      {others.map((t) => (
+        <div className="card" key={t.teamSlug} style={{ padding: "4px 12px" }}>
+          <div style={{ fontWeight: 800, fontSize: 14, padding: "8px 2px 2px" }}>{t.teamName}</div>
+          {(t.hats || []).map((h) => row(t.teamSlug, h, false))}
+        </div>
+      ))}
+    </>)}
   </>);
 }
 
@@ -2291,7 +2384,16 @@ function VideoEditor({ f, setF }) {
   );
 }
 
-function MatchSheet({ data, persist, payload: f, isCoach, viewer, setModal, close }) {
+// The line under an availability list in account mode, by worn hat.
+function rsvpNoteFor(me) {
+  if (me.role === "parent" && (me.playerIds || []).length) {
+    return `You're marking ${joinKidNames(me.playerNames)}. Replies save instantly and are recorded with your child's name.`;
+  }
+  if (me.role === "coach") return "Switch to Coach mode (top right) to mark anyone.";
+  return "Club admins can see replies but can't respond.";
+}
+
+function MatchSheet({ data, persist, payload: f, isCoach, viewer, me, setModal, close }) {
   const [seek, setSeek] = useState(null);
   const [avail, setAvail] = useState(f.availability || {});
   const kind = videoKind(f.video);
@@ -2305,8 +2407,12 @@ function MatchSheet({ data, persist, payload: f, isCoach, viewer, setModal, clos
     ? `https://www.youtube.com/embed/${id}?rel=0&modestbranding=1${seek != null ? `&start=${seek}&autoplay=1` : ""}`
     : null;
 
-  const whoLabel = isCoach ? "Coach" : (viewer?.kind === "parent" ? viewer.label : null);
-  const canEdit = (pid) => isCoach || (viewer?.kind === "parent" && viewer.pid === pid);
+  // Account mode: the server told us whose parent this login is (ownIds);
+  // legacy mode: the per-device identity picked in the sign-in sheet.
+  const account = !!me;
+  const ownIds = me ? (me.playerIds || []) : null;
+  const canEdit = (pid) => isCoach || (account ? ownIds.includes(pid) : (viewer?.kind === "parent" && viewer.pid === pid));
+  const byFor = (pid) => isCoach ? "Coach" : account ? (data.players.find((p) => p.id === pid)?.name || "Parent") : (viewer?.label || "you");
 
 const setAv = async (pid, patch) => {
     const cur = avail[pid] || {};
@@ -2315,7 +2421,7 @@ const setAv = async (pid, patch) => {
     const reason = status === "out" ? (merged.reason || "Away") : undefined;
     const optimistic = status == null
       ? null
-      : { status, ...(reason ? { reason } : {}), by: whoLabel || "you", at: Date.now() };
+      : { status, ...(reason ? { reason } : {}), by: byFor(pid), at: Date.now() };
     const nextAvail = { ...avail };
     if (optimistic == null) delete nextAvail[pid]; else nextAvail[pid] = optimistic;
     setAvail(nextAvail);
@@ -2444,7 +2550,7 @@ const setAv = async (pid, patch) => {
           <span className="avpill out"><X size={13} />{counts.out} out</span>
           <span className="avpill nr">{counts.nr} no reply</span>
         </div>
-        {viewer?.kind !== "parent" && !isCoach && (
+        {!account && viewer?.kind !== "parent" && !isCoach && (
           <button className="btn" style={{ marginBottom: 12 }} onClick={() => { close(); setModal({ type: "signin" }); }}>
             Sign in to mark your child
           </button>
@@ -2477,7 +2583,7 @@ const setAv = async (pid, patch) => {
           );
         })}
         <div className="note" style={{ marginTop: 10 }}>
-          {isCoach ? "As coach you can mark anyone." : viewer?.kind === "parent"
+          {isCoach ? "As coach you can mark anyone." : account ? rsvpNoteFor(me) : viewer?.kind === "parent"
             ? `You're marking ${viewer.label}. Replies save instantly and are recorded with your name.`
             : "Sign in (top right) to respond for your child."}
         </div>
@@ -2589,7 +2695,7 @@ const setAv = async (pid, patch) => {
   </>);
 }
 
-function PlayerSheet({ data, persist, payload, close }) {
+function PlayerSheet({ data, persist, payload, me, close }) {
   const [p, setP] = useState(() => {
     const base = payload || { id: uid(), name: "", number: "", position: "MID" };
     // Migrate any legacy single-parent fields into the guardians array on open.
@@ -2645,11 +2751,11 @@ function PlayerSheet({ data, persist, payload, close }) {
       <div className="note" style={{ marginTop: 6 }}>Record both parents so either can log in, and so coaches can WhatsApp, call or text them. Email is the parent login key.</div>
     </div>
 
-    <div className="field">
+    {!me && <div className="field">
       <label>Family PIN (optional)</label>
       <input className="inp" type="tel" value={p.pin || ""} onChange={e => setP({ ...p, pin: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="e.g. 1234 — only needed if you want sign-in protected" />
       <div className="note" style={{ marginTop: 4 }}>If set, this family must enter it to sign in and respond as themselves. Leave blank for one-tap sign-in.</div>
-    </div>
+    </div>}
 
     <div className="field" style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
       <label>Player type</label>
@@ -2735,7 +2841,7 @@ function RatingsCard({ player, patchLocal }) {
   );
 }
 
-function PlayerViewSheet({ data, persist, patchLocal, payload, isCoach, viewer, close }) {
+function PlayerViewSheet({ data, persist, patchLocal, payload, isCoach, viewer, me, close }) {
   const [p, setP] = useState(payload);
   // The sheet's payload is a snapshot; ratings and notes are read live from data.
   const live = (data.players || []).find((x) => x.id === p.id) || p;
@@ -2751,7 +2857,10 @@ function PlayerViewSheet({ data, persist, patchLocal, payload, isCoach, viewer, 
   const guardians = p.guardians && p.guardians.length
     ? p.guardians
     : (p.parentName || p.parentContact) ? [{ name: p.parentName, mobile: p.parentContact, email: (p.parentEmails || [])[0] }] : [];
-  const canEditPhoto = isCoach || (viewer?.kind === "parent" && viewer.pid === p.id);
+  // Photos still go through the whole-document write, which the server only
+  // accepts from a coach — so account-mode parents don't get a button that
+  // would be refused. Legacy devices keep the per-child identity check.
+  const canEditPhoto = isCoach || (!me && viewer?.kind === "parent" && viewer.pid === p.id);
 
   const savePhoto = async (file) => {
     if (!file) return;
@@ -2876,15 +2985,17 @@ function ResetSheet({ data, persist, close }) {
   </>);
 }
 
-function SessionSheet({ data, persist, payload: s, occ, isCoach, viewer, setModal, close }) {
+function SessionSheet({ data, persist, payload: s, occ, isCoach, viewer, me, setModal, close }) {
   const showISO = occ || s.dateISO;
   const Icon = s.kind === "event" ? Star : Dumbbell;
   const del = () => { persist({ ...data, sessions: (data.sessions || []).filter(x => x.id !== s.id), isSample: false }); close(); };
 
   // Attendance is stored per-occurrence: s.availability[occurrenceISO][playerId] = { status, reason, by, at }
   const past = showISO && showISO < isoLocal(new Date());
-  const whoLabel = isCoach ? "Coach" : (viewer?.kind === "parent" ? viewer.label : null);
-  const canEdit = (pid) => isCoach || (viewer?.kind === "parent" && viewer.pid === pid);
+  const account = !!me;
+  const ownIds = me ? (me.playerIds || []) : null;
+  const canEdit = (pid) => isCoach || (account ? ownIds.includes(pid) : (viewer?.kind === "parent" && viewer.pid === pid));
+  const byFor = (pid) => isCoach ? "Coach" : account ? (data.players.find((p) => p.id === pid)?.name || "Parent") : (viewer?.label || "you");
   const dayAvail = (s.availability && s.availability[showISO]) || {};
   const [avail, setAvail] = useState(dayAvail);
 const setAv = async (pid, patch) => {
@@ -2894,7 +3005,7 @@ const setAv = async (pid, patch) => {
     const reason = status === "out" ? (merged.reason || "Away") : undefined;
     const optimistic = status == null
       ? null
-      : { status, ...(reason ? { reason } : {}), by: whoLabel || "you", at: Date.now() };
+      : { status, ...(reason ? { reason } : {}), by: byFor(pid), at: Date.now() };
     const nextAvail = { ...avail };
     if (optimistic == null) delete nextAvail[pid]; else nextAvail[pid] = optimistic;
     setAvail(nextAvail);
@@ -2950,7 +3061,7 @@ const setAv = async (pid, patch) => {
           <span className="avpill out"><X size={13} />{counts.out} out</span>
           <span className="avpill nr">{counts.nr} no reply</span>
         </div>
-        {!past && viewer?.kind !== "parent" && !isCoach && (
+        {!past && !account && viewer?.kind !== "parent" && !isCoach && (
           <button className="btn" style={{ marginBottom: 12 }} onClick={() => { close(); setModal({ type: "signin" }); }}>
             Sign in to mark your child
           </button>
@@ -2983,7 +3094,7 @@ const setAv = async (pid, patch) => {
           );
         })}
         <div className="note" style={{ marginTop: 10 }}>
-          {past ? "This session has passed." : isCoach ? "As coach you can mark anyone." : viewer?.kind === "parent"
+          {past ? "This session has passed." : isCoach ? "As coach you can mark anyone." : account ? rsvpNoteFor(me) : viewer?.kind === "parent"
             ? `You're marking ${viewer.label}. Replies save instantly and are recorded with your name.`
             : "Sign in (top right) to respond for your child."}
         </div>

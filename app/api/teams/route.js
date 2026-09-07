@@ -198,10 +198,20 @@ export async function PATCH(req) {
       if (body.parentsSee != null) teamDoc.parentsSee = sanitizeParentsSee(body.parentsSee);
       if (body.logo != null) { const l = sanitizeLogo(body.logo); if (l) teamDoc.logo = l; }
       if (body.staff != null) {
-        // Preserve photos added in the dashboard for staff kept by name.
+        // Staff is replaced wholesale, but for rows kept by name we preserve
+        // (a) photos added in the dashboard and (b) the stored email when the
+        // incoming row carries no email key at all — an older client that never
+        // collected emails must not wipe someone's coach-level login. A row
+        // that explicitly sends email: "" does clear it.
         const prev = Array.isArray(teamDoc.staff) ? teamDoc.staff : [];
-        teamDoc.staff = sanitizeStaff(body.staff).map((s) => ({
-          ...s, photo: prev.find((p) => p.name === s.name)?.photo || ""
+        const prevByName = (name) => prev.find((p) => p.name === String(name || "").trim().slice(0, 80));
+        const incoming = (Array.isArray(body.staff) ? body.staff : []).map((s) => {
+          if (!s || typeof s !== "object" || s.email !== undefined) return s;
+          const kept = prevByName(s.name)?.email;
+          return kept ? { ...s, email: kept } : s;
+        });
+        teamDoc.staff = sanitizeStaff(incoming).map((s) => ({
+          ...s, photo: prevByName(s.name)?.photo || ""
         }));
       }
       if (body.coachPin != null) teamDoc.coachPin = String(body.coachPin).trim().slice(0, 12);

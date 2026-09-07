@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import { getData, setData } from "@/lib/store";
-import { teamBySlug, teamFromCookieHeader } from "@/lib/teams";
-import { auth } from "@/auth";
-import { membershipsForEmail, isCoachForTeam, viewingAs } from "@/lib/directory";
+import { resolveViewer, viewerError } from "@/lib/viewer";
 
 export const dynamic = "force-dynamic";
 
-const AUTH_ON = !!process.env.AUTH_SECRET;
-
-// Narrow RSVP endpoint. In account mode a parent can set in/out only for
-// their own child and a coach can set anyone. In legacy team-code mode
-// everyone with the code is trusted (the original access model: one shared
-// code, no roles), and the per-device whoami cookie attributes the response.
+// Narrow RSVP endpoint. In account mode the WORN hat (lib/viewer.js) decides:
+// a coach hat can set anyone (stamped "Coach"), a parent hat only the children
+// listed on that hat (stamped with the child's name), a viewer hat nothing.
+// A coach who is also a parent and has chosen to act as the parent gets
+// exactly the parent's powers — the hat, not the email, is the permission.
+// In legacy team-code mode everyone with the code is trusted (the original
+// access model: one shared code, no roles), and the per-device whoami cookie
+// attributes the response.
 // Writes just one player's availability entry for one game or session — no
 // whole-object overwrite, so concurrent parents can't clobber each other and
 // nobody can smuggle in config/score changes.
@@ -43,25 +43,11 @@ export async function POST(req) {
     return NextResponse.json({ error: "missing occurrence" }, { status: 400 });
   }
 
-  // Which team is this caller acting on? Account mode validates the team_slug
-  // cookie against the session's memberships (a forged cookie can't reach a
-  // team they're not in); legacy mode maps the team code to its one team.
-  let team = null;
-  let email = null;
-  if (AUTH_ON) {
-    const session = await auth();
-    email = session?.user?.email;
-    if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    if (viewingAs(req, email)) return NextResponse.json({ error: "You're viewing as another user — read only. Exit view-as to make changes." }, { status: 403 });
-    const { memberships } = await membershipsForEmail(email);
-    if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    const wanted = req.cookies.get("team_slug")?.value;
-    const chosen = memberships.find((m) => m.teamSlug === wanted) || memberships[0];
-    team = await teamBySlug(chosen.teamSlug);
-  } else {
-    team = await teamFromCookieHeader(req.headers.get("cookie"));
-  }
-  if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Who is acting, on which team, wearing which hat. A write: a super admin
+  // "viewing as" someone is refused before anything else.
+  const v = await resolveViewer(req, { write: true });
+  if (v.error) return viewerError(v);
+  const team = v.team;
 
   const data = await getData(team.slug);
   if (!data) return NextResponse.json({ error: "no data" }, { status: 404 });
@@ -69,16 +55,17 @@ export async function POST(req) {
   const player = (data.players || []).find((p) => p.id === playerId);
   if (!player) return NextResponse.json({ error: "no such player" }, { status: 404 });
 
-  // Permission + attribution.
+  // Permission + attribution: the worn hat decides.
   let label;
-  if (AUTH_ON) {
-    const coach = await isCoachForTeam(email, team.slug);
-    const norm = (e) => (e || "").trim().toLowerCase();
-    const isOwnChild = (player.parentEmails || []).map(norm).includes(norm(email));
-    if (!coach && !isOwnChild) {
+  if (v.mode === "account") {
+    const hat = v.hat || {};
+    if (hat.role === "coach") {
+      label = "Coach";
+    } else if (hat.role === "parent" && (hat.playerIds || []).includes(playerId)) {
+      label = player.name || "Parent";
+    } else {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
-    label = coach ? "Coach" : (player.name || "Parent");
   } else {
     // Anyone with the code may write; attribute from the device identity:
     // this child's parent, or otherwise the coach.

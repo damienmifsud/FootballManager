@@ -2,19 +2,21 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { fakeRequest } from "./helpers/fakeRequest";
 
 // The RSVP route is the narrow, parent-facing write path. In account mode its
-// job is permission enforcement (parent → own child only; coach → anyone); in
-// legacy team-code mode anyone with the code may write and the whoami cookie
+// job is permission enforcement by the WORN hat (parent hat → the children on
+// that hat only; coach hat → anyone; viewer hat → nothing); in legacy
+// team-code mode anyone with the code may write and the whoami cookie
 // attributes the entry. Both modes do a surgical single-entry merge. AUTH_ON
-// is read at module load, so each block re-imports the route.
-const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, isCoachForTeam, viewingAs } = vi.hoisted(() => ({
+// is read at module load, so each block re-imports the route. lib/viewer is
+// the real module — only its dependencies are mocked.
+const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, viewingAs } = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(),
   teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(),
-  membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn(), viewingAs: vi.fn()
+  membershipsForEmail: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/store", () => ({ getData, setData }));
 vi.mock("@/lib/teams", () => ({ teamBySlug, teamFromCookieHeader }));
-vi.mock("@/lib/directory", () => ({ membershipsForEmail, isCoachForTeam, viewingAs }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail, viewingAs }));
 
 let savedSecret;
 beforeEach(() => {
@@ -32,16 +34,23 @@ async function loadRoute({ authOn }) {
 }
 
 const PLAYER = { id: "p1", name: "Sam", parentEmails: ["mum@a.com"] };
-const TEAM_DATA = () => ({ fixtures: [{ id: "f1", availability: {} }], sessions: [{ id: "s1", availability: {} }], players: [PLAYER] });
+const OTHER = { id: "p2", name: "Other", parentEmails: ["someone@else.com"] };
+const TEAM_DATA = () => ({ fixtures: [{ id: "f1", availability: {} }], sessions: [{ id: "s1", availability: {} }], players: [PLAYER, OTHER] });
 
-function happyPath({ email = "mum@a.com", coach = false } = {}) {
+const COACH_M = { teamSlug: "a", teamName: "Team A", role: "coach" };
+const PARENT_M = (playerId = "p1", playerName = "Sam") => ({ teamSlug: "a", teamName: "Team A", role: "parent", playerId, playerName });
+
+// Membership rows carry the intent: a "coach" row for coach cases, a "parent"
+// row (with the child's playerId) for parent cases.
+function happyPath({ email = "mum@a.com", coach = false, memberships } = {}) {
   auth.mockResolvedValue({ user: { email } });
-  membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: coach ? "coach" : "parent" }] });
+  membershipsForEmail.mockResolvedValue({ memberships: memberships || [coach ? COACH_M : PARENT_M()] });
   teamBySlug.mockReturnValue({ slug: "a", name: "Team A" });
   getData.mockResolvedValue(TEAM_DATA());
-  isCoachForTeam.mockResolvedValue(coach);
   setData.mockResolvedValue();
 }
+
+const rsvp = (playerId, extra = {}) => ({ body: { kind: "game", id: "f1", playerId, status: "in" }, ...extra });
 
 describe("account mode — request validation", () => {
   it("401s when not signed in", async () => {
@@ -94,8 +103,17 @@ describe("account mode — team resolution", () => {
     teamBySlug.mockReturnValue({ slug: "a", name: "Team A" });
     const { POST } = await loadRoute({ authOn: true });
     await POST(fakeRequest({ body: { kind: "game", id: "f1", playerId: "p1", status: "in" }, cookies: { team_slug: "other" } }));
-    // Falls back to the first membership ("a"), never resolving "other".
+    // Falls back to the only team ("a"), never resolving "other".
     expect(teamBySlug).toHaveBeenCalledWith("a");
+    expect(teamBySlug).not.toHaveBeenCalledWith("other");
+  });
+
+  it("409s when the caller is on several teams and has not picked one", async () => {
+    happyPath({ memberships: [PARENT_M(), { teamSlug: "b", teamName: "Team B", role: "parent", playerId: "p9", playerName: "Leo" }] });
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { kind: "game", id: "f1", playerId: "p1", status: "in" }, cookies: { team_slug: "other" } }));
+    expect(res.status).toBe(409);
+    expect(setData).not.toHaveBeenCalled();
   });
 
   it("404s when the player is not on the roster", async () => {
@@ -118,21 +136,36 @@ describe("account mode — permissions", () => {
 
   it("forbids a parent from setting another family's child", async () => {
     happyPath({ coach: false });
-    getData.mockResolvedValue({ fixtures: [{ id: "f1", availability: {} }], players: [{ id: "p1", name: "Other", parentEmails: ["someone@else.com"] }] });
     const { POST } = await loadRoute({ authOn: true });
-    const res = await POST(fakeRequest({ body: { kind: "game", id: "f1", playerId: "p1", status: "in" } }));
+    const res = await POST(fakeRequest(rsvp("p2")));
     expect(res.status).toBe(403);
     expect(setData).not.toHaveBeenCalled();
   });
 
   it("lets a coach set anyone and stamps the entry as Coach", async () => {
     happyPath({ email: "coach@a.com", coach: true });
-    getData.mockResolvedValue({ fixtures: [{ id: "f1", availability: {} }], players: [{ id: "p1", name: "Other", parentEmails: ["someone@else.com"] }] });
     const { POST } = await loadRoute({ authOn: true });
-    const res = await POST(fakeRequest({ body: { kind: "game", id: "f1", playerId: "p1", status: "out", reason: "injured" } }));
+    const res = await POST(fakeRequest({ body: { kind: "game", id: "f1", playerId: "p2", status: "out", reason: "injured" } }));
     expect(res.status).toBe(200);
     const [, saved] = setData.mock.calls[0];
-    expect(saved.fixtures[0].availability.p1).toMatchObject({ status: "out", reason: "injured", by: "Coach" });
+    expect(saved.fixtures[0].availability.p2).toMatchObject({ status: "out", reason: "injured", by: "Coach" });
+  });
+
+  it("forbids a viewer (e.g. a parent demoted by an override) even for the child listed on the roster", async () => {
+    happyPath({ memberships: [{ teamSlug: "a", teamName: "Team A", role: "viewer" }] });
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest(rsvp("p1"))); // PLAYER.parentEmails lists mum@a.com — irrelevant now
+    expect(res.status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("lets a parent of two kids set either of them", async () => {
+    happyPath({ memberships: [PARENT_M("p1", "Sam"), PARENT_M("p2", "Other")] });
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await POST(fakeRequest(rsvp("p1")))).status).toBe(200);
+    expect((await POST(fakeRequest(rsvp("p2")))).status).toBe(200);
+    expect(setData.mock.calls[0][1].fixtures[0].availability.p1).toMatchObject({ by: "Sam" });
+    expect(setData.mock.calls[1][1].fixtures[0].availability.p2).toMatchObject({ by: "Other" });
   });
 
   it("clears a response when status is null (deletes the entry)", async () => {
@@ -152,6 +185,43 @@ describe("account mode — permissions", () => {
     expect(res.status).toBe(200);
     const [, saved] = setData.mock.calls[0];
     expect(saved.sessions[0].availability["2026-07-01"].p1).toMatchObject({ status: "in" });
+  });
+});
+
+describe("account mode — a coach who is also a parent", () => {
+  const BOTH = [COACH_M, PARENT_M("p1", "Sam")];
+
+  it("acting as the parent (act_as cookie) writes their own child, labelled with the child's name", async () => {
+    happyPath({ email: "both@a.com", memberships: BOTH });
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest(rsvp("p1", { cookies: { act_as: "parent" } })));
+    expect(res.status).toBe(200);
+    const [, saved] = setData.mock.calls[0];
+    expect(saved.fixtures[0].availability.p1).toMatchObject({ status: "in", by: "Sam" });
+  });
+
+  it("acting as the parent cannot set someone else's child", async () => {
+    happyPath({ email: "both@a.com", memberships: BOTH });
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest(rsvp("p2", { cookies: { act_as: "parent" } })));
+    expect(res.status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("without act_as wears the coach hat: any player, labelled Coach", async () => {
+    happyPath({ email: "both@a.com", memberships: BOTH });
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await POST(fakeRequest(rsvp("p2")))).status).toBe(200);
+    expect(setData.mock.calls[0][1].fixtures[0].availability.p2).toMatchObject({ by: "Coach" });
+    expect((await POST(fakeRequest(rsvp("p1")))).status).toBe(200);
+    expect(setData.mock.calls[1][1].fixtures[0].availability.p1).toMatchObject({ by: "Coach" });
+  });
+
+  it("a forged act_as=coach on a plain parent does not widen anything", async () => {
+    happyPath({ memberships: [PARENT_M()] });
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await POST(fakeRequest(rsvp("p2", { cookies: { act_as: "coach" } })))).status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
   });
 });
 

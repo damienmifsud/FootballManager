@@ -64,15 +64,41 @@ describe("membershipsForEmail", () => {
     expect(memberships).toEqual([{ teamSlug: "a", teamName: "Team A", role: "coach" }]);
   });
 
-  it("does not duplicate a parent membership when the email is also the team coach", async () => {
+  it("gives a coach whose child plays in the team BOTH hats: coach and parent of that child", async () => {
     withRosters({
       a: { players: [{ id: "p1", name: "Kid", parentEmails: ["coach@a.com"] }] },
       b: { players: [] }
     });
+    const { membershipsForEmail, isCoachForTeam } = await loadDir();
+    const { memberships } = await membershipsForEmail("coach@a.com");
+    expect(memberships).toEqual([
+      { teamSlug: "a", teamName: "Team A", role: "coach" },
+      { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Kid" }
+    ]);
+    expect(await isCoachForTeam("coach@a.com", "a")).toBe(true); // capability, whatever hat is worn
+  });
+
+  it("a staff row with an email is a coach-level login carrying the row's title", async () => {
+    withRosters({
+      a: { team: { staff: [{ role: "Manager", name: "Dee", mobile: "", email: "Dee@Club.com" }, { role: "Assistant coach", name: "Ali", email: "" }] }, players: [] },
+      b: { players: [] }
+    });
+    const { membershipsForEmail, isCoachForTeam } = await loadDir();
+    const { memberships } = await membershipsForEmail("dee@club.com");
+    expect(memberships).toEqual([{ teamSlug: "a", teamName: "Team A", role: "coach", staffRole: "Manager" }]);
+    expect(await isCoachForTeam("dee@club.com", "a")).toBe(true);
+    // A staff row without an email grants nothing, and the title is only a label.
+    expect((await membershipsForEmail("ali@club.com")).memberships).toEqual([]);
+  });
+
+  it("coachEmails and a staff row for the same email give one coach membership, titled", async () => {
+    withRosters({
+      a: { team: { staff: [{ role: "Head coach", name: "C", email: "coach@a.com" }] }, players: [] },
+      b: { players: [] }
+    });
     const { membershipsForEmail } = await loadDir();
     const { memberships } = await membershipsForEmail("coach@a.com");
-    expect(memberships).toHaveLength(1);
-    expect(memberships[0].role).toBe("coach");
+    expect(memberships).toEqual([{ teamSlug: "a", teamName: "Team A", role: "coach", staffRole: "Head coach" }]);
   });
 
   it("gives a parent one membership per team their kids are in", async () => {
@@ -179,6 +205,29 @@ describe("per-team overrides (set by the super admin)", () => {
     expect(memberships.find((m) => m.teamSlug === "b")).toMatchObject({ playerId: "p9", overridden: true });
     expect(await isCoachForTeam("coach@a.com", "a")).toBe(true);
     expect(await isCoachForTeam("coach@a.com", "b")).toBe(false); // revoked without env changes
+  });
+
+  it("a 'viewer' override strips every other hat, including the parent one", async () => {
+    withRosters({
+      a: { players: [{ id: "p1", name: "Sam", parentEmails: ["mum@x.com"] }] },
+      b: { players: [] }
+    });
+    getClubAccess.mockResolvedValue({ overrides: { "mum@x.com": { a: "viewer" } } });
+    const { membershipsForEmail } = await loadDir();
+    const { memberships } = await membershipsForEmail("mum@x.com");
+    expect(memberships).toEqual([{ teamSlug: "a", teamName: "Team A", role: "viewer", overridden: true }]);
+  });
+
+  it("a 'coach' override forces the coach hat but leaves the parent hat for their kids", async () => {
+    withRosters({
+      a: { players: [{ id: "p1", name: "Sam", parentEmails: ["mum@x.com"] }] },
+      b: { players: [] }
+    });
+    getClubAccess.mockResolvedValue({ overrides: { "mum@x.com": { a: "coach" } } });
+    const { membershipsForEmail } = await loadDir();
+    const { memberships } = await membershipsForEmail("mum@x.com");
+    expect(memberships.map((m) => m.role)).toEqual(["coach", "parent"]);
+    expect(memberships[1]).toMatchObject({ playerId: "p1", overridden: true });
   });
 
   it("can force coach access for someone not in coachEmails", async () => {

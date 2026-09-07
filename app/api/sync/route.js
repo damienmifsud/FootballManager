@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
 import { getData, setData, getMeta, setMeta } from "@/lib/store";
 import { fetchSquadi, applySync } from "@/lib/squadiSync";
-import { getTeams, teamBySlug, teamFromCookieHeader } from "@/lib/teams";
-import { auth } from "@/auth";
-import { membershipsForEmail, isCoachForTeam, viewingAs } from "@/lib/directory";
+import { getTeams } from "@/lib/teams";
+import { resolveViewer, viewerError } from "@/lib/viewer";
 
 export const dynamic = "force-dynamic";
-const AUTH_ON = !!process.env.AUTH_SECRET;
 const STALE_MS = 15 * 60 * 1000; // sync-on-visit throttle
 
-// Cron/pinger auth (syncs ALL teams) vs logged-in coach (syncs THEIR team).
+// Cron/pinger auth (syncs ALL teams) vs a signed-in viewer (syncs THEIR team).
 function cronAuthorized(req) {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
@@ -82,31 +80,18 @@ export async function GET(req) {
     return NextResponse.json({ ok: true, results });
   }
 
-  // Signed-in caller: sync just their team. Account mode restricts this to
-  // coaches (parents can't trigger a sync); legacy team-code mode trusts
-  // anyone holding the code — that's what drives the throttled sync-on-visit
-  // and the /league "Sync now" button on team-code sites.
-  let team = null;
-  if (AUTH_ON) {
-    const session = await auth();
-    const email = session?.user?.email;
-    if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    if (viewingAs(req, email)) return NextResponse.json({ error: "You're viewing as another user — read only. Exit view-as to make changes." }, { status: 403 });
-
-    const { memberships } = await membershipsForEmail(email);
-    if (!memberships.length) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    const wanted = req.cookies.get("team_slug")?.value;
-    const chosen = memberships.find((m) => m.teamSlug === wanted) || memberships[0];
-    team = await teamBySlug(chosen.teamSlug);
-    if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-    if (!(await isCoachForTeam(email, team.slug))) {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
-  } else {
-    team = await teamFromCookieHeader(req.headers.get("cookie"));
-    if (!team) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Signed-in caller: sync just their team. A sync writes the team document,
+  // so it is always a write (a super admin "viewing as" someone is refused).
+  // The throttled sync-on-visit (?ifStale=1) is open to ANY hat — a parent
+  // opening the dashboard keeps the fixtures near-live for everyone. A manual
+  // sync (no ifStale, the /league "Sync now" button) needs the coach hat in
+  // account mode; legacy team-code mode trusts anyone holding the code.
+  const v = await resolveViewer(req, { write: true });
+  if (v.error) return viewerError(v);
+  if (v.mode === "account" && !ifStale && v.hat?.role !== "coach") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  const team = v.team;
 
   try {
     const result = await syncTeam(team, ifStale);

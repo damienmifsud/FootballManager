@@ -56,16 +56,35 @@ const S = {
   seg: { display: "flex", gap: 6, marginTop: 10 },
   segBtn: (on) => ({ flex: 1, padding: 9, borderRadius: 10, border: "1px solid " + (on ? "#C8102E" : "#e7e3e3"), background: on ? "#C8102E" : "#faf9f9", color: on ? "#fff" : "#6b5a5d", fontWeight: 700, fontSize: 13, cursor: "pointer" }),
   frameWrap: { padding: 14 },
+  err: { fontSize: 13, color: "#a11226", background: "#fdeaec", border: "1px solid #f3c2c9", borderRadius: 10, padding: "10px 12px", marginTop: 10, lineHeight: 1.5 },
+  teamName: { fontSize: 12.5, fontWeight: 600, opacity: 0.85 },
   frame: { width: "100%", height: "calc(100vh - 120px)", border: "1px solid #e7e3e3", borderRadius: 14, background: "#fff" },
   empty: { textAlign: "center", padding: "60px 24px", color: "#6b5a5d", fontSize: 14, lineHeight: 1.6 }
 };
 
+// The server's error text from a failed JSON response, or a fallback.
+async function errorText(res, fallback) {
+  try {
+    const j = await res.json();
+    if (j && typeof j.error === "string" && j.error) return j.error;
+  } catch {}
+  return fallback;
+}
+
 export default function LeaguePage() {
   const [data, setData] = useState(null);
+  const [me, setMe] = useState(null); // /api/me: { mode, role, teamName, ... }
   const [cfg, setCfg] = useState(DEFAULT_CFG);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [saveError, setSaveError] = useState("");
+
+  // Set-up, "Save for everyone" and "Sync now" are coach tools. Legacy
+  // team-code sites have no roles (anyone with the code is trusted); in
+  // account mode the WORN hat decides. The server enforces this regardless.
+  const canManage = !!me && (me.mode === "code" || me.role === "coach");
 
   const syncNow = async () => {
     setSyncMsg("Syncing…");
@@ -80,20 +99,42 @@ export default function LeaguePage() {
   };
 
   useEffect(() => {
+    let cancelled = false;
+    // Who am I (mode, worn hat, team name) alongside the team document.
+    fetch("/api/me", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => { if (!cancelled && m) setMe(m); })
+      .catch(() => {});
+
     fetch("/api/data", { cache: "no-store" })
-      .then((r) => (r.status === 401 ? (location.href = "/login") : r.json()))
-      .then((d) => {
+      .then(async (r) => {
+        if (cancelled) return;
+        if (r.status === 401) {
+          // Signed in, but no team is linked to this account (or the session
+          // lapsed) — say so here rather than bouncing to the login page.
+          setLoadError("No team linked to your account. Ask your coach to add you to the team.");
+          return;
+        }
+        if (r.status === 409) { location.href = "/"; return; } // several teams, none chosen: the picker
+        if (!r.ok) { setLoadError(await errorText(r, "Could not load the team.")); return; }
+        const d = await r.json();
         if (!d) return;
         setData(d);
         if (d.squadi) setCfg({ ...DEFAULT_CFG, ...d.squadi });
-        else setOpen(true); // not configured yet — show the panel
       })
-      .catch(() => {});
+      .catch(() => { if (!cancelled) setLoadError("Could not load the team."); });
+    return () => { cancelled = true; };
   }, []);
+
+  // Not configured yet and allowed to configure — show the panel.
+  useEffect(() => {
+    if (data && !data.squadi && canManage) setOpen(true);
+  }, [data, canManage]);
 
   const save = async () => {
     if (!data) return;
     setSaving(true);
+    setSaveError("");
     try {
       const next = { ...data, squadi: cfg };
       const res = await fetch("/api/data", {
@@ -101,10 +142,15 @@ export default function LeaguePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(next)
       });
-      if (res.ok) {
-        setData(next);
-        setOpen(false);
+      if (res.status === 409) { location.href = "/"; return; }
+      if (!res.ok) {
+        setSaveError(await errorText(res, `Save failed (${res.status}).`));
+        return;
       }
+      setData(next);
+      setOpen(false);
+    } catch (e) {
+      setSaveError("Save failed: " + (e?.message || "network error"));
     } finally {
       setSaving(false);
     }
@@ -116,11 +162,22 @@ export default function LeaguePage() {
     <div style={S.page}>
       <div style={S.bar}>
         <Link href="/" style={S.back}>← Dashboard</Link>
-        <h1 style={S.h}>League fixtures & ladder (Squadi)</h1>
-        <button style={S.gear} onClick={() => setOpen((o) => !o)}>{open ? "Close" : "Set up"}</button>
+        <div>
+          <h1 style={S.h}>League fixtures & ladder (Squadi)</h1>
+          {me?.teamName && <div style={S.teamName}>{me.teamName}</div>}
+        </div>
+        {canManage && (
+          <button style={S.gear} onClick={() => setOpen((o) => !o)}>{open ? "Close" : "Set up"}</button>
+        )}
       </div>
 
-      {open && (
+      {loadError && (
+        <div style={S.panel}>
+          <div style={S.err}>{loadError}</div>
+        </div>
+      )}
+
+      {canManage && open && (
         <div style={S.panel}>
           <div style={S.seg}>
             <button style={S.segBtn(cfg.mode === "builder")} onClick={() => setCfg({ ...cfg, mode: "builder" })}>Build from filters</button>
@@ -177,6 +234,7 @@ export default function LeaguePage() {
             </>
           )}
           <button style={S.btn} onClick={save} disabled={saving}>{saving ? "Saving…" : "Save for everyone"}</button>
+          {saveError && <div style={S.err}>{saveError}</div>}
           <button style={{ ...S.btn, background: "#1d2440", marginTop: 8 }} onClick={syncNow}>Sync fixtures from Squadi now</button>
           {syncMsg && <div style={S.note}>{syncMsg}</div>}
         </div>
@@ -196,7 +254,9 @@ export default function LeaguePage() {
         ) : (
           <div style={S.empty}>
             <b>Not configured yet.</b><br />
-            Hit <b>Set up</b> and either build the link from filters or paste the embed URL from the FQ website.
+            {canManage
+              ? <>Hit <b>Set up</b> and either build the link from filters or paste the embed URL from the FQ website.</>
+              : <>The coach has not linked the Squadi fixtures for this team yet.</>}
           </div>
         )}
       </div>

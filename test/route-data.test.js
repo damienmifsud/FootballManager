@@ -1,28 +1,34 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { fakeRequest } from "./helpers/fakeRequest";
 import { brisbaneTodayISO } from "@/lib/visibility";
+import { READ_ONLY_MESSAGE } from "@/lib/viewer";
 
 // /api/data: GET is any-member read, redacted server-side for parents and
 // viewers by lib/visibility (real module, not mocked here); POST is the
-// coach/admin-only whole-object write in account mode. In legacy team-code
-// mode the site_auth cookie maps to one team and everyone with the code can
-// read AND write the full document (the original access model, no roles).
-// AUTH_ON is read at module load, so each block re-imports the route with the
-// right env.
-const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, isCoachForTeam, viewingAs } = vi.hoisted(() => ({
+// coach-hat-only whole-object write in account mode, with the fields owned by
+// the narrow routes protected by lib/protect (real module). The route sits on
+// the REAL lib/viewer and lib/hats: the worn hat (memberships + the act_as
+// cookie) decides what a login may see and do, so intent lives in membership
+// roles here. In legacy team-code mode the site_auth cookie maps to one team
+// and everyone with the code can read AND write the full document (the
+// original access model, no roles). AUTH_ON is read at module load, so each
+// block re-imports the route with the right env.
+const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, viewingAs } = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(),
   teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(),
-  membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn(), viewingAs: vi.fn()
+  membershipsForEmail: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/store", () => ({ getData, setData }));
 vi.mock("@/lib/teams", () => ({ teamBySlug, teamFromCookieHeader }));
-vi.mock("@/lib/directory", () => ({ membershipsForEmail, isCoachForTeam, viewingAs }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail, viewingAs }));
 
 let savedSecret;
 beforeEach(() => {
   vi.clearAllMocks();
   savedSecret = process.env.AUTH_SECRET;
+  // clearAllMocks keeps implementations, so undo the view-as tests' stub.
+  viewingAs.mockReturnValue(null);
 });
 afterEach(() => {
   if (savedSecret === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = savedSecret;
@@ -34,10 +40,20 @@ async function loadRoute({ authOn }) {
   return import("@/app/api/data/route");
 }
 
-function signedIn({ email = "mum@a.com", slug = "a" } = {}) {
+function signedIn({ email = "mum@a.com", slug = "a", role = "parent" } = {}) {
   auth.mockResolvedValue({ user: { email } });
-  membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: slug, role: "parent" }] });
+  membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: slug, role, ...(role === "parent" ? { playerId: "p1" } : {}) }] });
   teamBySlug.mockReturnValue({ slug });
+}
+
+// A coach whose child plays on the same team: two hats, act_as picks one.
+function coachParentSignedIn() {
+  auth.mockResolvedValue({ user: { email: "coach@a.com" } });
+  membershipsForEmail.mockResolvedValue({ memberships: [
+    { teamSlug: "a", role: "coach" },
+    { teamSlug: "a", role: "parent", playerId: "p1", playerName: "Sam" }
+  ] });
+  teamBySlug.mockReturnValue({ slug: "a" });
 }
 
 describe("account mode (AUTH_SECRET set)", () => {
@@ -67,19 +83,31 @@ describe("account mode (AUTH_SECRET set)", () => {
 
     it("resolves the team from the validated team_slug cookie", async () => {
       auth.mockResolvedValue({ user: { email: "mum@x.com" } });
-      membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a" }, { teamSlug: "b" }] });
+      membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "parent", playerId: "p1" }, { teamSlug: "b", role: "parent", playerId: "p2" }] });
       teamBySlug.mockReturnValue({ slug: "b" });
       getData.mockResolvedValue({});
       const { GET } = await loadRoute({ authOn: true });
       await GET(fakeRequest({ cookies: { team_slug: "b" } }));
       expect(teamBySlug).toHaveBeenCalledWith("b");
     });
+
+    it("409s (pick a team) when the caller has several teams and no usable team_slug cookie", async () => {
+      auth.mockResolvedValue({ user: { email: "mum@x.com" } });
+      membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "parent", playerId: "p1" }, { teamSlug: "b", role: "parent", playerId: "p2" }] });
+      const { GET, POST } = await loadRoute({ authOn: true });
+      const res = await GET(fakeRequest());
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toMatch(/pick a team/i);
+      expect((await GET(fakeRequest({ cookies: { team_slug: "forged" } }))).status).toBe(409);
+      expect((await POST(fakeRequest({ body: {} }))).status).toBe(409);
+      expect(getData).not.toHaveBeenCalled();
+      expect(setData).not.toHaveBeenCalled();
+    });
   });
 
   describe("POST /api/data", () => {
     it("403s for a non-coach member", async () => {
       signedIn();
-      isCoachForTeam.mockResolvedValue(false);
       const { POST } = await loadRoute({ authOn: true });
       const res = await POST(fakeRequest({ body: { team: { name: "hacked" } } }));
       expect(res.status).toBe(403);
@@ -87,8 +115,8 @@ describe("account mode (AUTH_SECRET set)", () => {
     });
 
     it("writes the whole document for a coach", async () => {
-      signedIn({ email: "coach@a.com" });
-      isCoachForTeam.mockResolvedValue(true);
+      signedIn({ email: "coach@a.com", role: "coach" });
+      getData.mockResolvedValue(null);
       setData.mockResolvedValue();
       const { POST } = await loadRoute({ authOn: true });
       const body = { team: { name: "A" }, fixtures: [] };
@@ -97,9 +125,47 @@ describe("account mode (AUTH_SECRET set)", () => {
       expect(setData).toHaveBeenCalledWith("a", body);
     });
 
+    it("keeps an RSVP written between the coach's GET and their POST", async () => {
+      signedIn({ email: "coach@a.com", role: "coach" });
+      // What is stored now: a parent replied to f1 after the coach's page loaded.
+      getData.mockResolvedValue({
+        team: { name: "A" },
+        players: [{ id: "p1", name: "Sam" }],
+        fixtures: [{ id: "f1", round: 1, availability: { p1: { status: "in", by: "Mum", at: 5 } } }]
+      });
+      setData.mockResolvedValue();
+      const { POST } = await loadRoute({ authOn: true });
+      // What the coach's tab posts: the same fixture with a score typed in and
+      // the empty availability it loaded with.
+      const body = {
+        team: { name: "A" },
+        players: [{ id: "p1", name: "Sam" }],
+        fixtures: [{ id: "f1", round: 1, us: 2, them: 0, availability: {} }]
+      };
+      const res = await POST(fakeRequest({ body }));
+      expect(res.status).toBe(200);
+      const [slug, saved] = setData.mock.calls[0];
+      expect(slug).toBe("a");
+      expect(saved.fixtures[0]).toEqual({ id: "f1", round: 1, us: 2, them: 0, availability: { p1: { status: "in", by: "Mum", at: 5 } } });
+      expect(body.fixtures[0].availability).toEqual({}); // the request body is not mutated
+    });
+
+    it("403s a coach-parent acting as the parent (the worn hat decides)", async () => {
+      coachParentSignedIn();
+      getData.mockResolvedValue(null);
+      setData.mockResolvedValue();
+      const { POST } = await loadRoute({ authOn: true });
+      const res = await POST(fakeRequest({ body: { team: { name: "A" } }, cookies: { act_as: "parent" } }));
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "forbidden" });
+      expect(setData).not.toHaveBeenCalled();
+      // Without the act_as cookie the same login wears the coach hat and may write.
+      expect((await POST(fakeRequest({ body: { team: { name: "A" } } }))).status).toBe(200);
+      expect(setData).toHaveBeenCalledTimes(1);
+    });
+
     it("400s a coach on malformed JSON without writing", async () => {
-      signedIn({ email: "coach@a.com" });
-      isCoachForTeam.mockResolvedValue(true);
+      signedIn({ email: "coach@a.com", role: "coach" });
       const { POST } = await loadRoute({ authOn: true });
       const res = await POST(fakeRequest({})); // json() throws
       expect(res.status).toBe(400);
@@ -133,7 +199,8 @@ describe("legacy team-code mode (no AUTH_SECRET)", () => {
     const res = await POST(fakeRequest({ body, headers: { cookie: "site_auth=team-code" } }));
     expect(res.status).toBe(200);
     expect(setData).toHaveBeenCalledWith("a", body);
-    expect(isCoachForTeam).not.toHaveBeenCalled();
+    expect(auth).not.toHaveBeenCalled();
+    expect(membershipsForEmail).not.toHaveBeenCalled();
   });
 
   it("POST 401s without a valid team-code cookie", async () => {
@@ -149,12 +216,24 @@ describe("account mode — view as (impersonation)", () => {
   it("GET reads as the impersonated user", async () => {
     auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
     viewingAs.mockReturnValue("mum@a.com");
-    membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "parent" }] });
+    membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "parent", playerId: "p1" }] });
     teamBySlug.mockReturnValue({ slug: "a" });
     getData.mockResolvedValue({ team: { name: "A" } });
     const { GET } = await loadRoute({ authOn: true });
     expect((await GET(fakeRequest())).status).toBe(200);
     expect(membershipsForEmail).toHaveBeenCalledWith("mum@a.com");
+  });
+
+  it("POST is refused for a super admin viewing as a parent, with the read-only message", async () => {
+    auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
+    viewingAs.mockReturnValue("mum@a.com");
+    membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "parent", playerId: "p1" }] });
+    teamBySlug.mockReturnValue({ slug: "a" });
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { team: { name: "X" } } }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: READ_ONLY_MESSAGE });
+    expect(setData).not.toHaveBeenCalled();
   });
 
   it("POST is refused while viewing as someone (read-only impersonation)", async () => {
@@ -223,7 +302,6 @@ describe("account mode — visibility layer on GET", () => {
     auth.mockResolvedValue({ user: { email: "mum@a.com" } });
     membershipsForEmail.mockResolvedValue({ memberships });
     teamBySlug.mockReturnValue({ slug: "a" });
-    isCoachForTeam.mockResolvedValue(false);
     const stored = fullDoc(parentsSee);
     getData.mockResolvedValue(stored);
     return stored;
@@ -239,7 +317,6 @@ describe("account mode — visibility layer on GET", () => {
   it("with default switches: no rules, no coach fields, today's lineup only, no record", async () => {
     parentSession();
     const body = await get();
-    expect(isCoachForTeam).toHaveBeenCalledWith("mum@a.com", "a");
 
     expect(body.team.name).toBe("A");
     expect("rules" in body.team).toBe(false);
@@ -360,7 +437,6 @@ describe("account mode — visibility layer on GET", () => {
     parentSession({ parentsSee: { ownChildMinutes: true } });
     auth.mockResolvedValue({ user: { email: "coach@a.com" } });
     membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "coach" }] });
-    isCoachForTeam.mockResolvedValue(true);
     const body = await get();
     expect(body).toEqual(fullDoc({ ownChildMinutes: true }));
     expect(body.team.rules).toHaveLength(1);
@@ -369,14 +445,26 @@ describe("account mode — visibility layer on GET", () => {
     expect(byId(body, "f-today").record).toEqual(RECORD());
   });
 
+  it("a coach-parent acting as the parent is redacted exactly like that parent", async () => {
+    parentSession({ parentsSee: { ownChildMinutes: true } });
+    coachParentSignedIn();
+    const { GET } = await loadRoute({ authOn: true });
+    const asParent = await (await GET(fakeRequest({ cookies: { act_as: "parent" } }))).json();
+    expect("rules" in asParent.team).toBe(false);
+    expect("coach" in asParent.players[0]).toBe(false);
+    expect(byId(asParent, "f-today").record).toEqual({ minutes: [{ pid: "p1", min: 30 }] });
+    expect("plan" in byId(asParent, "f-other")).toBe(false);
+    // The same login with the coach hat on gets the whole document.
+    const asCoach = await (await GET(fakeRequest())).json();
+    expect(asCoach).toEqual(fullDoc({ ownChildMinutes: true }));
+  });
+
   it("a super admin viewing as a parent is redacted exactly like that parent", async () => {
     parentSession({ parentsSee: { ownChildMinutes: true } });
     auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
     viewingAs.mockReturnValue("mum@a.com");
-    isCoachForTeam.mockResolvedValue(false); // for mum, not for the boss
     const body = await get();
     expect(membershipsForEmail).toHaveBeenCalledWith("mum@a.com");
-    expect(isCoachForTeam).toHaveBeenCalledWith("mum@a.com", "a");
     expect("rules" in body.team).toBe(false);
     expect("coach" in body.players[0]).toBe(false);
     expect(byId(body, "f-today").record).toEqual({ minutes: [{ pid: "p1", min: 30 }] });
@@ -404,6 +492,6 @@ describe("legacy team-code mode — no roles, so no redaction", () => {
     const { GET } = await loadRoute({ authOn: false });
     const res = await GET(fakeRequest({ headers: { cookie: "site_auth=team-code" } }));
     expect(await res.json()).toEqual(stored);
-    expect(isCoachForTeam).not.toHaveBeenCalled();
+    expect(membershipsForEmail).not.toHaveBeenCalled();
   });
 });

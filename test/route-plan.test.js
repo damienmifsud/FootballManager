@@ -5,15 +5,15 @@ import { fakeRequest } from "./helpers/fakeRequest";
 // account mode; any code holder in legacy mode. AUTH_ON is module-load state,
 // so each block re-imports the route. The optional gk field writes the plan's
 // first-block keeper back to the fixture's in-goal duty in the same merge.
-const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, isCoachForTeam, viewingAs } = vi.hoisted(() => ({
+const { auth, getData, setData, teamBySlug, teamFromCookieHeader, membershipsForEmail, viewingAs } = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(),
   teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(),
-  membershipsForEmail: vi.fn(), isCoachForTeam: vi.fn(), viewingAs: vi.fn()
+  membershipsForEmail: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/store", () => ({ getData, setData }));
 vi.mock("@/lib/teams", () => ({ teamBySlug, teamFromCookieHeader }));
-vi.mock("@/lib/directory", () => ({ membershipsForEmail, isCoachForTeam, viewingAs }));
+vi.mock("@/lib/directory", () => ({ membershipsForEmail, viewingAs }));
 
 const PLAN = { subTimes: [10, 30], assignments: [{ GK: "p1" }], updatedAt: 1 };
 const DATA = () => ({
@@ -44,11 +44,26 @@ async function loadRoute({ authOn }) {
   return import("@/app/api/plan/route");
 }
 
+// The worn hat decides what a login may do (real lib/viewer + lib/hats over
+// the mocked directory), so a session's intent lives in its membership roles.
 function coachSession() {
   auth.mockResolvedValue({ user: { email: "coach@a.com" } });
   membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "coach" }] });
   teamBySlug.mockReturnValue({ slug: "a" });
-  isCoachForTeam.mockResolvedValue(true);
+}
+function parentSession() {
+  auth.mockResolvedValue({ user: { email: "mum@a.com" } });
+  membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "parent", playerId: "p1", playerName: "Sam" }] });
+  teamBySlug.mockReturnValue({ slug: "a" });
+}
+// A coach whose child plays on the same team: two hats, act_as picks one.
+function coachParentSession() {
+  auth.mockResolvedValue({ user: { email: "coach@a.com" } });
+  membershipsForEmail.mockResolvedValue({ memberships: [
+    { teamSlug: "a", role: "coach" },
+    { teamSlug: "a", role: "parent", playerId: "p1", playerName: "Sam" }
+  ] });
+  teamBySlug.mockReturnValue({ slug: "a" });
 }
 
 describe("POST /api/plan — validation", () => {
@@ -79,12 +94,22 @@ describe("POST /api/plan — account mode", () => {
   });
 
   it("403s a parent (non-coach)", async () => {
-    coachSession();
-    isCoachForTeam.mockResolvedValue(false);
+    parentSession();
     const { POST } = await loadRoute({ authOn: true });
     const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN } }));
     expect(res.status).toBe(403);
     expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("403s a coach-parent who is acting as the parent (the worn hat decides)", async () => {
+    coachParentSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN }, cookies: { act_as: "parent" } }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "forbidden" });
+    expect(setData).not.toHaveBeenCalled();
+    // Without the act_as cookie the same login wears the coach hat and may write.
+    expect((await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN } }))).status).toBe(200);
   });
 
   it("writes only the target fixture's plan, preserving everything else", async () => {
@@ -217,8 +242,7 @@ describe("POST /api/plan — gk write-back to the in-goal duty", () => {
   });
 
   it("still refuses a non-coach even when gk is valid", async () => {
-    coachSession();
-    isCoachForTeam.mockResolvedValue(false);
+    parentSession();
     const { POST } = await loadRoute({ authOn: true });
     const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN, gk: "p2" } }));
     expect(res.status).toBe(403);
