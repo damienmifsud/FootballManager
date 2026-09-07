@@ -230,7 +230,8 @@ mode, where there are no accounts.
 | Calendar subscribe link | Yes | Yes | Yes | Yes | Yes |
 | **Do** | | | | | |
 | Reply In or Out for games and training | Anyone | No | Anyone | Own children | Anyone |
-| Edit fixtures, scores, duties, squad, staff, team details | Yes | No | Yes | No | Yes |
+| Duties: fruit, jerseys and the goalkeeper | Yes | No | Yes | Own children | Yes |
+| Edit fixtures, scores, squad, staff, team details | Yes | No | Yes | No | Yes |
 | Set the game plan and run the live match | Yes | No | Yes | No | Yes |
 | Settings: parents can see, match format, home shape, lineup rules | Yes | No | Yes | No | Yes |
 | Rate players and write coach notes | Yes | No | Yes | No | Yes |
@@ -248,7 +249,9 @@ mode, where there are no accounts.
 "If the coach allows" follows the team's **Parents can see** switches in Settings. A
 coach who is also a parent gets exactly the Parent column while wearing the parent hat.
 Every visit still refreshes fixtures quietly for everyone; only the manual "sync now" is
-coach-level.
+coach-level. Duties: coaches assign or clear any duty; parents claim fruit or jersey duty
+for their own family (never the goalkeeper) and can hand it back. Every duty write goes
+through its own narrow route (`/api/duty`), so a claim never touches the rest of the fixture.
 
 ### Hats: several roles, several teams
 

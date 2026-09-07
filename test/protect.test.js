@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { preserveNarrowFields } from "@/lib/protect";
 
 // The dashboard posts its whole in-memory copy to /api/data. Everything the
-// narrow routes write (RSVPs, plans, ratings) is missing from that copy if it
+// narrow routes write (RSVPs, plans, duties, ratings) is missing from that copy if it
 // landed after the page loaded, so preserveNarrowFields makes the stored
 // document the source of truth for exactly those fields.
 
@@ -21,7 +21,8 @@ const stored = () => ({
         p5: { status: "out", reason: "Sick", by: "Dad", at: 5 }, p6: { status: "in", by: "Mum", at: 6 }
       },
       plan: { subTimes: [10, 20], assignments: [{ GK: "p1" }], updatedAt: 9 },
-      record: { savedAt: 10, scoreUs: 2, scoreThem: 1, minutes: [{ pid: "p1", min: 30 }] }
+      record: { savedAt: 10, scoreUs: 2, scoreThem: 1, minutes: [{ pid: "p1", min: 30 }] },
+      fruit: "p2", gk: "p1", jersey: "p3"
     },
     { id: "f2", round: 2 }
   ],
@@ -40,7 +41,7 @@ const stale = () => ({
     { id: "p2", name: "Ava" }
   ],
   fixtures: [
-    { id: "f1", round: 1, us: 2, them: 1, availability: {} },
+    { id: "f1", round: 1, us: 2, them: 1, availability: {}, fruit: "", gk: "p2", jersey: "" },
     { id: "f2", round: 2 }
   ],
   sessions: [
@@ -63,6 +64,26 @@ describe("preserveNarrowFields", () => {
     const f1 = out.fixtures.find((f) => f.id === "f1");
     expect(f1.plan).toEqual(stored().fixtures[0].plan);
     expect(f1.record).toEqual(stored().fixtures[0].record);
+  });
+
+  it("keeps the fixture's duties (fruit, gk, jersey) from the stored document — a parent's claim outlives the coach's stale copy", () => {
+    const out = preserveNarrowFields(stored(), stale());
+    const f1 = out.fixtures.find((f) => f.id === "f1");
+    expect(f1).toMatchObject({ fruit: "p2", gk: "p1", jersey: "p3", us: 2, them: 1 });
+  });
+
+  it("drops stale duties the stored fixture no longer has, and never invents them", () => {
+    const incoming = stale();
+    incoming.fixtures[1] = { id: "f2", round: 2, fruit: "p1", gk: "p1", jersey: "p1" };
+    const out = preserveNarrowFields(stored(), incoming);
+    expect(out.fixtures.find((f) => f.id === "f2")).toEqual({ id: "f2", round: 2 });
+    // A stored fixture with the duties cleared ("") wins over a stale assignment too.
+    const s = stored();
+    s.fixtures[0] = { ...s.fixtures[0], fruit: "", gk: "" };
+    const stale2 = stale();
+    stale2.fixtures[0] = { ...stale2.fixtures[0], fruit: "p1", gk: "p1" };
+    const f1 = preserveNarrowFields(s, stale2).fixtures.find((f) => f.id === "f1");
+    expect(f1).toMatchObject({ fruit: "", gk: "", jersey: "p3" });
   });
 
   it("drops a stale plan or record the stored fixture no longer has", () => {
@@ -92,7 +113,7 @@ describe("preserveNarrowFields", () => {
 
   it("keeps records that exist only in the incoming document exactly as sent", () => {
     const incoming = stale();
-    const newFixture = { id: "f3", round: 3, availability: { p1: { status: "in" } }, plan: { assignments: [] } };
+    const newFixture = { id: "f3", round: 3, availability: { p1: { status: "in" } }, plan: { assignments: [] }, fruit: "", gk: "p1" };
     const newSession = { id: "s3", kind: "training", availability: { "2026-09-09": {} } };
     const newPlayer = { id: "p3", name: "Leo", coach: { ratings: { GK: 1 }, note: "" } };
     incoming.fixtures.push(newFixture);
@@ -143,6 +164,9 @@ describe("preserveNarrowFields", () => {
     expect("availability" in f1).toBe(false);
     expect("plan" in f1).toBe(false);
     expect("record" in f1).toBe(false);
+    expect("fruit" in f1).toBe(false);
+    expect("gk" in f1).toBe(false);
+    expect("jersey" in f1).toBe(false);
     expect("availability" in out.sessions.find((x) => x.id === "s1")).toBe(false);
     expect("coach" in out.players.find((p) => p.id === "p2")).toBe(false);
   });
