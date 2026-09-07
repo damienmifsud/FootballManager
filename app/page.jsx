@@ -5,8 +5,6 @@ import { teamsFor, hatsFor, hasChoice } from "@/lib/hats";
 
 const AUTH_ON = !!process.env.AUTH_SECRET;
 
-const splash = { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "system-ui,sans-serif", background: "linear-gradient(160deg,#C8102E,#7A0A1B)", color: "#fff", textAlign: "center" };
-
 export default async function Page() {
   // Legacy team-code mode: middleware already gated entry; just show the dashboard.
   if (!AUTH_ON) return <DashboardHost />;
@@ -15,6 +13,7 @@ export default async function Page() {
   const { auth } = await import("@/auth");
   const { membershipsForEmail, isAdminEmail, isClubAdminEmail } = await import("@/lib/directory");
   const TeamPicker = (await import("@/components/TeamPicker")).default;
+  const { AuthPage, AuthHeader, AuthFooter, SignOutButton } = await import("@/components/AuthShell");
 
   const session = await auth();
   const realEmail = session?.user?.email;
@@ -40,26 +39,35 @@ export default async function Page() {
     const superAdmin = isAdminEmail(realEmail);
     if (!impersonating && (superAdmin || (await isClubAdminEmail(realEmail)))) {
       return (
-        <div style={splash}>
-          <div style={{ maxWidth: 360 }}>
-            <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>No teams yet</div>
-            <div style={{ fontSize: 14, opacity: .9, marginBottom: 16 }}>{superAdmin ? "You're the club's super admin." : "You're a club admin."} Create the first team to get started.</div>
-            <a href="/admin" style={{ display: "inline-block", background: "#fff", color: "#7A0A1B", borderRadius: 12, padding: "10px 16px", fontWeight: 700, textDecoration: "none" }}>Open club admin</a>
+        <AuthPage>
+          <AuthHeader />
+          <div className="auth-card">
+            <div className="auth-card-title">No teams yet</div>
+            <div className="auth-body">{superAdmin ? "You're the club's super admin." : "You're a club admin."} Create the first team to get started.</div>
+            <div className="auth-links"><a href="/admin" className="auth-btn">Open club admin</a></div>
           </div>
-        </div>
+          <AuthFooter />
+        </AuthPage>
       );
     }
     return (
-      <div style={splash}>
-        <div style={{ maxWidth: 360 }}>
-          <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>No team linked to {email}</div>
-          <div style={{ fontSize: 14, opacity: .9 }}>
+      <AuthPage>
+        <AuthHeader />
+        <div className="auth-card">
+          <div className="auth-card-title">No team linked to {email}</div>
+          <div className="auth-body">
             {impersonating
-              ? <>You're viewing as {email}, who has no team access. Head back to <a href="/admin" style={{ color: "#fff" }}>/admin</a> to exit view-as.</>
+              ? <>You're viewing as {email}, who has no team access. Head back to <a href="/admin">/admin</a> to exit view-as.</>
               : "Ask your coach to add this email to your child's record, then sign in again."}
           </div>
+          <div className="auth-links">
+            {impersonating
+              ? <a href="/admin" className="auth-btn soft">Back to club admin</a>
+              : <SignOutButton className="auth-btn soft" />}
+          </div>
         </div>
-      </div>
+        <AuthFooter />
+      </AuthPage>
     );
   }
 
