@@ -1070,10 +1070,12 @@ describe("Settings — lineup rules (cap and refusals)", () => {
   });
 });
 
-describe("Player sheet — ratings", () => {
+describe("Player screen — ratings", () => {
+  // Squad row → the pushed Player screen (S5).
   const openPlayer = async () => {
     fireEvent.click(screen.getByText("Squad"));
     fireEvent.click(await screen.findByText("Sam Smith"));
+    await waitFor(() => expect(headerTitle()).toBe("Sam Smith"));
   };
 
   it("coach taps the 4th MID pip: POSTs ratings to /api/player-coach and shows the number", async () => {
@@ -1122,7 +1124,7 @@ describe("Player sheet — ratings", () => {
     expect(bodyOf("/api/player-coach")).toMatchObject({ playerId: "p1", note: "Loves a long throw" });
   });
 
-  it("shows the four season tiles from match records, and no Ratings card for a parent", async () => {
+  it("shows the Goals / Games / In goal tiles and the assists · minutes line from match records, and no Ratings card for a parent", async () => {
     const data = makeData();
     data.fixtures = [
       { id: "f1", status: "played", dateISO: "2026-05-02", opponent: "A", homeAway: "H", us: 1, them: 0, goals: [{ pid: "p1", n: 1 }], availability: {}, record: { savedAt: 1, minutes: [{ pid: "p1", min: 30 }] } },
@@ -1134,10 +1136,11 @@ describe("Player sheet — ratings", () => {
     await waitForLoaded(); // view mode = parent
     await openPlayer();
     expect(await screen.findByText("Games")).toBeTruthy();
-    const tiles = [...document.querySelectorAll(".statgrid .stat")].map((t) => t.querySelector(".k").textContent + "=" + t.querySelector(".v").textContent);
-    expect(tiles).toEqual(["Games=2", "Min=56", "Goals=1", "Assists=0"]);
+    const tiles = [...document.querySelectorAll(".ptiles .ptile")].map((t) => t.querySelector(".k").textContent + "=" + t.querySelector(".v").textContent);
+    expect(tiles).toEqual(["Goals=1", "Games=2", "In goal=0"]);
+    expect(document.querySelector(".pt-line").textContent).toBe("0 assists · 56 minutes");
     expect(screen.queryByText("Ratings")).toBeNull();
-    expect(screen.queryByText("Coach only")).toBeNull();
+    expect(screen.queryByText("Coaches only")).toBeNull();
   });
 });
 
@@ -1651,7 +1654,7 @@ describe("S3 Results + Match detail", () => {
     expect(document.querySelector(".mu-sub").textContent).toBe("No score");
   });
 
-  it("goals: one row per scorer with the goal count; tapping opens the player sheet; no scorers gets the quiet card", async () => {
+  it("goals: one row per scorer with the goal count; tapping pushes the Player screen; no scorers gets the quiet card", async () => {
     await load(makeData({ players: kids, fixtures: [played({ goals: [{ pid: "p1", n: 2 }, { pid: "p3", n: 1 }] })] }));
     toResults();
     fireEvent.click(rows()[0]);
@@ -1664,7 +1667,9 @@ describe("S3 Results + Match detail", () => {
     expect(gr[1].querySelector(".gr-n").textContent).toBe("1 goal");
     expect(screen.queryByText("No scorers recorded for this one.")).toBeNull();
     fireEvent.click(gr[0]);
-    expect(await screen.findByText("Sam Smith", { selector: ".sheet h2" })).toBeTruthy();
+    await waitFor(() => expect(headerTitle()).toBe("Sam Smith"));
+    expect(headerKicker()).toBe("#7 · FWD");
+    expect(document.querySelector(".sheet")).toBeNull();
     cleanup();
     await load(makeData({ players: kids, fixtures: [played({ goals: [] })] }));
     toResults();
@@ -1920,8 +1925,8 @@ describe("S4 Calendar — Direction C", () => {
     expect(listCard().getByText("Birthday").className).toBe("wk-meta");
     expect(document.body.textContent).not.toMatch(/🎂/);
     fireEvent.click(listCard().getByText("Sam S. turns 8"));
-    expect(await screen.findByText("Sam Smith", { selector: ".sheet *" })).toBeTruthy();
-    closeSheet();
+    await waitFor(() => expect(headerTitle()).toBe("Sam Smith"));
+    expect(document.querySelector(".ph-name").textContent).toBe("Sam Smith");
     // A month with nothing in it.
     cleanup();
     await load(makeData({ fixtures: [] }));
@@ -1990,5 +1995,436 @@ describe("S4 Calendar — Direction C", () => {
     expect(screen.queryByText("Apple")).toBeNull();
     expect(screen.queryByText("Outlook")).toBeNull();
     expect(screen.queryByText("Copy link")).toBeNull();
+  });
+});
+
+/* ---------------- S5 Squad + Player: Direction C ---------------- */
+
+describe("S5 Squad + Player — Direction C", () => {
+  const today = new Date();
+  const todayISO = isoLocal(today);
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  // "Fri, 24 July" for an ISO date, the way the hero writes a birthday.
+  const bdayText = (iso) => { const d = new Date(iso + "T00:00:00"); return `${DOW[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`; };
+  const weekday = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-AU", { weekday: "long" });
+  const fmt = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
+
+  // Account mode with a working /api/rsvp.
+  const meFetch = (me) => {
+    fetch.mockImplementation((url) => {
+      if (String(url).includes("/api/me")) return Promise.resolve({ ok: true, json: async () => me });
+      if (String(url).includes("/api/rsvp")) return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+  };
+  const account = (role, playerIds = [], playerNames = []) => {
+    const hat = { role, playerIds, playerNames };
+    return {
+      mode: "account", email: "x@a.com", admin: false, clubAdmin: false, teamSlug: "a", teamName: "Test FC", role, playerIds, playerNames,
+      hats: [hat], teams: [{ teamSlug: "a", teamName: "Test FC", hats: [hat] }], canSwitch: false, memberships: []
+    };
+  };
+  const kids = [
+    { id: "p1", name: "Sam Smith", number: 7, position: "FWD" },
+    { id: "p2", name: "Alex Smith", number: 8, position: "MID" },
+    { id: "p3", name: "Milo Park", number: 9, position: "DEF" }
+  ];
+  const team = (over = {}) => ({ name: "Test FC", division: "Div 1", ageGroup: "U8", coachPin: "", headCoach: "Byron", ...over });
+  const game = (over = {}) => ({ id: "f7", round: 7, status: "upcoming", dateISO: daysFromNow(7), time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park", availability: {}, ...over });
+  const played = (over = {}) => ({ id: "f1", round: 1, status: "played", dateISO: daysFromNow(-14), opponent: "Rovers", homeAway: "H", us: 3, them: 1, availability: {}, ...over });
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); render(<App />); return waitForLoaded(); };
+  const nav = (label) => fireEvent.click(within(screen.getByRole("navigation")).getByText(label));
+  const rows = () => [...document.querySelectorAll(".prow")];
+  const rowText = (r, sel) => r.querySelector(sel)?.textContent;
+  const sheet = () => within(document.querySelector(".sheet"));
+  const openPlayerRow = async (i = 0) => { fireEvent.click(rows()[i]); await waitFor(() => expect(headerTitle()).not.toBe("Test FC")); };
+
+  it("the header kicker reads n players · m coaches on Squad (singular forms) and goes back to division · age group on Home", async () => {
+    await load(makeData({ team: team(), players: kids }));
+    nav("Squad");
+    expect(await screen.findByText("Players", { selector: ".label" })).toBeTruthy();
+    expect(headerKicker()).toBe("3 players · 1 coach");
+    nav("Home");
+    await waitFor(() => expect(headerKicker()).toBe("Div 1 · U8"));
+    cleanup();
+    await load(makeData({ team: team({ headCoach: "Byron", assistantCoach: "Dee" }), players: [kids[0]] }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    expect(headerKicker()).toBe("1 player · 2 coaches");
+  });
+
+  it("rows: shirt number, name, position tag by position, goals text with assists; guests come last with the blue number", async () => {
+    const guest = { id: "p4", name: "Zac Guest", number: 2, position: "GK", guest: true, fromISO: daysFromNow(-10), untilISO: daysFromNow(10) };
+    await load(makeData({
+      team: team(), players: [...kids, guest],
+      fixtures: [played({ goals: [{ pid: "p1", n: 2 }, { pid: "p3", n: 1 }], assists: [{ pid: "p2", n: 1 }, { pid: "p3", n: 2 }] })]
+    }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    const r = rows();
+    expect(r.map((x) => rowText(x, ".pr-num"))).toEqual(["7", "8", "9", "2"]);
+    expect(r.map((x) => rowText(x, ".pr-name b"))).toEqual(["Sam Smith", "Alex Smith", "Milo Park", "Zac Guest"]);
+    expect(r.map((x) => x.querySelector(".pos-pill").className)).toEqual(["pos-pill pos-FWD", "pos-pill pos-MID", "pos-pill pos-DEF", "pos-pill pos-GK"]);
+    expect(r.map((x) => rowText(x, ".pr-goals"))).toEqual(["2 goals", "No goals yet · 1 assist", "1 goal · 2 assists", "No goals yet"]);
+    expect(r[3].querySelector(".pr-num").className).toBe("pr-num guest");
+    expect(rowText(r[3], ".guesttag")).toBe("Guest");
+    expect(r[0].querySelector(".guesttag")).toBeNull();
+    // Nothing from the old squad card survives: no photo square, no per-row pencil/trash, no fab.
+    expect(document.querySelector(".pcard")).toBeNull();
+    expect(document.querySelector(".addfab")).toBeNull();
+    expect(document.querySelector(".prow .iconbtn")).toBeNull();
+  });
+
+  it("empty squad: 'No players yet.' and, for the coach, the Add player / Paste player list footer that opens the editor and the import sheet", async () => {
+    await load(makeData({ team: team(), players: [] }));
+    await enterCoachMode();
+    nav("Squad");
+    expect((await screen.findByText("No players yet.")).className).toBe("pl-empty");
+    const foot = document.querySelector(".pr-foot");
+    expect(within(foot).getByText("Add player").className).toBe("ghostlink");
+    fireEvent.click(within(foot).getByText("Add player"));
+    expect(await screen.findByText("Add player", { selector: ".sheet h2" })).toBeTruthy();
+    closeSheet();
+    fireEvent.click(within(foot).getByText("Paste player list"));
+    expect(await screen.findByText(/paste/i, { selector: ".sheet h2" })).toBeTruthy();
+    closeSheet();
+    // Parents get no footer.
+    cleanup();
+    await load(makeData({ team: team(), players: kids }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    expect(document.querySelector(".pr-foot")).toBeNull();
+    expect(screen.queryByText("Add player")).toBeNull();
+  });
+
+  it("coach: a reply pill on every row and the '{Weekday} replies' meta; tapping the pill opens the reply sheet without leaving Squad, and In lands on the pill", async () => {
+    meFetch(account("coach"));
+    const g = game();
+    await load(makeData({ team: team(), players: kids, fixtures: [g] }));
+    await expectChip("Coach");
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    expect(screen.getByText(`${weekday(g.dateISO)} replies`).className).toBe("pl-meta");
+    const r = rows();
+    expect(r.map((x) => rowText(x, ".rr-btn"))).toEqual(["Reply", "Reply", "Reply"]);
+    fireEvent.click(r[1].querySelector(".rr-btn"));
+    expect(await screen.findByText("Reply for Alex", { selector: ".rs-title" })).toBeTruthy();
+    expect(headerTitle()).toBe("Test FC"); // still on the Squad root — the row tap didn't fire
+    expect(document.querySelector(".nav button.active").textContent).toBe("Squad");
+    fireEvent.click(sheet().getByRole("button", { name: "In" }));
+    await waitFor(() => expect(document.querySelector(".ov")).toBeNull());
+    await waitFor(() => expect(rows()[1].querySelector(".rr-btn").className).toBe("rr-btn in"));
+    expect(rows()[1].querySelector(".rr-btn").textContent).toBe("In");
+    const body = JSON.parse(fetch.mock.calls.find((c) => String(c[0]).includes("/api/rsvp"))[1].body);
+    expect(body).toMatchObject({ kind: "game", id: "f7", playerId: "p2", status: "in" });
+  });
+
+  it("parent: the pill sits on their own child's row only and there is no replies meta; a view-only account gets no pills; no upcoming game means no pills for anyone", async () => {
+    meFetch(account("parent", ["p1"], ["Sam Smith"]));
+    await load(makeData({ team: team(), players: kids, fixtures: [game({ availability: { p1: { status: "out" } } })] }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    let r = rows();
+    expect(r[0].querySelector(".rr-btn").className).toBe("rr-btn out");
+    expect(r[0].querySelector(".rr-btn").textContent).toBe("Out");
+    expect(r[1].querySelector(".rr-btn")).toBeNull();
+    expect(r[2].querySelector(".rr-btn")).toBeNull();
+    expect(screen.queryByText(/replies$/)).toBeNull();
+    cleanup();
+    meFetch(account("viewer"));
+    await load(makeData({ team: team(), players: kids, fixtures: [game()] }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    expect(document.querySelector(".prow .rr-btn")).toBeNull();
+    cleanup();
+    meFetch(account("coach"));
+    await load(makeData({ team: team(), players: kids, fixtures: [played()] }));
+    await expectChip("Coach");
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    expect(document.querySelector(".prow .rr-btn")).toBeNull();
+    expect(screen.queryByText(/replies$/)).toBeNull();
+    // Every row still opens the player.
+    r = rows();
+    expect(r).toHaveLength(3);
+    expect(r.every((x) => x.querySelector("svg"))).toBe(true);
+  });
+
+  it("tapping a row pushes the Player screen (name title, '#number · position' kicker); Back returns to Squad; a player without a number gets the position alone", async () => {
+    await load(makeData({ team: team(), players: [...kids, { id: "p5", name: "Nell New", position: "MID" }] }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    fireEvent.click(screen.getByText("Milo Park"));
+    await waitFor(() => expect(headerTitle()).toBe("Milo Park"));
+    expect(headerKicker()).toBe("#9 · DEF");
+    expect(document.querySelector(".sheet")).toBeNull();
+    expect(document.querySelector(".ph-num").textContent).toBe("9");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Test FC"));
+    expect(screen.getByText("Players", { selector: ".label" })).toBeTruthy();
+    fireEvent.click(screen.getByText("Nell New"));
+    await waitFor(() => expect(headerTitle()).toBe("Nell New"));
+    expect(headerKicker()).toBe("MID");
+  });
+
+  it("Coaches card: one row per named staff member, head coach in the red avatar, a WhatsApp button with the wa.me href, the mail fallback, no Call/Text chips; hidden without staff", async () => {
+    await load(makeData({
+      team: team({ headCoach: "", staff: [
+        { role: "Head coach", name: "Damien Mifsud", mobile: "0400 111 222", email: "d@x.com" },
+        { role: "Assistant coach", name: "Cameron Lee", mobile: "", email: "cam@x.com" },
+        { role: "Manager", name: "", mobile: "0400 999 999" },
+        { role: "Manager", name: "Pat Quiet" }
+      ] }),
+      players: kids
+    }));
+    nav("Squad");
+    const card = (await screen.findByText("Coaches", { selector: ".label" })).closest(".card");
+    const crows = card.querySelectorAll(".crow");
+    expect(crows).toHaveLength(3);
+    expect(crows[0].querySelector(".avatar").className).toBe("avatar head");
+    expect(crows[0].querySelector(".avatar").textContent).toBe("D");
+    expect(crows[1].querySelector(".avatar").className).toBe("avatar");
+    expect(crows[0].querySelector(".cr-name").textContent).toBe("Damien Mifsud");
+    expect(crows[0].querySelector(".cr-role").textContent).toBe("Head coach");
+    const wa = within(card).getByRole("link", { name: "Message Damien Mifsud on WhatsApp" });
+    expect(wa.getAttribute("href")).toBe("https://wa.me/61400111222");
+    expect(wa.className).toBe("wa-sq");
+    const mail = within(card).getByRole("link", { name: "Email Cameron Lee" });
+    expect(mail.getAttribute("href")).toBe("mailto:cam@x.com");
+    expect(mail.className).toBe("wa-sq mail");
+    expect(crows[2].querySelector("a")).toBeNull();
+    expect(within(card).queryByText("Call")).toBeNull();
+    expect(within(card).queryByText("Text")).toBeNull();
+    expect(screen.queryByText("Team staff")).toBeNull();
+    cleanup();
+    await load(makeData({ team: team({ headCoach: "" }), players: kids }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    expect(screen.queryByText("Coaches", { selector: ".label" })).toBeNull();
+    expect(headerKicker()).toBe("3 players · 0 coaches");
+  });
+
+  it("Player hero: Anton number, name, position tag, and the birthday line — 'Turns N on …' with a real year, 'Birthday …' without, nothing without a dob; no cake emoji", async () => {
+    const next = new Date(); next.setDate(next.getDate() + 10);
+    const nextISO = isoLocal(next);
+    const md = nextISO.slice(5);
+    await load(makeData({
+      team: team(),
+      players: [
+        { ...kids[0], dob: `${next.getFullYear() - 8}-${md}` },
+        { ...kids[1], dob: `1900-${md}` },
+        kids[2]
+      ]
+    }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    await openPlayerRow(0);
+    expect(document.querySelector(".ph-num").textContent).toBe("7");
+    expect(document.querySelector(".ph-name").textContent).toBe("Sam Smith");
+    expect(document.querySelector(".ph-row .pos-pill").className).toBe("pos-pill lg pos-FWD");
+    expect(document.querySelector(".ph-bday").textContent).toBe(`Turns 8 on ${bdayText(nextISO)}`);
+    expect(document.body.textContent).not.toMatch(/🎂/);
+    expect(document.querySelector(".ph-edit")).toBeNull(); // parents don't edit
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Test FC"));
+    await openPlayerRow(1);
+    expect(document.querySelector(".ph-bday").textContent).toBe(`Birthday ${bdayText(nextISO)}`);
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Test FC"));
+    await openPlayerRow(2);
+    expect(document.querySelector(".ph-bday")).toBeNull();
+  });
+
+  it("three tiles: Goals from played games, Games from match records, In goal from the gk field; the assists · minutes line only when there is something to say", async () => {
+    await load(makeData({
+      team: team(), players: kids,
+      fixtures: [
+        played({ id: "f1", goals: [{ pid: "p1", n: 1 }], assists: [{ pid: "p1", n: 2 }], gk: "p2", record: { savedAt: 1, minutes: [{ pid: "p1", min: 30 }, { pid: "p2", min: 30 }] } }),
+        played({ id: "f2", round: 2, dateISO: daysFromNow(-7), gk: "p1", record: { savedAt: 1, minutes: [{ pid: "p1", min: 25.5 }] } }),
+        game({ gk: "p1", goals: [{ pid: "p1", n: 9 }] })
+      ]
+    }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    await openPlayerRow(0);
+    const tiles = [...document.querySelectorAll(".ptiles .ptile")].map((t) => t.querySelector(".k").textContent + "=" + t.querySelector(".v").textContent);
+    expect(tiles).toEqual(["Goals=1", "Games=2", "In goal=2"]);
+    expect(document.querySelector(".pt-line").textContent).toBe("2 assists · 56 minutes");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Test FC"));
+    await openPlayerRow(2);
+    expect([...document.querySelectorAll(".ptiles .ptile .v")].map((v) => v.textContent)).toEqual(["0", "0", "0"]);
+    expect(document.querySelector(".pt-line")).toBeNull();
+  });
+
+  it("reply card: label with round, date and time, 'Is Sam playing?' and the pill that opens the reply sheet — for the coach and the child's own parent; not for another parent or a viewer", async () => {
+    meFetch(account("coach"));
+    const g = game();
+    await load(makeData({ team: team(), players: kids, fixtures: [g] }));
+    await expectChip("Coach");
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    await openPlayerRow(0);
+    const card = document.querySelector(".card.preply");
+    expect(card.querySelector(".label").textContent).toBe(`Round 7 · ${fmt(g.dateISO)} · 09:00`);
+    expect(card.querySelector(".rr-name").textContent).toBe("Is Sam playing?");
+    expect(card.querySelector(".rr-hint").textContent).toBe("Reply for Sam");
+    fireEvent.click(within(card).getByRole("button", { name: "Reply" }));
+    expect(await screen.findByText("Reply for Sam", { selector: ".rs-title" })).toBeTruthy();
+    fireEvent.click(sheet().getByRole("button", { name: "Out" }));
+    await waitFor(() => expect(document.querySelector(".preply .rr-btn").className).toBe("rr-btn out"));
+    expect(headerTitle()).toBe("Sam Smith");
+    cleanup();
+    meFetch(account("parent", ["p1"], ["Sam Smith"]));
+    await load(makeData({ team: team(), players: kids, fixtures: [g] }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    await openPlayerRow(0);
+    expect(document.querySelector(".card.preply .rr-name").textContent).toBe("Is Sam playing?");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Test FC"));
+    await openPlayerRow(1); // someone else's child
+    expect(document.querySelector(".card.preply")).toBeNull();
+    cleanup();
+    meFetch(account("viewer"));
+    await load(makeData({ team: team(), players: kids, fixtures: [g] }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    await openPlayerRow(0);
+    expect(document.querySelector(".card.preply")).toBeNull();
+  });
+
+  it("Family card: the coach sees each guardian (name, DM Mono phone, mailto, WhatsApp href); the child's own parent sees it too; another parent gets the privacy line; no guardians reads 'No family contacts yet.'", async () => {
+    const withFamily = [
+      { ...kids[0], guardians: [{ name: "Kate Smith", mobile: "0400 222 333", email: "kate@x.com" }, { name: "", mobile: "", email: "second@x.com" }] },
+      { ...kids[1], parentName: "Jo Smith", parentContact: "0400 444 555" },
+      kids[2]
+    ];
+    meFetch(account("coach"));
+    await load(makeData({ team: team(), players: withFamily, fixtures: [] }));
+    await expectChip("Coach");
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    await openPlayerRow(0);
+    let fam = (await screen.findByText("Family", { selector: ".label" })).closest(".card");
+    const frows = fam.querySelectorAll(".fam-row");
+    expect(frows).toHaveLength(2);
+    expect(frows[0].querySelector(".fam-name").textContent).toBe("Kate Smith");
+    expect(frows[0].querySelector(".fam-phone").textContent).toBe("0400 222 333");
+    expect(frows[0].querySelector(".fam-mail").getAttribute("href")).toBe("mailto:kate@x.com");
+    const wa = within(frows[0]).getByText("WhatsApp");
+    expect(wa.getAttribute("href")).toBe("https://wa.me/61400222333");
+    expect(wa.className).toBe("wa-btn");
+    expect(frows[1].querySelector(".fam-name").textContent).toBe("Parent 2");
+    expect(frows[1].querySelector(".fam-phone")).toBeNull();
+    expect(within(frows[1]).queryByText("WhatsApp")).toBeNull();
+    expect(within(fam).queryByText("Call")).toBeNull();
+    expect(screen.queryByText("Contact details are only shown to the family and the coaches.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Test FC"));
+    await openPlayerRow(1); // legacy single-parent fields
+    fam = (await screen.findByText("Family", { selector: ".label" })).closest(".card");
+    expect(fam.querySelector(".fam-name").textContent).toBe("Jo Smith");
+    expect(fam.querySelector(".fam-phone").textContent).toBe("0400 444 555");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Test FC"));
+    await openPlayerRow(2); // nobody recorded
+    fam = (await screen.findByText("Family", { selector: ".label" })).closest(".card");
+    expect(fam.querySelector(".fam-empty").textContent).toBe("No family contacts yet.");
+    cleanup();
+    // The child's own parent: the Family card; another family's child: the privacy line only.
+    meFetch(account("parent", ["p1"], ["Sam Smith"]));
+    await load(makeData({ team: team(), players: withFamily, fixtures: [] }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    await openPlayerRow(0);
+    expect((await screen.findByText("Family", { selector: ".label" })).closest(".card").querySelector(".fam-name").textContent).toBe("Kate Smith");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Test FC"));
+    await openPlayerRow(1);
+    expect(screen.getByText("Contact details are only shown to the family and the coaches.").className).toBe("privacy");
+    expect(screen.queryByText("Family", { selector: ".label" })).toBeNull();
+    expect(screen.queryByText("Jo Smith")).toBeNull();
+  });
+
+  it("the Ratings card carries the 'Coaches only' badge for the coach and is absent for a parent; a coach note still saves through /api/player-coach", async () => {
+    stubNarrowRoutes();
+    await load(makeData({ team: team(), players: kids }));
+    await enterCoachMode();
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    await openPlayerRow(0);
+    const notes = (await screen.findByText("Ratings", { selector: ".label" })).closest(".card");
+    expect(notes.className).toBe("card notes");
+    expect(within(notes).getByText("Coaches only").className).toBe("softbadge");
+    expect(screen.queryByText("Coach only")).toBeNull();
+    const ta = within(notes).getByLabelText("Coach note");
+    fireEvent.change(ta, { target: { value: "Quick feet" } });
+    fireEvent.blur(ta);
+    await waitFor(() => expect(callTo("/api/player-coach")).toBeTruthy());
+    expect(bodyOf("/api/player-coach")).toMatchObject({ playerId: "p1", note: "Quick feet" });
+    expect(storage.set).not.toHaveBeenCalled();
+    cleanup();
+    meFetch(account("parent", ["p1"], ["Sam Smith"]));
+    await load(makeData({ team: team(), players: kids }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    await openPlayerRow(0);
+    expect(screen.queryByText("Ratings")).toBeNull();
+    expect(screen.queryByText("Coaches only")).toBeNull();
+  });
+
+  it("coach: Edit opens the player editor; Remove player persists the squad without them (sample flag cleared) and the screen pops back to Squad", async () => {
+    await load(makeData({ team: team(), players: kids, isSample: true }));
+    await enterCoachMode();
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    await openPlayerRow(1);
+    expect(headerTitle()).toBe("Alex Smith");
+    fireEvent.click(screen.getByText("Edit", { selector: ".ph-edit" }));
+    expect(await screen.findByText("Edit player", { selector: ".sheet h2" })).toBeTruthy();
+    expect(screen.getByDisplayValue("Alex Smith")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove player" }));
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    const saved = JSON.parse(storage.set.mock.calls.at(-1)[1]);
+    expect(saved.players.map((p) => p.id)).toEqual(["p1", "p3"]);
+    expect(saved.isSample).toBe(false);
+    await waitFor(() => expect(headerTitle()).toBe("Test FC"));
+    expect(document.querySelector(".sheet")).toBeNull();
+    expect(screen.queryByText("Alex Smith")).toBeNull();
+    expect(rows()).toHaveLength(2);
+    expect(headerKicker()).toBe("2 players · 1 coach");
+    // A new player has no Remove button.
+    fireEvent.click(screen.getByText("Add player"));
+    await screen.findByText("Add player", { selector: ".sheet h2" });
+    expect(screen.queryByRole("button", { name: "Remove player" })).toBeNull();
+  });
+
+  it("guests: the tag on the row and the hero, the coach-only date range, ended guests listed for the coach as 'Guest · ended' and hidden from parents", async () => {
+    const active = { id: "g1", name: "Zac Guest", number: 2, position: "GK", guest: true, fromISO: daysFromNow(-10), untilISO: daysFromNow(20) };
+    const ended = { id: "g2", name: "Old Guest", number: 3, position: "DEF", guest: true, fromISO: daysFromNow(-30), untilISO: daysFromNow(-1) };
+    await load(makeData({ team: team(), players: [...kids, ended, active] }));
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    let r = rows();
+    expect(r.map((x) => rowText(x, ".pr-name b"))).toEqual(["Sam Smith", "Alex Smith", "Milo Park", "Zac Guest"]);
+    expect(rowText(r[3], ".guesttag")).toBe("Guest");
+    expect(r[3].querySelector(".pr-dates")).toBeNull();
+    expect(headerKicker()).toBe("4 players · 1 coach");
+    fireEvent.click(r[3]);
+    await waitFor(() => expect(headerTitle()).toBe("Zac Guest"));
+    expect(document.querySelector(".ph-row .guesttag").textContent).toBe("Guest");
+    cleanup();
+    await load(makeData({ team: team(), players: [...kids, ended, active] }));
+    await enterCoachMode();
+    nav("Squad");
+    await screen.findByText("Players", { selector: ".label" });
+    r = rows();
+    expect(r.map((x) => rowText(x, ".pr-name b"))).toEqual(["Sam Smith", "Alex Smith", "Milo Park", "Zac Guest", "Old Guest"]);
+    expect(r[3].querySelector(".pr-dates").textContent).toBe(`${fmt(active.fromISO)} → ${fmt(active.untilISO)}`);
+    expect(rowText(r[4], ".guesttag")).toBe("Guest · ended");
+    expect(r[4].querySelector(".guesttag").className).toBe("guesttag ended");
+    expect(headerKicker()).toBe("5 players · 1 coach");
   });
 });

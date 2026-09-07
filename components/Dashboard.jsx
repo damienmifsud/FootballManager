@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon, Star, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, Download,
   Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt, GripVertical,
-  Eye, User, LogOut, Navigation, Video
+  Eye, User, LogOut, Navigation, Video, MessageCircle
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, LabelList
@@ -312,10 +312,6 @@ const CSS = `
 .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;
   box-shadow:0 1px 2px rgba(10,30,18,.04);margin-bottom:14px;}
 .label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700;}
-.statgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
-.stat{background:var(--soft);border-radius:14px;padding:12px 8px;text-align:center;}
-.stat .v{font-family:'Anton';font-size:24px;line-height:1;}
-.stat .k{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:4px;font-weight:700;}
 /* home (S2): next game, duties, next 7 days, season, birthdays */
 .nextgame{padding:16px 16px 14px;}
 .ng-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:14px;}
@@ -425,14 +421,72 @@ const CSS = `
 .fx .upc{font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.06em;}
 .hatag{display:inline-block;font-size:9px;font-weight:800;padding:2px 5px;border-radius:5px;margin-left:6px;vertical-align:middle;}
 .hatag.H{background:#fdeaec;color:var(--pitch);} .hatag.A{background:#eef0f2;color:#5b6b61;}
-/* squad */
-.pcard{display:flex;align-items:center;gap:13px;padding:12px 4px;border-bottom:1px solid var(--line);cursor:pointer;}
-.pcard:last-child{border-bottom:none;}
+/* .pnum: the numbered square still used by the Stats top scorers (S8 restyles it). */
 .pnum{width:42px;height:42px;border-radius:12px;background:var(--pitch);color:#fff;
   display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:20px;flex-shrink:0;}
-.pnum.photo{object-fit:cover;}
 .numbadge{position:absolute;bottom:-4px;right:-4px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;
   background:var(--pitch);color:#fff;font-family:'Anton';font-size:11px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;}
+/* squad (S5, Direction C): Players card rows and the Coaches card */
+.plist,.coaches{padding:12px 16px 4px;}
+.pl-head{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.pl-meta{font-size:11px;color:var(--muted);font-weight:600;white-space:nowrap;}
+.pl-empty{font-size:13px;color:var(--muted);padding:12px 0 10px;}
+.prow{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);cursor:pointer;}
+.prow:last-child{border-bottom:none;}
+.pr-num{width:30px;text-align:center;flex-shrink:0;font-family:'Anton',sans-serif;font-weight:400;font-size:20px;line-height:1;color:var(--pitch);}
+.pr-num.guest{color:var(--blue-strong);}
+.pr-body{flex:1;min-width:0;}
+.pr-name{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.pr-name b{font-weight:800;font-size:14px;}
+.pr-name .guesttag{margin-left:0;}
+.pr-dates{font-size:10.5px;color:var(--muted);}
+.pr-goals{font-size:12px;color:var(--muted);}
+.prow .rr-btn{padding:8px 12px;min-height:34px;}
+.pr-foot{display:flex;gap:16px;padding:8px 0 6px;}
+.pr-foot .ghostlink{padding:0;min-height:32px;display:inline-flex;align-items:center;}
+.crow{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);}
+.crow:last-child{border-bottom:none;}
+.crow .avatar.head{background:var(--pitch);color:#fff;}
+.crow img.avatar{object-fit:cover;}
+.cr-body{flex:1;min-width:0;}
+.cr-name{font-weight:800;font-size:14px;}
+.cr-role{font-size:12px;color:var(--muted);}
+.wa-sq{width:36px;height:36px;border-radius:12px;border:none;background:#25D366;color:#fff;display:inline-flex;align-items:center;
+  justify-content:center;flex-shrink:0;text-decoration:none;cursor:pointer;padding:0;}
+.wa-sq.mail{background:var(--soft);color:var(--ink);}
+/* player (S5): hero, three tiles, reply card, family card, coach notes */
+.phero{padding:22px 16px 18px;text-align:center;position:relative;}
+.ph-edit{position:absolute;top:12px;right:14px;}
+.ph-num{font-family:'Anton',sans-serif;font-weight:400;font-size:56px;line-height:1;color:var(--pitch);}
+.ph-photo{position:relative;width:84px;height:84px;margin:0 auto;}
+.ph-photo img{width:84px;height:84px;border-radius:50%;object-fit:cover;display:block;}
+.ph-photo .numbadge{min-width:22px;height:22px;font-size:13px;bottom:-2px;right:-2px;}
+.ph-name{font-size:20px;font-weight:800;margin-top:8px;}
+.ph-row{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;}
+.ph-row .guesttag{margin-left:0;}
+.ph-bday{font-size:12px;color:var(--muted);}
+.ph-photo-btn{display:inline-block;margin-top:6px;}
+.ptiles-wrap{margin-bottom:14px;}
+.ptiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.ptile{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 8px;text-align:center;}
+.ptile .v{font-family:'Anton',sans-serif;font-weight:400;font-size:26px;line-height:1;}
+.ptile .k{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:5px;}
+.pt-line{font-size:12px;color:var(--muted);text-align:center;margin-top:8px;}
+.preply{padding:12px 16px 10px;}
+.preply .replyrows{margin-top:6px;}
+.family{padding:12px 16px;}
+.fam-row{display:flex;align-items:center;gap:12px;padding:8px 0 0;}
+.fam-row+.fam-row{margin-top:8px;padding-top:10px;border-top:1px solid var(--line);}
+.fam-body{flex:1;min-width:0;}
+.fam-name{font-weight:800;font-size:14px;}
+.fam-phone{font-size:13px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;}
+.fam-mail{display:block;font-size:12px;color:var(--muted);margin-top:2px;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wa-btn{background:#25D366;color:#fff;border:none;border-radius:13px;padding:10px 12px;font-size:12px;font-weight:800;cursor:pointer;
+  min-height:40px;display:inline-flex;align-items:center;gap:6px;text-decoration:none;flex-shrink:0;}
+.fam-empty{font-size:13px;color:var(--muted);margin-top:8px;}
+.privacy{font-size:12px;color:var(--muted);padding:0 4px;line-height:1.45;margin-bottom:14px;}
+.notes{padding:12px 16px 14px;}
+.softbadge{border-radius:999px;padding:3px 8px;font-size:10px;font-weight:800;background:var(--soft);color:var(--muted);white-space:nowrap;}
 .crest{width:30px;height:30px;object-fit:cover;border-radius:50%;flex-shrink:0;vertical-align:middle;}
 .askmsg{padding:11px 14px;border-radius:14px;margin-bottom:10px;font-size:14px;line-height:1.5;max-width:90%;white-space:pre-wrap;}
 .askmsg.you{background:var(--pitch);color:#fff;margin-left:auto;border-bottom-right-radius:4px;}
@@ -442,7 +496,9 @@ const CSS = `
   padding:7px 12px;font-size:12.5px;margin:0 6px 8px 0;cursor:pointer;color:var(--ink);}
 .kdoc{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);}
 .kdoc:last-child{border-bottom:none;}
-.pos-pill{font-size:10px;font-weight:800;padding:2px 7px;border-radius:6px;letter-spacing:.04em;}
+/* position tag: 9/800 .06em radius 6 (rows); .lg is the Player hero's 10/800 */
+.pos-pill{display:inline-block;font-size:9px;font-weight:800;padding:2px 6px;border-radius:6px;letter-spacing:.06em;line-height:1.3;}
+.pos-pill.lg{font-size:10px;padding:3px 7px;}
 .pos-GK{background:#fff1da;color:#b3760a;} .pos-DEF{background:#e6f0ff;color:#2563a8;}
 .pos-MID{background:#e6f6ec;color:#1f8a4c;} .pos-FWD{background:#ffe6e6;color:#c0393d;}
 .pstat{display:flex;gap:18px;margin-left:auto;}
@@ -512,10 +568,6 @@ const CSS = `
   font-size:15px;width:100%;cursor:pointer;font-family:inherit;margin-top:6px;}
 .btn.ghost{background:var(--soft);color:var(--ink);}
 .btn.danger{background:#fdecec;color:var(--red);}
-.addfab{display:flex;align-items:center;justify-content:center;gap:7px;background:var(--pitch);
-  color:#fff;border:none;border-radius:13px;padding:13px;font-weight:800;width:100%;
-  font-size:14px;cursor:pointer;margin-bottom:14px;text-transform:uppercase;letter-spacing:.04em;}
-.editbar{display:flex;gap:8px;margin-left:auto;}
 .iconbtn{background:var(--soft);border:none;width:32px;height:32px;border-radius:9px;display:flex;
   align-items:center;justify-content:center;cursor:pointer;color:var(--muted);}
 .stepper{display:flex;align-items:center;gap:8px;}
@@ -705,7 +757,6 @@ const CSS = `
 .sw::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .18s cubic-bezier(.2,.8,.2,1)}
 .sw.on{background:var(--pitch)} .sw.on::after{transform:translateX(16px)}
 .pips{display:flex;gap:6px;flex:1} .pips i{width:26px;height:26px;border-radius:50%;background:var(--soft);display:block} .pips i.on{background:var(--pitch)}
-.coachonly{display:inline-flex;align-items:center;gap:5px;background:#fdeaec;color:var(--pitch);border-radius:999px;padding:4px 9px;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
 /* small helpers for the coach settings cards and ratings */
 button.sw{border:none;padding:0;cursor:pointer}
 .pips i{cursor:pointer}
@@ -868,6 +919,8 @@ export default function App() {
   // Match detail is a pushed screen that re-reads its fixture from data on
   // every render, so RSVPs and plan saves show live.
   const openMatch = useCallback((f) => push("match", { fixtureId: f.id }), [push]);
+  // Player profile (S5) works the same way: pushed, re-read from data each render.
+  const openPlayer = useCallback((p) => push("player", { playerId: p.id }), [push]);
   // Latest data for optimistic writes to roll back to (persist/savePlan are
   // stable callbacks, so they read it through a ref rather than a dep).
   const dataRef = useRef(null);
@@ -940,11 +993,13 @@ export default function App() {
   const pname = useCallback((id) => data?.players.find(p => p.id === id)?.name || "—", [data]);
 
   // A pushed match / who's-in screen whose fixture has gone (deleted from the
-  // editor, or by a sync) pops itself rather than rendering nothing.
+  // editor, or by a sync) pops itself rather than rendering nothing; a player
+  // screen does the same once its player is removed.
   useEffect(() => {
     const top = stack[stack.length - 1];
-    if (!data || !top || (top.id !== "match" && top.id !== "whosin")) return;
-    if (!(data.fixtures || []).some((f) => f.id === top.payload?.fixtureId)) back();
+    if (!data || !top) return;
+    if ((top.id === "match" || top.id === "whosin") && !(data.fixtures || []).some((f) => f.id === top.payload?.fixtureId)) back();
+    if (top.id === "player" && !(data.players || []).some((p) => p.id === top.payload?.playerId)) back();
   }, [data, stack, back]);
 
   if (loading || !data) {
@@ -1000,14 +1055,22 @@ export default function App() {
   const screenFixture = (screen === "match" || screen === "whosin")
     ? (data.fixtures || []).find((f) => f.id === screenPayload?.fixtureId) || null
     : null;
+  // The player behind a pushed player screen, read live from data (S5).
+  const screenPlayer = screen === "player" ? (data.players || []).find((p) => p.id === screenPayload?.playerId) || null : null;
   const roundOf = (f) => (f?.round ? `Round ${f.round}` : "");
   const subTitle = screen === "settings" ? ["Team settings", data.team.name]
     : screen === "match" ? [roundOf(screenFixture) || "Match", screenFixture ? `vs ${screenFixture.opponent} · ${fmtDate(screenFixture.dateISO)}` : ""]
     : screen === "whosin" ? ["Who's in", screenFixture ? `${roundOf(screenFixture) ? roundOf(screenFixture) + " " : ""}vs ${screenFixture.opponent} · ${fmtDate(screenFixture.dateISO)}${screenFixture.time ? " " + screenFixture.time : ""}` : ""]
+    : screen === "player" ? [screenPlayer?.name || "Player", screenPlayer ? [screenPlayer.number ? `#${screenPlayer.number}` : "", screenPlayer.position || ""].filter(Boolean).join(" · ") : ""]
     : (SUB_TITLES[screen] || [screen, ""]);
   const chipLabel = account ? hatText : (isCoach ? "Coach" : "Parent");
-  // Root kicker: the shown month on Calendar, division · age group elsewhere.
-  const rootKicker = tab === "calendar" ? monthYearLabel(calMonth) : `${data.team.division} · ${data.team.ageGroup}`;
+  // Root kicker: the shown month on Calendar, "n players · m coaches" on Squad,
+  // division · age group elsewhere.
+  const squadKicker = () => {
+    const n = squadPlayers(data, isCoach).length, m = getStaff(data.team).filter((s) => s.name).length;
+    return `${n} ${n === 1 ? "player" : "players"} · ${m} ${m === 1 ? "coach" : "coaches"}`;
+  };
+  const rootKicker = tab === "calendar" ? monthYearLabel(calMonth) : tab === "squad" ? squadKicker() : `${data.team.division} · ${data.team.ageGroup}`;
   // Everything the Viewing-as sheet needs from here.
   const hatSheet = {
     isAdmin, wear, strongestRoleOf, signOut: signOutEverywhere, toggleCoach,
@@ -1054,11 +1117,12 @@ export default function App() {
         )}
 
         {screen === "home" && <HomeTab {...{ data, stats, next, setModal, viewer, me, isCoach, openMatch, onOpen: push, onTab: goTab }} />}
-        {screen === "calendar" && <CalendarTab {...{ data, isCoach, viewer, me, setModal, openMatch, month: calMonth, setMonth: setCalMonth }} />}
+        {screen === "calendar" && <CalendarTab {...{ data, isCoach, viewer, me, setModal, openMatch, openPlayer, month: calMonth, setMonth: setCalMonth }} />}
         {screen === "results" && <ResultsTab {...{ data, stats, isCoach, setModal, openMatch, onOpen: push }} />}
-        {screen === "match" && screenFixture && <MatchScreen {...{ data, f: screenFixture, persist, patchLocal, isCoach, viewer, me, setModal, onOpen: push, showToast }} />}
+        {screen === "match" && screenFixture && <MatchScreen {...{ data, f: screenFixture, persist, patchLocal, isCoach, viewer, me, setModal, onOpen: push, showToast, openPlayer }} />}
         {screen === "whosin" && screenFixture && <WhosInScreen {...{ data, f: screenFixture, isCoach, viewer, me, setModal, patchLocal }} />}
-        {screen === "squad" && <SquadTab {...{ data, stats, isCoach, setModal, persist }} />}
+        {screen === "squad" && <SquadTab {...{ data, stats, next, isCoach, viewer, me, setModal, openPlayer }} />}
+        {screen === "player" && screenPlayer && <PlayerScreen {...{ data, p: screenPlayer, next, persist, patchLocal, isCoach, viewer, me, setModal }} />}
         {screen === "ask" && <AskTab {...{ data, viewer, isCoach, account }} />}
         {screen === "duties" && <DutiesTab {...{ data, isCoach, pname, setModal }} />}
         {screen === "stats" && <StatsTab {...{ data, stats, pname }} />}
@@ -1085,7 +1149,7 @@ export default function App() {
           close={() => setModal(null)}
         />
       ) : modal ? (
-        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast, openMatch }} />
+        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast, openMatch, openPlayer }} />
       ) : null}
     </div>
   );
@@ -1192,12 +1256,13 @@ function EventRow({ data, it, isCoach, own, onOpen, noDay = false }) {
 }
 
 // One own-child reply row (S2): initials, short name, hint, Reply / In / Out pill.
-function ReplyRow({ p, status, onTap }) {
+// `name` overrides the name line (the Player screen asks "Is Sam playing?").
+function ReplyRow({ p, status, onTap, name }) {
   return (
     <div className="replyrow">
       <span className="avatar">{initials(p.name)}</span>
       <div className="rr-body">
-        <div className="rr-name">{shortName(p.name)}</div>
+        <div className="rr-name">{name || shortName(p.name)}</div>
         <div className="rr-hint">{status ? "Tap to change" : `Reply for ${firstName(p.name)}`}</div>
       </div>
       <button className={"rr-btn" + (status ? " " + status : "")} onClick={onTap}>
@@ -1436,14 +1501,14 @@ const dayMarker = (evs) => {
   return { dot };
 };
 // Row tap on the Calendar tab and in the day sheet.
-const calOpenFor = (it, { openMatch, setModal }) => it.kind === "game"
+const calOpenFor = (it, { openMatch, openPlayer, setModal }) => it.kind === "game"
   ? () => openMatch(it.ref)
   : it.kind === "birthday"
-    ? () => setModal({ type: "playerView", payload: it.ref })
+    ? () => openPlayer(it.ref)
     : () => setModal({ type: "session", payload: it.ref, occ: it.occ });
 const monthISO = (month, d) => `${SEASON}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
-function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, month, setMonth }) {
+function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, openPlayer, month, setMonth }) {
   const today = new Date();
   const todayISO = isoLocal(today);
   const inSeason = today.getFullYear() === SEASON;
@@ -1507,7 +1572,7 @@ function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, month, se
           {isCoach && <button className="ghostlink" onClick={() => setModal({ type: "sessionEdit", payload: null })}>Add training / activity</button>}
         </div>
         {listItems.length === 0 && <div className="wk-empty">Nothing scheduled in {monthName}.</div>}
-        {listItems.map(it => <EventRow key={it.key} data={data} it={it} isCoach={isCoach} own={own} onOpen={calOpenFor(it, { openMatch, setModal })} />)}
+        {listItems.map(it => <EventRow key={it.key} data={data} it={it} isCoach={isCoach} own={own} onOpen={calOpenFor(it, { openMatch, openPlayer, setModal })} />)}
       </div>
 
       <AddToCalendarCard data={data} />
@@ -1517,11 +1582,11 @@ function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, month, se
 
 // Day sheet (modal type "day"): "Thursday 18 June", then that day's rows.
 // Tapping a row closes the sheet and opens the item as the list card does.
-function DaySheet({ data, iso, isCoach, viewer, me, setModal, openMatch, close }) {
+function DaySheet({ data, iso, isCoach, viewer, me, setModal, openMatch, openPlayer, close }) {
   const d = new Date(iso + "T00:00:00");
   const own = ownPlayers(data, { isCoach, me, viewer });
   const items = monthItems(data, d.getFullYear(), d.getMonth()).filter(it => it.dateISO === iso);
-  const openThen = (it) => { const fn = calOpenFor(it, { openMatch, setModal }); return () => { close(); fn(); }; };
+  const openThen = (it) => { const fn = calOpenFor(it, { openMatch, openPlayer, setModal }); return () => { close(); fn(); }; };
   return (
     <>
       <div className="day-title">{FULLDAYS[d.getDay()]} {d.getDate()} {monthLong(d)}</div>
@@ -1625,83 +1690,106 @@ function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
   );
 }
 
-/* ---------------- SQUAD ---------------- */
-function StaffStrip({ team }) {
+/* ---------------- SQUAD (S5, Direction C) ---------------- */
+// The Players card list: everyone for the coach (ended guests included, so
+// they can still be edited), only players active today for everyone else;
+// guests last, then by shirt number. The Squad header kicker counts the same list.
+const squadPlayers = (data, isCoach, todayISO = isoLocal(new Date())) => [...(data.players || [])]
+  .filter(p => isCoach || activeOn(p, todayISO))
+  .sort((a, b) => (!!a.guest === !!b.guest ? (a.number || 0) - (b.number || 0) : a.guest ? 1 : -1));
+// "No goals yet" / "1 goal" / "3 goals · 2 assists".
+const goalsText = (g, a) => (g ? `${g} ${g === 1 ? "goal" : "goals"}` : "No goals yet") + (a > 0 ? ` · ${a} ${a === 1 ? "assist" : "assists"}` : "");
+
+// Coaches card: one row per staff member with a name; the head coach (first
+// entry) gets the red avatar. WhatsApp is the only place the green is used;
+// an email-only contact gets a soft mail button instead.
+function CoachesCard({ team }) {
   const staff = getStaff(team).filter(s => s.name);
   if (!staff.length) return null;
   return (
-    <div className="card" style={{ padding: "4px 14px" }}>
-      <div className="label" style={{ margin: "10px 2px 4px" }}>Team staff</div>
-      {staff.map((s, i) => (
-        <div className="staffrow" key={i}>
-          {s.photo ? <img className="savatar" src={s.photo} alt={s.name} /> : <div className="savatar">{initials(s.name)}</div>}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="staffrole">{s.role}</div>
-            <div style={{ fontWeight: 700, fontSize: 15.5 }}>{s.name}</div>
-            <div className="chips" style={{ marginTop: 7 }}>
-              {s.mobile && <a className="washare" href={`https://wa.me/${intlPhone(s.mobile)}`} target="_blank" rel="noopener noreferrer"><Send size={13} />WhatsApp</a>}
-              {s.mobile && <a className="chip lnk" href={"tel:" + s.mobile.replace(/\s+/g, "")}><Phone size={13} />Call</a>}
-              {s.mobile && <a className="chip lnk" href={"sms:" + s.mobile.replace(/\s+/g, "")}><MessageSquare size={13} />Text</a>}
-              {s.email && <a className="chip lnk" href={"mailto:" + s.email}><Mail size={13} />Email</a>}
+    <div className="card coaches">
+      <div className="label">Coaches</div>
+      {staff.map((s, i) => {
+        const head = i === 0 || /head coach/i.test(s.role || "");
+        return (
+          <div className="crow" key={i}>
+            {s.photo
+              ? <img className="avatar" src={s.photo} alt="" />
+              : <span className={"avatar" + (head ? " head" : "")}>{String(s.name).trim().charAt(0).toUpperCase()}</span>}
+            <div className="cr-body">
+              <div className="cr-name">{s.name}</div>
+              {s.role && <div className="cr-role">{s.role}</div>}
             </div>
+            {s.mobile
+              ? <a className="wa-sq" href={`https://wa.me/${intlPhone(s.mobile)}`} target="_blank" rel="noopener noreferrer" aria-label={`Message ${s.name} on WhatsApp`}><MessageCircle size={17} /></a>
+              : s.email
+                ? <a className="wa-sq mail" href={"mailto:" + s.email} aria-label={`Email ${s.name}`}><Mail size={16} /></a>
+                : null}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
-function SquadTab({ data, stats, isCoach, setModal, persist }) {
+// Squad tab: Players card (number, name + position tag, goals text, the reply
+// control for the next game, chevron → Player screen) and the Coaches card.
+// Reply control: coach on every row, a parent on their own children only,
+// nobody when there's no upcoming game. Add / import live in the coach footer;
+// edit and remove moved to the Player screen and its editor.
+function SquadTab({ data, stats, next, isCoach, viewer, me, setModal, openPlayer }) {
   const sm = {};
   stats.scorers.forEach(s => { sm[s.id] = s; });
   const todayISO = isoLocal(new Date());
-  const players = [...data.players]
-    .filter(p => isCoach || activeOn(p, todayISO))
-    .sort((a, b) => (a.guest === b.guest ? a.number - b.number : a.guest ? 1 : -1));
-  const del = (id) => persist({ ...data, players: data.players.filter(p => p.id !== id), isSample: false });
+  const players = squadPlayers(data, isCoach, todayISO);
+  const ownIds = ownPlayers(data, { isCoach, me, viewer }).map(p => p.id);
+  const canReply = (p) => !!next && (isCoach || ownIds.includes(p.id));
+  const openReply = (p) => setModal({ type: "reply", payload: { fixture: next, playerId: p.id } });
+  const replyDay = next?.dateISO ? weekdayLong(next.dateISO) : "";
+  const rowKey = (p) => (e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openPlayer(p); } };
   return (
     <>
-      <StaffStrip team={data.team} />
-      {isCoach && <>
-        <button className="addfab" onClick={() => setModal({ type: "player", payload: null })}><Plus size={17} />Add player</button>
-        <button className="btn ghost" style={{ marginTop: -6, marginBottom: 14 }} onClick={() => setModal({ type: "playersImport" })}>Paste player list (bulk import)</button>
-      </>}
-      <div className="card" style={{ padding: "6px 14px" }}>
-        {players.length === 0 && <div className="empty"><div className="disp">No players yet</div></div>}
+      <div className="card plist">
+        <div className="pl-head">
+          <span className="label">Players</span>
+          {isCoach && replyDay && <span className="pl-meta">{replyDay} replies</span>}
+        </div>
+        {players.length === 0 && <div className="pl-empty">No players yet.</div>}
         {players.map(p => {
           const s = sm[p.id] || { goals: 0, assists: 0 };
           const ended = p.guest && p.untilISO && todayISO > p.untilISO;
+          const st = canReply(p) ? (next.availability?.[p.id]?.status || null) : undefined;
           return (
-            <div className="pcard" key={p.id} onClick={() => setModal({ type: "playerView", payload: p })}>
-              <div style={{ position: "relative", flexShrink: 0 }}>
-                {p.photo
-                  ? <img className="pnum photo" src={p.photo} alt={p.name} />
-                  : <div className="pnum" style={p.guest ? { background: "#2563a8" } : undefined}>{p.number}</div>}
-                {p.photo && <span className="numbadge">{p.number}</span>}
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{p.name}
+            <div className="prow" key={p.id} role="button" tabIndex={0} onClick={() => openPlayer(p)} onKeyDown={rowKey(p)}>
+              <div className={"pr-num" + (p.guest ? " guest" : "")}>{p.number || ""}</div>
+              <div className="pr-body">
+                <div className="pr-name">
+                  <b>{p.name}</b>
+                  {p.position && <span className={"pos-pill pos-" + p.position}>{p.position}</span>}
                   {p.guest && <span className={"guesttag" + (ended ? " ended" : "")}>{ended ? "Guest · ended" : "Guest"}</span>}
                 </div>
-                <span className={"pos-pill pos-" + p.position}>{p.position}</span>
                 {isCoach && p.guest && (p.fromISO || p.untilISO) && (
-                  <span className="note" style={{ marginLeft: 8, fontSize: 10.5 }}>{p.fromISO ? fmtDate(p.fromISO) : "…"} → {p.untilISO ? fmtDate(p.untilISO) : "…"}</span>
+                  <div className="pr-dates">{p.fromISO ? fmtDate(p.fromISO) : "…"} → {p.untilISO ? fmtDate(p.untilISO) : "…"}</div>
                 )}
+                <div className="pr-goals">{goalsText(s.goals, s.assists)}</div>
               </div>
-              <div className="pstat">
-                <div><div className="v">{s.goals}</div><div className="l">G</div></div>
-                <div><div className="v">{s.assists}</div><div className="l">A</div></div>
-              </div>
-              {isCoach && (
-                <div className="editbar">
-                  <button className="iconbtn" onClick={(e) => { e.stopPropagation(); setModal({ type: "player", payload: p }); }}><Pencil size={14} /></button>
-                  <button className="iconbtn" onClick={(e) => { e.stopPropagation(); del(p.id); }}><Trash2 size={14} /></button>
-                </div>
+              {st !== undefined && (
+                <button className={"rr-btn" + (st ? " " + st : "")} onClick={(e) => { e.stopPropagation(); openReply(p); }}>
+                  {st === "in" ? "In" : st === "out" ? "Out" : "Reply"}
+                </button>
               )}
+              <ChevronRight size={15} color="#9AA3A6" style={{ flexShrink: 0 }} />
             </div>
           );
         })}
+        {isCoach && (
+          <div className="pr-foot">
+            <button className="ghostlink" onClick={() => setModal({ type: "player", payload: null })}>Add player</button>
+            <button className="ghostlink" onClick={() => setModal({ type: "playersImport" })}>Paste player list</button>
+          </div>
+        )}
       </div>
+      <CoachesCard team={data.team} />
     </>
   );
 }
@@ -2371,7 +2459,7 @@ function LineupRulesCard({ team, patchLocal }) {
 /* ============================================================
    MODALS
 ============================================================ */
-function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast, openMatch }) {
+function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast, openMatch, openPlayer }) {
   const close = () => setModal(null);
   return (
     <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) close(); }}>
@@ -2382,11 +2470,10 @@ function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach
         {modal.type === "signin" && !me && <SignInSheet {...{ data, viewer, setViewer, close }} />}
         {modal.type === "fixture" && <FixtureSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "reply" && <ReplySheet {...{ data, payload: modal.payload, isCoach, viewer, me, patchLocal, showToast, close }} />}
-        {modal.type === "day" && <DaySheet {...{ data, iso: modal.payload?.iso, isCoach, viewer, me, setModal, openMatch, close }} />}
+        {modal.type === "day" && <DaySheet {...{ data, iso: modal.payload?.iso, isCoach, viewer, me, setModal, openMatch, openPlayer, close }} />}
         {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, me, setModal, close }} />}
         {modal.type === "sessionEdit" && <SessionEditSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "player" && <PlayerSheet {...{ data, persist, payload: modal.payload, me, close }} />}
-        {modal.type === "playerView" && <PlayerViewSheet {...{ data, persist, patchLocal, payload: modal.payload, isCoach, viewer, me, close }} />}
         {modal.type === "import" && <ImportSheet {...{ data, persist, close }} />}
         {modal.type === "playersImport" && <PlayersImportSheet {...{ data, persist, close }} />}
         {modal.type === "reset" && <ResetSheet {...{ data, persist, close }} />}
@@ -2744,7 +2831,7 @@ function rsvpNoteFor(me) {
 /* ---------------- MATCH DETAIL (S3, Direction C) ---------------- */
 // A pushed screen. `f` is the fixture read live from data by App, so RSVPs
 // and plan saves show without reopening.
-function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setModal, onOpen, showToast }) {
+function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setModal, onOpen, showToast, openPlayer }) {
   const [seek, setSeek] = useState(null);
   const kind = videoKind(f.video);
   const ytid = ytId(f.video);
@@ -2827,7 +2914,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
       <div className="card goals">
         <div className="label">Goals</div>
         {scorers.map((s, i) => (
-          <button key={i} className="goalrow" disabled={!s.p} onClick={() => s.p && setModal({ type: "playerView", payload: s.p })}>
+          <button key={i} className="goalrow" disabled={!s.p} onClick={() => s.p && openPlayer(s.p)}>
             <span className="gr-disc">{initials(s.name)}</span>
             <span className="gr-name">{s.name}</span>
             <span className="gr-n">{s.n === 1 ? "1 goal" : `${s.n} goals`}</span>
@@ -3104,6 +3191,9 @@ function PlayerSheet({ data, persist, payload, me, close }) {
     const players = exists ? data.players.map(x => x.id === p.id ? np : x) : [...data.players, np];
     persist({ ...data, players, isSample: false }); close();
   };
+  // Remove (edit mode): the Player screen behind the sheet pops itself once
+  // the player is gone from data.
+  const remove = () => { persist({ ...data, players: data.players.filter(x => x.id !== p.id), isSample: false }); close(); };
   return (<>
     <SheetHead title={payload ? "Edit player" : "Add player"} close={close} />
     <div className="field"><label>Name</label><input className="inp" value={p.name} autoFocus onChange={e => setP({ ...p, name: e.target.value })} /></div>
@@ -3152,6 +3242,7 @@ function PlayerSheet({ data, persist, payload, me, close }) {
       <div className="note" style={{ marginTop: -6, marginBottom: 10 }}>Guests only appear in the squad, availability lists and duty pickers for games inside this window. Afterwards they drop out automatically (their goals stay in the history).</div>
     </>}
     <button className="btn" onClick={save}>Save player</button>
+    {payload && <button className="btn danger" onClick={remove}>Remove player</button>}
   </>);
 }
 
@@ -3187,10 +3278,10 @@ function RatingsCard({ player, patchLocal }) {
     save({ note: t }, { ...coach, note: t });
   };
   return (
-    <div className="card" style={{ marginTop: 12, marginBottom: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+    <div className="card notes">
+      <div className="pl-head" style={{ marginBottom: 4 }}>
         <span className="label">Ratings</span>
-        <span className="coachonly"><Lock size={11} />Coach only</span>
+        <span className="softbadge">Coaches only</span>
       </div>
       {RATING_LINES.map((k) => {
         const r = ratings[k];
@@ -3221,82 +3312,130 @@ function RatingsCard({ player, patchLocal }) {
   );
 }
 
-function PlayerViewSheet({ data, persist, patchLocal, payload, isCoach, viewer, me, close }) {
-  const [p, setP] = useState(payload);
-  // The sheet's payload is a snapshot; ratings and notes are read live from data.
-  const live = (data.players || []).find((x) => x.id === p.id) || p;
+// "Turns 8 on Fri, 24 July" when the dob carries a real year (the age at the
+// next birthday), "Birthday Fri, 24 July" otherwise; null without a dob.
+function birthdayText(dob, fromISO) {
+  if (!dob || dob.length < 10) return null;
+  const md = dob.slice(5, 10);
+  let year = +fromISO.slice(0, 4);
+  let iso = `${year}-${md}`;
+  if (iso < fromISO) { year += 1; iso = `${year}-${md}`; }
+  if (isNaN(new Date(iso + "T00:00:00"))) return null;
+  const by = parseInt(dob.slice(0, 4), 10);
+  return by > 1990 ? `Turns ${year - by} on ${bdayDate(iso)}` : `Birthday ${bdayDate(iso)}`;
+}
+
+// Player screen (S5, Direction C): pushed from a Squad row, a Goals row or a
+// birthday row. Hero (number or photo, name, position tag, birthday, coach
+// Edit), three tiles, the reply card for the next game, the Family card (coach
+// and the child's own parent only — the server already strips other families'
+// guardians, this mirrors it) or the privacy line, and the coach's Ratings card.
+function PlayerScreen({ data, p, next, persist, patchLocal, isCoach, viewer, me, setModal }) {
+  const todayISO = isoLocal(new Date());
+  const ownIds = ownPlayers(data, { isCoach, me, viewer }).map(x => x.id);
+  const own = ownIds.includes(p.id);
+  const canSeeContacts = isCoach || own;
+  const canReply = !!next && (isCoach || own);
+  // Photos still go through the whole-document write, which the server only
+  // accepts from a coach — so account-mode parents don't get a button that
+  // would be refused. Legacy devices keep the per-child identity check.
+  const canEditPhoto = isCoach || (!me && viewer?.kind === "parent" && viewer.pid === p.id);
+
   const played = data.fixtures.filter(f => f.status === "played");
-  let g = 0, a = 0;
-  played.forEach(f => { g += (f.goals || []).filter(x => x.pid === p.id).reduce((s, x) => s + x.n, 0); a += (f.assists || []).filter(x => x.pid === p.id).reduce((s, x) => s + x.n, 0); });
+  let goals = 0, assists = 0;
+  played.forEach(f => {
+    goals += (f.goals || []).filter(x => x.pid === p.id).reduce((s, x) => s + x.n, 0);
+    assists += (f.assists || []).filter(x => x.pid === p.id).reduce((s, x) => s + x.n, 0);
+  });
   // Games and minutes come from saved match records (written after full time).
   const season = data.fixtures.reduce((acc, f) => {
     const m = (f.record?.minutes || []).find((x) => x.pid === p.id);
     if (m && m.min > 0) { acc.games++; acc.min += m.min; }
     return acc;
   }, { games: 0, min: 0 });
+  const minutes = Math.round(season.min);
+  const inGoal = data.fixtures.filter(f => f.gk === p.id).length;
+  const bday = birthdayText(p.dob, todayISO);
+  const ended = p.guest && p.untilISO && todayISO > p.untilISO;
+
   const guardians = p.guardians && p.guardians.length
     ? p.guardians
     : (p.parentName || p.parentContact) ? [{ name: p.parentName, mobile: p.parentContact, email: (p.parentEmails || [])[0] }] : [];
-  // Photos still go through the whole-document write, which the server only
-  // accepts from a coach — so account-mode parents don't get a button that
-  // would be refused. Legacy devices keep the per-child identity check.
-  const canEditPhoto = isCoach || (!me && viewer?.kind === "parent" && viewer.pid === p.id);
 
   const savePhoto = async (file) => {
     if (!file) return;
     try {
       const photo = await downscaleImage(file, 320);
-      const np = { ...p, photo };
-      setP(np);
       persist({ ...data, players: data.players.map(x => x.id === p.id ? { ...x, photo } : x), isSample: false });
     } catch {}
   };
+  const openReply = () => setModal({ type: "reply", payload: { fixture: next, playerId: p.id } });
+  const first = firstName(p.name);
 
   return (<>
-    <SheetHead title={p.name} close={close} />
-    <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
-      <div style={{ position: "relative" }}>
-        {p.photo
-          ? <img className="pnum photo" style={{ width: 64, height: 64, borderRadius: 16 }} src={p.photo} alt={p.name} />
-          : <div className="pnum" style={{ width: 64, height: 64, fontSize: 28 }}>{p.number}</div>}
-        {p.photo && <span className="numbadge" style={{ minWidth: 22, height: 22, fontSize: 13 }}>{p.number}</span>}
-      </div>
-      <div>
-        <span className={"pos-pill pos-" + p.position}>{p.position}</span>
-        {canEditPhoto && (
-          <div style={{ marginTop: 8 }}>
-            <label className="chip" style={{ cursor: "pointer" }}>
-              <Plus size={13} />{p.photo ? "Change photo" : "Add photo"}
-              <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => savePhoto(e.target.files?.[0])} />
-            </label>
-          </div>
-        )}
-      </div>
+    <div className="card phero">
+      {isCoach && <button className="mh-edit ph-edit" onClick={() => setModal({ type: "player", payload: p })}><Pencil size={13} />Edit</button>}
+      {p.photo
+        ? <div className="ph-photo"><img src={p.photo} alt="" />{p.number ? <span className="numbadge">{p.number}</span> : null}</div>
+        : <div className="ph-num">{p.number || ""}</div>}
+      <div className="ph-name">{p.name}</div>
+      {(p.position || bday || p.guest) && (
+        <div className="ph-row">
+          {p.position && <span className={"pos-pill lg pos-" + p.position}>{p.position}</span>}
+          {p.guest && <span className={"guesttag" + (ended ? " ended" : "")}>{ended ? "Guest · ended" : "Guest"}</span>}
+          {bday && <span className="ph-bday">{bday}</span>}
+        </div>
+      )}
+      {canEditPhoto && (
+        <label className="ghostlink ph-photo-btn">
+          {p.photo ? "Change photo" : "Add photo"}
+          <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => savePhoto(e.target.files?.[0])} />
+        </label>
+      )}
     </div>
-    <div className="statgrid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
-      <div className="stat"><div className="v">{season.games}</div><div className="k">Games</div></div>
-      <div className="stat"><div className="v">{Math.round(season.min)}</div><div className="k">Min</div></div>
-      <div className="stat"><div className="v">{g}</div><div className="k">Goals</div></div>
-      <div className="stat"><div className="v">{a}</div><div className="k">Assists</div></div>
+
+    <div className="ptiles-wrap">
+      <div className="ptiles">
+        {[[goals, "Goals"], [season.games, "Games"], [inGoal, "In goal"]].map(([v, k]) => (
+          <div className="ptile" key={k}><div className="v">{v}</div><div className="k">{k}</div></div>
+        ))}
+      </div>
+      {(assists > 0 || minutes > 0) && (
+        <div className="pt-line">{assists} {assists === 1 ? "assist" : "assists"} · {minutes} {minutes === 1 ? "minute" : "minutes"}</div>
+      )}
     </div>
-    {isCoach && <RatingsCard player={live} patchLocal={patchLocal} />}
-    {p.dob && (
-      <div className="note" style={{ marginTop: 12, fontSize: 13.5 }}>
-        🎂 Birthday: {new Date(p.dob + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "long" })}
+
+    {canReply && (
+      <div className="card preply">
+        <div className="label">{[next.round ? `Round ${next.round}` : "", fmtDate(next.dateISO), next.time || ""].filter(Boolean).join(" · ")}</div>
+        <div className="replyrows">
+          <ReplyRow p={p} name={`Is ${first} playing?`} status={next.availability?.[p.id]?.status || null} onTap={openReply} />
+        </div>
       </div>
     )}
-    {isCoach && guardians.map((gd, i) => (
-      <div className="card" key={i} style={{ marginTop: 12, marginBottom: 0 }}>
-        <div className="label" style={{ marginBottom: 8 }}>{gd.name || `Parent ${i + 1}`}</div>
-        <div className="chips">
-          {gd.mobile && <a className="washare" href={`https://wa.me/${intlPhone(gd.mobile)}`} target="_blank" rel="noopener noreferrer"><Send size={13} />WhatsApp</a>}
-          {gd.mobile && <a className="chip lnk" href={"tel:" + gd.mobile.replace(/\s+/g, "")}><Phone size={13} />Call</a>}
-          {gd.mobile && <a className="chip lnk" href={"sms:" + gd.mobile.replace(/\s+/g, "")}><MessageSquare size={13} />Text</a>}
-          {gd.email && <a className="chip lnk" href={"mailto:" + gd.email}><Mail size={13} />Email</a>}
-        </div>
-        {gd.mobile && <div className="note" style={{ marginTop: 6, fontSize: 11 }}>{gd.mobile}</div>}
+
+    {canSeeContacts ? (
+      <div className="card family">
+        <div className="label">Family</div>
+        {guardians.length === 0 && <div className="fam-empty">No family contacts yet.</div>}
+        {guardians.map((gd, i) => (
+          <div className="fam-row" key={i}>
+            <div className="fam-body">
+              <div className="fam-name">{gd.name || `Parent ${i + 1}`}</div>
+              {gd.mobile && <div className="fam-phone">{gd.mobile}</div>}
+              {gd.email && <a className="fam-mail" href={"mailto:" + gd.email}>{gd.email}</a>}
+            </div>
+            {gd.mobile && (
+              <a className="wa-btn" href={`https://wa.me/${intlPhone(gd.mobile)}`} target="_blank" rel="noopener noreferrer"><MessageCircle size={15} />WhatsApp</a>
+            )}
+          </div>
+        ))}
       </div>
-    ))}
+    ) : (
+      <div className="privacy">Contact details are only shown to the family and the coaches.</div>
+    )}
+
+    {isCoach && <RatingsCard player={p} patchLocal={patchLocal} />}
   </>);
 }
 
