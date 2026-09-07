@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon, Star, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, Download,
   Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt, GripVertical,
-  Eye, User, LogOut, Navigation, Video, MessageCircle
+  Eye, User, LogOut, Navigation, Video, MessageCircle, Medal
 } from "lucide-react";
 // Pure data/display helpers live in lib/dashboardData.js so they can be unit
 // tested; everything below (ICS export, components) uses them from here.
@@ -14,7 +14,7 @@ import {
   isoLocal, addDays, computeStats, nextFixture, isPastGame, fmtDate,
   countdown, ytId, videoKind, mapsUrl, activeOn, intlPhone, recentChanges,
   initials, secToClock, clockToSec, occurrences, monthItems, upcomingItems,
-  nextBirthdays
+  nextBirthdays, isCarnival, carnivalOf, isCarnivalGame, carnivalGameRows, carnivalMeta, carnivalDescription, pitchLabel
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport } from "@/lib/majestri";
@@ -180,10 +180,17 @@ const BYDAY = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
 function gameEv(f, team) {
   const title = `${f.homeAway === "H" ? team : f.opponent} v ${f.homeAway === "H" ? f.opponent : team}`;
   const res = f.status === "played" && f.us != null ? ` (${f.us}-${f.them})` : "";
-  return { uid: f.id, title: "⚽ " + title, dateISO: f.dateISO, time: f.time, endTime: f.time ? addMin(f.time, 105) : null, location: f.venue, desc: `Round ${f.round}${res}`, allDay: !f.time };
+  return { uid: f.id, title: "⚽ " + title, dateISO: f.dateISO, time: f.time, endTime: f.time ? addMin(f.time, 105) : null, location: f.venue, desc: `${f.round ? `Round ${f.round}` : ""}${res}`.trim(), allDay: !f.time };
 }
-function sessionEv(s, occ) {
+// A carnival is ONE timed event across its whole window (six hours when no end
+// is set), "Carnival: …", with its linked games listed in the description —
+// the same event lib/ics.js puts in the subscribed feed (which carries no
+// event for the games themselves).
+function sessionEv(s, occ, data) {
   const d = occ || s.dateISO;
+  if (isCarnival(s)) {
+    return { uid: s.id + (occ || ""), title: `Carnival: ${s.title}`, dateISO: d, time: s.time, endTime: s.endTime || (s.time ? addMin(s.time, 360) : null), location: s.location, desc: carnivalDescription(s, data), allDay: !s.time };
+  }
   return { uid: s.id + (occ || ""), title: s.title, dateISO: d, time: s.time, endTime: s.endTime, location: s.location, desc: s.notes || "", allDay: !s.time };
 }
 function vevent(ev) {
@@ -369,6 +376,7 @@ const CSS = `
 .wk-ic{width:32px;height:32px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
 .wk-ic.game{background:var(--red-tint);color:var(--pitch);} .wk-ic.training{background:var(--amber-tint);color:var(--amber-strong);}
 .wk-ic.birthday{background:var(--pink-tint);color:var(--pink-strong);} .wk-ic.event{background:var(--blue-tint);color:var(--blue-strong);}
+.wk-ic.carnival{background:var(--red-tint);color:var(--red-strong);}
 .wk-body{flex:1;min-width:0;}
 .wk-title{font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wk-title.off{color:var(--muted);text-decoration:line-through;}
@@ -693,6 +701,10 @@ const CSS = `
 .cal-cell.sel .cal-crest.ph{background:rgba(255,255,255,.22);color:#fff;}
 .cal-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
 .cal-dot.training{background:var(--amber);} .cal-dot.birthday{background:var(--ev-birthday);} .cal-dot.event{background:var(--blue-strong);}
+/* Carnival day: a medal on a red-tint disc where a game day shows the crest. */
+.cal-carnival{width:22px;height:22px;border-radius:50%;background:var(--red-tint);color:var(--red-strong);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+.cal-cell.sel .cal-carnival{background:rgba(255,255,255,.22);color:#fff;}
+.cg-legend .cal-carnival{width:14px;height:14px;}
 .cg-legend{display:flex;gap:14px;padding:10px 4px 0;font-size:11px;color:var(--muted);font-weight:600;flex-wrap:wrap;}
 .cg-legend span{display:inline-flex;align-items:center;gap:5px;}
 .cg-legend img{width:14px;height:14px;border-radius:50%;object-fit:cover;}
@@ -711,6 +723,25 @@ const CSS = `
 .sub-links .ghostlink{padding:8px 0 0;min-height:32px;display:inline-flex;align-items:center;gap:6px;}
 .kpill{font-size:9px;font-weight:800;padding:2px 6px;border-radius:5px;text-transform:uppercase;letter-spacing:.04em;}
 .kpill.game{background:#fdeaec;color:var(--pitch);} .kpill.training{background:#fff1da;color:#b3760a;} .kpill.event{background:#e6f0ff;color:#2563a8;} .kpill.birthday{background:#fde7f3;color:#d6409f;}
+.kpill.carnival{background:var(--red-tint);color:var(--red-strong);}
+/* Carnival sheet: the day's games (time · crest · opponent · pitch). */
+.cv-game{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);}
+.cv-game:last-child{border-bottom:none;padding-bottom:2px;}
+.cv-time{font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);width:34px;flex-shrink:0;}
+.cv-crest{width:22px;height:22px;border-radius:50%;object-fit:cover;flex-shrink:0;}
+.cv-crest.ph{display:inline-flex;align-items:center;justify-content:center;background:var(--soft);font-size:8px;font-weight:800;color:var(--muted);}
+.cv-opp{flex:1;min-width:0;font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cv-pitch{font-size:12px;color:var(--muted);flex-shrink:0;}
+.cv-game .mscore{font-size:16px;}
+.cv-game[role=button]{cursor:pointer;}
+.cv-empty{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.45;}
+/* Home carnival card (within 21 days). */
+.carnivalcard{padding:16px 16px 14px;}
+.cc-body{display:flex;align-items:center;gap:12px;cursor:pointer;}
+.cc-ic{width:40px;height:40px;border-radius:12px;background:var(--red-tint);color:var(--red-strong);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+.cc-txt{flex:1;min-width:0;}
+.cc-title{font-size:15px;font-weight:800;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cc-meta{font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .recur-line{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);margin-top:2px;}
 .chip.lnk{text-decoration:none;}
 .wabtn{display:flex;align-items:center;justify-content:center;gap:8px;background:#25D366;color:#fff;
@@ -758,11 +789,16 @@ const CSS = `
 .rl-head{display:flex;justify-content:space-between;align-items:center;}
 .rl-empty{font-size:13px;color:var(--muted);padding:12px 0 10px;}
 .res-foot{font-size:12px;margin-top:0;padding:0 4px;}
-.mrow{display:flex;align-items:center;gap:8px;padding:13px 0;border-bottom:1px solid var(--line);cursor:pointer;}
+.mrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:13px 0;border-bottom:1px solid var(--line);cursor:pointer;}
 .mrow:last-child{border-bottom:none;}
 .mrow.canc{opacity:.5;}
 .mr-round{width:34px;text-align:center;flex-shrink:0;}
 .mr-round .r{font-family:'Anton',sans-serif;font-weight:400;font-size:18px;line-height:1;}
+/* A carnival game: a medal where the round would be, and the carnival's name on a tag line under the teams. */
+.mr-round .mr-medal{display:block;margin:0 auto 2px;color:var(--red-strong);}
+.mrow-tag{width:100%;display:flex;padding-left:42px;margin-top:-4px;}
+.mtag{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:800;padding:2px 6px;border-radius:6px;background:var(--soft);color:var(--muted);max-width:100%;}
+.mtag span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .mr-round .d{font-size:9.5px;color:var(--muted);margin-top:2px;white-space:nowrap;}
 .mr-side{flex:1;min-width:0;display:flex;align-items:center;gap:8px;}
 .mr-side.away{flex-direction:row-reverse;}
@@ -1168,6 +1204,8 @@ export default function App() {
   const isSub = stack.length > 0;
   // The fixture behind a pushed match screen, read live from data.
   const screenFixture = screen === "match" ? (data.fixtures || []).find((f) => f.id === screenPayload?.fixtureId) || null : null;
+  // A carnival game is titled with its carnival ("Winter carnival") rather than a round.
+  const screenCarnival = screenFixture ? carnivalOf(data, screenFixture) : null;
   // The game / training pair behind a pushed Who's in screen (S6), and the
   // Game / Training control's choice, kept on the stack payload so the header
   // kicker follows the shown event.
@@ -1182,9 +1220,11 @@ export default function App() {
   const calMonths = seasonMonths(season);
   const calMonth = (calMonthPick && calMonths.find((m) => sameMonth(m, calMonthPick))) || defaultCalMonth(calMonths);
   const subTitle = screen === "settings" ? ["Team settings", data.team.name]
-    : screen === "match" ? [roundOf(screenFixture) || "Match", screenFixture ? `vs ${screenFixture.opponent} · ${fmtDate(screenFixture.dateISO)}` : ""]
+    : screen === "match" ? [screenCarnival?.title || roundOf(screenFixture) || "Match", screenFixture ? `vs ${screenFixture.opponent} · ${fmtDate(screenFixture.dateISO)}` : ""]
     : screen === "whosin" ? ["Who's in", !whosIn ? ""
-      : whosIn.show === "session" ? `${whosIn.session.s.title} · ${fmtDate(whosIn.session.occ)}${whosIn.session.s.time ? " " + whosIn.session.s.time : ""}`
+      : whosIn.show === "session" ? (isCarnival(whosIn.session.s)
+        ? `Carnival · ${whosIn.session.s.title} · ${fmtDate(whosIn.session.occ)}`
+        : `${whosIn.session.s.title} · ${fmtDate(whosIn.session.occ)}${whosIn.session.s.time ? " " + whosIn.session.s.time : ""}`)
       : `${roundOf(whosIn.game) ? roundOf(whosIn.game) + " " : ""}vs ${whosIn.game.opponent} · ${fmtDate(whosIn.game.dateISO)}${whosIn.game.time ? " " + whosIn.game.time : ""}`]
     : screen === "player" ? [screenPlayer?.name || "Player", screenPlayer ? [screenPlayer.number ? `#${screenPlayer.number}` : "", screenPlayer.position || ""].filter(Boolean).join(" · ") : ""]
     : screen === "duties" ? [SUB_TITLES.duties[0], dutiesKicker(data.team)]
@@ -1328,7 +1368,7 @@ async function sendReply({ kind = "game", fixture, session, occ, playerId, statu
     ? { ...d, sessions: (d.sessions || []).map(x => x.id === session.id ? { ...x, availability: { ...(x.availability || {}), [occ]: av } } : x) }
     : { ...d, fixtures: (d.fixtures || []).map(x => x.id === fixture.id ? { ...x, availability: av } : x) });
   setAv(nextAv);
-  const what = isSession ? ((session.kind || "training") === "training" ? "training" : session.title) : (weekdayLong(fixture.dateISO) || "the game");
+  const what = isSession ? ((session.kind || "training") === "training" ? "training" : isCarnival(session) ? "the carnival" : session.title) : (weekdayLong(fixture.dateISO) || "the game");
   if (!quiet) showToast(status === "in" ? `${first}'s in for ${what}` : status === "out" ? `${first}'s out for ${what}` : `${first}'s reply cleared`);
   try {
     const body = isSession
@@ -1391,7 +1431,8 @@ function whosInEvents(data, payload) {
   if (p.kind === "session") {
     const s = (data.sessions || []).find(x => x.id === p.sessionId);
     if (!s || !p.occ || !occurrences(s, +p.occ.slice(0, 4), teamSeason(data.team)).includes(p.occ)) return null;
-    const game = pairedGame(data, p.occ);
+    // A carnival is a day of games in itself: no Game / Training pairing.
+    const game = isCarnival(s) ? null : pairedGame(data, p.occ);
     return { game, session: { s, occ: p.occ }, show: p.show === "game" && game ? "game" : "session" };
   }
   const game = (data.fixtures || []).find(f => f.id === p.fixtureId);
@@ -1438,14 +1479,15 @@ const pillsFor = (data, own, av, iso) => {
 // day column (the day sheet's title already names the day).
 function EventRow({ data, it, isCoach, own, onOpen, noDay = false }) {
   const d = new Date(it.dateISO + "T00:00:00");
-  const isGame = it.kind === "game", isBday = it.kind === "birthday", isEvent = it.kind === "event";
-  const kind = isGame ? "game" : isBday ? "birthday" : isEvent ? "event" : "training";
-  const Ic = isGame ? Trophy : isBday ? Cake : isEvent ? Star : ClipboardList;
+  const isGame = it.kind === "game", isBday = it.kind === "birthday", isEvent = it.kind === "event", isCarn = it.kind === "carnival";
+  const kind = isGame ? "game" : isBday ? "birthday" : isEvent ? "event" : isCarn ? "carnival" : "training";
+  const Ic = isGame ? Trophy : isBday ? Cake : isEvent ? Star : isCarn ? Medal : ClipboardList;
   const cancelled = isGame && it.ref.status === "cancelled";
   const place = isGame ? it.ref.venue : isBday ? "" : it.ref.location;
   const age = isBday && it.ref.dob && parseInt(it.ref.dob.slice(0, 4), 10) > 1990 ? d.getFullYear() - parseInt(it.ref.dob.slice(0, 4), 10) : null;
   const title = isBday ? (age ? `${shortName(it.ref.name)} turns ${age}` : `${shortName(it.ref.name)}'s birthday`) : it.title;
-  const meta = isBday ? "Birthday" : `${it.time || "Time TBC"}${place ? " · " + place : ""}`;
+  // A carnival row reads "3 games · Perry Park · 08:00–14:00" (the games, not one time).
+  const meta = isBday ? "Birthday" : isCarn ? carnivalMeta(it.ref, data) : `${it.time || "Time TBC"}${place ? " · " + place : ""}`;
   const av = isGame ? it.ref.availability : it.ref.availability?.[it.occ];
   const pills = isBday ? [] : cancelled ? [{ cls: "out", label: "Cancelled" }] : pillsFor(data, own, av, it.dateISO);
   const open = onOpen || null;
@@ -1559,6 +1601,46 @@ function DutyCard({ data, f, onOpen }) {
   );
 }
 
+// Home carnival card (S2): medal icon square, "Carnival · Sat 13 Jun", the
+// title and "3 games · Perry Park · 08:00–14:00", then the same reply block as
+// the Next game card (own children → the session reply sheet; everyone else
+// the counts and "Who's coming ›"). The body opens the carnival sheet.
+function CarnivalCard({ data, c, own, setModal }) {
+  const counts = replyCounts(data.players, c.availability?.[c.dateISO], c.dateISO);
+  const kids = own.filter(p => activeOn(p, c.dateISO));
+  const self = { type: "session", payload: c, occ: c.dateISO };
+  const openSheet = () => setModal(self);
+  const openReply = (p) => setModal({ type: "reply", payload: { kind: "session", session: c, occ: c.dateISO, playerId: p.id, returnTo: self } });
+  return (
+    <div className="card carnivalcard">
+      <div className="cc-body" role="button" tabIndex={0} aria-label={`Carnival: ${c.title}`} onClick={openSheet}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSheet(); } }}>
+        <span className="cc-ic"><Medal size={19} /></span>
+        <div className="cc-txt">
+          <div className="ng-label">Carnival · {nudgeDate(c.dateISO)}</div>
+          <div className="cc-title">{c.title}</div>
+          <div className="cc-meta">{carnivalMeta(c, data)}</div>
+        </div>
+        <ChevronRight size={15} color="#9AA3A6" style={{ flexShrink: 0 }} />
+      </div>
+      {kids.length > 0 ? (
+        <div className="replyrows">
+          {kids.map(p => <ReplyRow key={p.id} p={p} status={c.availability?.[c.dateISO]?.[p.id]?.status || null} onTap={() => openReply(p)} />)}
+        </div>
+      ) : (
+        <div className="ng-counts">
+          <div className="cpills">
+            <span className="cpill in">{counts.in} in</span>
+            <span className="cpill out">{counts.out} out</span>
+            <span className="cpill">{counts.nr} no reply</span>
+          </div>
+          <button className="ghostlink" onClick={openSheet}>Who's coming ›</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoach, openMatch }) {
   const todayISO = isoLocal(new Date());
   const own = ownPlayers(data, { isCoach, me, viewer });
@@ -1567,6 +1649,14 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
   const oppCrest = next ? crestFor(next.opponent) : null;
   const nextCounts = next ? replyCounts(data.players, next.availability, next.dateISO) : null;
   const openReply = (p) => setModal({ type: "reply", payload: { fixture: next, playerId: p.id } });
+  // The soonest upcoming carnival within 21 days gets its own card under the
+  // Duties card (parents block the day out and reply early). `next` is the
+  // next league game: nextFixture skips carnival games, so the carnival never
+  // takes the Next game card.
+  const carnivalLimit = isoLocal(addDays(todayISO, 21));
+  const carnival = (data.sessions || [])
+    .filter(c => isCarnival(c) && c.dateISO && c.dateISO >= todayISO && c.dateISO <= carnivalLimit)
+    .sort((a, b) => (a.dateISO + (a.time || "")).localeCompare(b.dateISO + (b.time || "")))[0] || null;
   // Row tap: game → Match detail, training/activity → session sheet, birthday → static here.
   const openFor = (it) => it.kind === "birthday" ? null : it.kind === "game" ? () => openMatch(it.ref) : () => setModal({ type: "session", payload: it.ref, occ: it.occ });
   const miniRoos = isMiniRoos(data.team);
@@ -1620,6 +1710,8 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
       )}
 
       {next && <DutyCard data={data} f={next} onOpen={onOpen} />}
+
+      {carnival && <CarnivalCard data={data} c={carnival} own={own} setModal={setModal} />}
 
       {data.team.whatsapp && (
         <a className="wabtn" href={data.team.whatsapp} target="_blank" rel="noopener noreferrer">
@@ -1758,9 +1850,14 @@ function AddToCalendarCard({ data }) {
   );
 }
 
-// What a day shows in the grid: the opponent's crest on a game day, else one
-// dot (birthday beats event beats training).
+// What a day shows in the grid: the carnival badge on a carnival day (many
+// games in one day, so no single crest — carnival games never reach
+// monthItems, and a league game the same day still loses to the badge), else
+// the opponent's crest on a game day, else one dot (birthday beats event
+// beats training).
 const dayMarker = (evs) => {
+  const carnival = evs.find(e => e.kind === "carnival");
+  if (carnival) return { carnival };
   const game = evs.find(e => e.kind === "game");
   if (game) return { game };
   const dot = evs.some(e => e.kind === "birthday") ? "birthday" : evs.some(e => e.kind === "event") ? "event" : evs.length ? "training" : null;
@@ -1796,6 +1893,7 @@ function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, openPlaye
   const isThisMonth = today.getFullYear() === year && today.getMonth() === month.month;
   const listItems = isThisMonth ? items.filter(it => it.dateISO >= todayISO) : items;
   const hasEvent = items.some(it => it.kind === "event");
+  const hasCarnival = items.some(it => it.kind === "carnival");
 
   const tapDay = (iso) => {
     setSelISO(iso);
@@ -1815,13 +1913,14 @@ function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, openPlaye
           {Array.from({ length: lead }, (_, i) => <span className="cal-blank" key={"b" + i} />)}
           {Array.from({ length: daysInMonth }, (_, i) => {
             const d = i + 1, iso = monthISO(month, d), evs = byDay[iso] || [];
-            const { game, dot } = dayMarker(evs);
+            const { carnival, game, dot } = dayMarker(evs);
             const cls = "cal-cell" + (iso === selISO ? " sel" : iso === todayISO ? " today" : "");
             return (
               <button key={iso} className={cls} onClick={() => tapDay(iso)} aria-label={`${d} ${monthName}`}>
                 <span className="n">{d}</span>
-                {game && <Crest src={crestFor(game.ref.opponent)} name={game.ref.opponent} className="cal-crest" discClass="cal-crest ph" />}
-                {!game && dot && <span className={"cal-dot " + dot} />}
+                {carnival && <span className="cal-carnival" aria-label="Carnival"><Medal size={13} /></span>}
+                {!carnival && game && <Crest src={crestFor(game.ref.opponent)} name={game.ref.opponent} className="cal-crest" discClass="cal-crest ph" />}
+                {!carnival && !game && dot && <span className={"cal-dot " + dot} />}
               </button>
             );
           })}
@@ -1831,6 +1930,7 @@ function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, openPlaye
           <span><span className="cal-dot training" />Training</span>
           <span><span className="cal-dot birthday" />Birthday</span>
           {hasEvent && <span><span className="cal-dot event" />Event</span>}
+          {hasCarnival && <span><span className="cal-carnival"><Medal size={9} /></span>Carnival</span>}
         </div>
       </div>
 
@@ -1896,6 +1996,9 @@ function MatchRow({ data, f, onTap }) {
   const home = f.homeAway === "H";
   const us = data.team.name, usLogo = data.team.logo || OUR_CREST, oppLogo = crestFor(f.opponent);
   const { cancelled, scored, result } = fixtureState(f);
+  // A carnival game: the carnival's name on a tag line, and a medal in the
+  // round column when the game has no round (most don't).
+  const carnival = carnivalOf(data, f);
   const hs = home ? f.us : f.them, as = home ? f.them : f.us;
   const side = (ours, away) => (
     <div className={"mr-side" + (ours ? " ours" : "") + (away ? " away" : "")}>
@@ -1910,19 +2013,23 @@ function MatchRow({ data, f, onTap }) {
   return (
     <div className={"mrow" + (cancelled ? " canc" : "")} role="button" tabIndex={0}
       onClick={onTap} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } }}>
-      <div className="mr-round"><div className="r">{f.round ?? "–"}</div><div className="d">{shortDate(f.dateISO)}</div></div>
+      <div className="mr-round"><div className="r">{f.round || (carnival ? <Medal size={14} className="mr-medal" aria-label="Carnival game" /> : "–")}</div><div className="d">{shortDate(f.dateISO)}</div></div>
       {side(home, false)}
       <div className="mr-centre">{centre}</div>
       {side(!home, true)}
+      {carnival && <div className="mrow-tag"><span className="mtag"><Medal size={10} /><span>{carnival.title}</span></span></div>}
     </div>
   );
 }
 
 function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
-  const byRound = (a, b) => (a.round || 0) - (b.round || 0) || String(a.dateISO || "").localeCompare(String(b.dateISO || ""));
+  // By round, then date; a game without a round (a carnival game) slots in by date.
+  const byRound = (a, b) => (a.round && b.round && a.round !== b.round) ? a.round - b.round
+    : String(a.dateISO || "").localeCompare(String(b.dateISO || "")) || (a.round || 0) - (b.round || 0);
   const sorted = [...data.fixtures].sort(byRound);
   const results = sorted.filter(f => fixtureState(f).past);
   const upcoming = sorted.filter(f => !fixtureState(f).past);
+  const hasCarnivalGame = data.fixtures.some(f => isCarnivalGame(data, f));
   return (
     <>
       <div className="card season-mini">
@@ -1951,6 +2058,9 @@ function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
         {upcoming.map(f => <MatchRow key={f.id} data={data} f={f} onTap={() => openMatch(f)} />)}
       </div>
 
+      {hasCarnivalGame && (
+        <div className="footnote res-foot">Carnival games are tagged with their carnival and don't count toward the season record.</div>
+      )}
       {isMiniRoos(data.team) && (
         <div className="footnote res-foot">MiniRoos doesn't publish ladders at {String(data.team.ageGroup).toUpperCase()} — results only help grade the leagues. These are just our own numbers.</div>
       )}
@@ -2237,10 +2347,10 @@ const barPx = (g) => Math.min(66, Math.max(4, g * 9));
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function StatsTab({ data, stats, openMatch, openPlayer }) {
-  // Played fixtures in date order — the same set computeStats counts.
+  // Played fixtures in date order — the same set computeStats counts (so no carnival games).
   const rounds = useMemo(() => data.fixtures
-    .filter(f => f.status === "played" && f.us != null && f.them != null)
-    .sort((a, b) => a.dateISO.localeCompare(b.dateISO)), [data.fixtures]);
+    .filter(f => f.status === "played" && f.us != null && f.them != null && !isCarnivalGame(data, f))
+    .sort((a, b) => a.dateISO.localeCompare(b.dateISO)), [data]);
   const diff = stats.gf - stats.ga;
   const scorers = stats.scorers.filter(p => p.goals > 0);
   const top = scorers[0]?.goals || 1;
@@ -2988,7 +3098,7 @@ function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach
         {modal.type === "reply" && <ReplySheet {...{ data, payload: modal.payload, isCoach, viewer, me, patchLocal, showToast, close: closeReply }} />}
         {modal.type === "duty" && <DutySheet {...{ data, payload: modal.payload, isCoach, viewer, me, patchLocal, showToast, close }} />}
         {modal.type === "day" && <DaySheet {...{ data, iso: modal.payload?.iso, isCoach, viewer, me, setModal, openMatch, openPlayer, close }} />}
-        {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, me, setModal, onOpen, close }} />}
+        {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, me, setModal, onOpen, openMatch, close }} />}
         {modal.type === "sessionEdit" && <SessionEditSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "player" && <PlayerSheet {...{ data, persist, payload: modal.payload, me, close }} />}
         {modal.type === "import" && <ImportSheet {...{ data, persist, close }} />}
@@ -3154,6 +3264,16 @@ function FixtureSheet({ data, persist, payload, close }) {
   const blank = { id: uid(), round: data.fixtures.length + 1, dateISO: "", time: "09:00", opponent: "", venue: "", homeAway: "H", status: "upcoming", us: null, them: null, fruit: "", gk: "", goals: [], assists: [], notes: "", video: "", chapters: [], manual: true };
   const [f, setF] = useState(payload ? JSON.parse(JSON.stringify(payload)) : blank);
   const players = data.players.filter(p => activeOn(p, f.dateISO)).sort((a, b) => a.number - b.number);
+  // Part of a carnival: every carnival session by date. Choosing one links the
+  // fixture (carnivalId), prefills an empty date / venue from the carnival and
+  // clears a new fixture's default round (carnival games have none — the row
+  // shows a medal instead). "Not part of a carnival" unlinks it.
+  const carnivals = (data.sessions || []).filter(isCarnival).sort((a, b) => String(a.dateISO || "9999").localeCompare(String(b.dateISO || "9999")));
+  const pickCarnival = (id) => {
+    const c = carnivals.find(x => x.id === id);
+    if (!c) { const { carnivalId, ...rest } = f; setF(rest); return; }
+    setF({ ...f, carnivalId: c.id, dateISO: f.dateISO || c.dateISO || "", venue: f.venue || c.location || "", round: !payload && f.round === blank.round ? null : f.round });
+  };
 
   const cnt = (arr, pid) => arr.find(x => x.pid === pid)?.n || 0;
   const bump = (key, pid, d) => {
@@ -3172,12 +3292,23 @@ function FixtureSheet({ data, persist, payload, close }) {
   return (<>
     <SheetHead title={payload ? "Edit fixture" : "Add fixture"} close={close} />
     <div className="row2">
-      <div className="field"><label>Round</label><input className="inp" type="number" value={f.round} onChange={e => setF({ ...f, round: +e.target.value })} /></div>
+      <div className="field"><label>Round</label><input className="inp" type="number" aria-label="Round" value={f.round ?? ""} onChange={e => setF({ ...f, round: e.target.value === "" ? null : +e.target.value })} /></div>
       <div className="field"><label>Time</label><input className="inp" type="time" value={f.time} onChange={e => setF({ ...f, time: e.target.value })} /></div>
     </div>
     <div className="field"><label>Date</label><input className="inp" type="date" value={f.dateISO} onChange={e => setF({ ...f, dateISO: e.target.value })} /></div>
     <div className="field"><label>Opponent</label><input className="inp" value={f.opponent} onChange={e => setF({ ...f, opponent: e.target.value })} /></div>
     <div className="field"><label>Venue</label><input className="inp" value={f.venue} onChange={e => setF({ ...f, venue: e.target.value })} /></div>
+    {carnivals.length > 0 && (
+      <div className="field"><label>Part of a carnival</label>
+        <select className="inp" aria-label="Part of a carnival" value={carnivalOf(data, f)?.id || ""} onChange={e => pickCarnival(e.target.value)}>
+          <option value="">Not part of a carnival</option>
+          {carnivals.map(c => <option key={c.id} value={c.id}>{c.title} · {fmtDate(c.dateISO) || "Date TBC"}</option>)}
+        </select>
+      </div>
+    )}
+    {carnivalOf(data, f) && (
+      <div className="field"><label>Pitch (optional)</label><input className="inp" aria-label="Pitch" placeholder="4" value={f.pitch || ""} onChange={e => setF({ ...f, pitch: e.target.value })} /></div>
+    )}
     <div className="field"><label>Home / Away</label>
       <div className="seg">{["H", "A"].map(h => <button key={h} className={f.homeAway === h ? "sel" : ""} onClick={() => setF({ ...f, homeAway: h })}>{h === "H" ? "Home" : "Away"}</button>)}</div>
     </div>
@@ -3351,6 +3482,11 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
   const coachFirst = headCoach?.name ? firstName(headCoach.name) : null;
   const planExists = !!(f.plan && (f.plan.assignments || []).some((s) => Object.keys(s || {}).length));
   const changes = recentChanges(f);
+  // A carnival game: the hero reads "Carnival · title · date", and one reply
+  // covers the whole day, so the Who's in card hands off to the carnival sheet.
+  const carnival = carnivalOf(data, f);
+  const carnivalCounts = carnival ? replyCounts(data.players, carnival.availability?.[carnival.dateISO], carnival.dateISO) : null;
+  const openCarnival = () => setModal({ type: "session", payload: carnival, occ: carnival.dateISO });
   const side = (ours) => (
     <div className="mu-side">
       <Crest src={ours ? usLogo : oppLogo} name={ours ? us : f.opponent} ours={ours} className="mu-crest" discClass="mu-disc" />
@@ -3362,7 +3498,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
   return (<>
     <div className="card mhero">
       <div className="mh-head">
-        <span className="mh-label">{f.round ? `Round ${f.round} · ` : ""}{home ? "Home" : "Away"} · {fmtDate(f.dateISO) || "Date TBC"}</span>
+        <span className="mh-label">{carnival ? `Carnival · ${carnival.title} · ${fmtDate(f.dateISO) || "Date TBC"}` : `${f.round ? `Round ${f.round} · ` : ""}${home ? "Home" : "Away"} · ${fmtDate(f.dateISO) || "Date TBC"}`}</span>
         {isCoach && <button className="mh-edit" onClick={() => setModal({ type: "fixture", payload: f })}><Pencil size={13} />Edit</button>}
       </div>
       <div className="matchup">
@@ -3450,7 +3586,14 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
     )}
     {f.notes && <div className="card"><div className="label" style={{ marginBottom: 6 }}>Notes</div><div className="note" style={{ fontSize: 13.5 }}>{f.notes}</div></div>}
 
-    {upcoming && players.length > 0 && (
+    {upcoming && players.length > 0 && carnival && (
+      <button className="card linkcard" onClick={openCarnival}>
+        <span className="lc-ic"><Medal size={17} /></span>
+        <span className="lc-body"><span className="lc-title">Replies are on the carnival</span><span className="lc-sub">{carnivalCounts.in} in · {carnivalCounts.out} out · {carnivalCounts.nr} no reply</span></span>
+        <ChevronRight size={15} color="#9AA3A6" style={{ flexShrink: 0 }} />
+      </button>
+    )}
+    {upcoming && players.length > 0 && !carnival && (
       <div className="card whosin">
         <div className="wi-head">
           <span className="label">Who's in</span>
@@ -3518,10 +3661,11 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
     {teamFeatures(data.team).focus && <FocusCard f={f} label={past ? "Focus that week" : "This week's focus"} coach={coachFirst} />}
 
     <div className="card">
-      {f.dateISO && <CalAdd ev={gameEv(f, data.team.name)} style={{ marginBottom: 12 }} />}
+      {/* A carnival game has no calendar event of its own: the carnival's block covers the day. */}
+      {f.dateISO && !carnival && <CalAdd ev={gameEv(f, data.team.name)} style={{ marginBottom: 12 }} />}
       <a className="washare" target="_blank" rel="noopener noreferrer"
         href={"https://wa.me/?text=" + encodeURIComponent(
-          `⚽ ${data.team.name} — Round ${f.round} vs ${f.opponent}\n` +
+          `⚽ ${data.team.name} — ${carnival ? carnival.title : f.round ? `Round ${f.round}` : "Match"} vs ${f.opponent}\n` +
           (f.status === "played" && f.us != null
             ? `Result: ${f.us}–${f.them}` +
               ((f.goals || []).length ? `\nGoals: ${(f.goals || []).map(g => `${pname(g.pid)}${g.n > 1 ? " ×" + g.n : ""}`).join(", ")}` : "")
@@ -4011,12 +4155,21 @@ function ResetSheet({ data, persist, close }) {
   </>);
 }
 
-function SessionSheet({ data, persist, payload, occ, isCoach, viewer, me, setModal, onOpen, close }) {
+function SessionSheet({ data, persist, payload, occ, isCoach, viewer, me, setModal, onOpen, openMatch, close }) {
   // Read the session live from data so a reply sent from here shows at once.
   const s = (data.sessions || []).find(x => x.id === payload.id) || payload;
   const showISO = occ || s.dateISO;
-  const Icon = s.kind === "event" ? Star : Dumbbell;
-  const del = () => { persist({ ...data, sessions: (data.sessions || []).filter(x => x.id !== s.id), isSample: false }); close(); };
+  const carnival = isCarnival(s);
+  const Icon = carnival ? Medal : s.kind === "event" ? Star : Dumbbell;
+  // The carnival's games: its linked fixtures (tappable → Match detail), or an
+  // old hand-typed list read-only.
+  const games = carnival ? carnivalGameRows(s, data) : [];
+  // Deleting a carnival unlinks its games: they become normal fixtures.
+  const del = () => {
+    const unlink = ({ carnivalId, ...f }) => f;
+    const fixtures = carnival ? (data.fixtures || []).map(f => (f.carnivalId === s.id ? unlink(f) : f)) : data.fixtures;
+    persist({ ...data, fixtures, sessions: (data.sessions || []).filter(x => x.id !== s.id), isSample: false }); close();
+  };
 
   // Attendance is stored per occurrence: s.availability[occurrenceISO][playerId]
   // = { status, reason, by, at }. This card mirrors Match detail's Who's in:
@@ -4033,8 +4186,8 @@ function SessionSheet({ data, persist, payload, occ, isCoach, viewer, me, setMod
   return (<>
     <SheetHead title={s.title} close={close} />
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-      <div className="ic" style={{ width: 40, height: 40, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", background: s.kind === "event" ? "#e6f0ff" : "#fff1da", color: s.kind === "event" ? "#2563a8" : "var(--amber)" }}><Icon size={19} /></div>
-      <span className={"kpill " + (s.kind || "training")}>{s.kind === "event" ? "Activity" : "Training"}</span>
+      <div className="ic" style={{ width: 40, height: 40, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", background: carnival ? "var(--red-tint)" : s.kind === "event" ? "#e6f0ff" : "#fff1da", color: carnival ? "var(--red-strong)" : s.kind === "event" ? "#2563a8" : "var(--amber)" }}><Icon size={19} /></div>
+      <span className={"kpill " + (s.kind || "training")}>{carnival ? "Carnival" : s.kind === "event" ? "Activity" : "Training"}</span>
     </div>
 
     <div className="card" style={{ marginTop: 0 }}>
@@ -4050,10 +4203,33 @@ function SessionSheet({ data, persist, payload, occ, isCoach, viewer, me, setMod
 
     {s.notes && <div className="card"><div className="label" style={{ marginBottom: 6 }}>Notes</div><div className="note" style={{ fontSize: 13.5 }}>{s.notes}</div></div>}
 
+    {carnival && (
+      <div className="card cv-games">
+        <div className="label">Games</div>
+        {games.length === 0 && <div className="cv-empty">{isCoach ? "No games linked yet. Add each game under Results and choose this carnival." : "The game schedule hasn't been published yet."}</div>}
+        {games.map(g => {
+          const f = g.fixture, st = f ? fixtureState(f) : null;
+          const tap = f ? () => { close(); openMatch(f); } : null;
+          const right = st?.cancelled ? <span className="mstate">Canc</span>
+            : st?.scored ? <span className={"mscore " + st.result}>{f.us}–{f.them}</span>
+            : pitchLabel(g.pitch) ? <span className="cv-pitch">{pitchLabel(g.pitch)}</span> : null;
+          return (
+            <div className="cv-game" key={g.id || g.time + g.opponent} role={tap ? "button" : undefined} tabIndex={tap ? 0 : undefined}
+              onClick={tap || undefined} onKeyDown={tap ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tap(); } } : undefined}>
+              <span className="cv-time">{g.time || "TBC"}</span>
+              <Crest src={crestFor(g.opponent)} name={g.opponent} className="cv-crest" discClass="cv-crest ph" />
+              <span className="cv-opp">{g.opponent}</span>
+              {right}
+            </div>
+          );
+        })}
+      </div>
+    )}
+
     {showISO && aplayers.length > 0 && (
       <div className="card whosin">
         <div className="wi-head">
-          <span className="label">{past ? "Attendance" : s.kind === "event" ? "Who's coming?" : "Who's training?"}</span>
+          <span className="label">{past ? "Attendance" : (s.kind === "event" || carnival) ? "Who's coming?" : "Who's training?"}</span>
           <span className="wi-count">{counts.in} in · {counts.out} out · {counts.nr} no reply</span>
         </div>
         {!past && own.length > 0 && (
@@ -4067,7 +4243,7 @@ function SessionSheet({ data, persist, payload, occ, isCoach, viewer, me, setMod
     )}
 
     <CalAdd
-      ev={sessionEv(s, showISO)}
+      ev={sessionEv(s, showISO, data)}
       icsText={s.recur === "weekly" ? wrapICS(s.title, veventWeekly(s, teamSeason(data.team))) : undefined}
       label={s.recur === "weekly" ? "Add to your calendar (.ics adds every week)" : "Add to your calendar"}
     />
@@ -4086,36 +4262,58 @@ function SessionEditSheet({ data, persist, payload, close }) {
   // Blank From/Until means "the whole season": the team's window bounds every weekly session.
   const blank = { id: uid(), title: "Training", kind: "training", recur: "weekly", weekday: 2, startISO: "", untilISO: "", dateISO: "", time: "17:30", endTime: "19:00", location: "", notes: "" };
   const [s, setS] = useState(payload ? { ...blank, ...payload } : blank);
+  const carnival = isCarnival(s);
+  // Default titles follow the kind until the coach types their own.
+  const DEFAULT_TITLES = ["Training", "Team event", "Carnival"];
+  const retitle = (title) => (DEFAULT_TITLES.includes(s.title) ? title : s.title);
+  const setKind = (kind) => {
+    if (kind === "carnival") setS({ ...s, kind, recur: "once", title: retitle("Carnival"), time: "08:00", endTime: "14:00" });
+    else setS({ ...s, kind, title: retitle(kind === "training" ? "Training" : "Team event") });
+  };
+  // A carnival's games are fixtures linked from the fixture editor (Part of a
+  // carnival), so nothing about them is edited here. An old hand-typed `games`
+  // list on an existing carnival passes through untouched (it still shows
+  // until games are linked); a new carnival never gets one.
   const save = () => {
-    const exists = (data.sessions || []).some(x => x.id === s.id);
-    const sessions = exists ? data.sessions.map(x => x.id === s.id ? s : x) : [...(data.sessions || []), s];
+    const out = carnival ? { ...s, recur: "once" } : s;
+    const exists = (data.sessions || []).some(x => x.id === out.id);
+    const sessions = exists ? data.sessions.map(x => x.id === out.id ? out : x) : [...(data.sessions || []), out];
     persist({ ...data, sessions, isSample: false }); close();
   };
   const season = teamSeason(data.team);
   const MIN = season.startISO, MAX = season.endISO;
   return (<>
-    <SheetHead title={payload ? "Edit activity" : "Add training / activity"} close={close} />
+    <SheetHead title={payload ? (carnival ? "Edit carnival" : "Edit activity") : "Add training / activity"} close={close} />
     <div className="field"><label>Type</label>
       <div className="seg">
-        <button className={s.kind === "training" ? "sel" : ""} onClick={() => setS({ ...s, kind: "training", title: s.title === "Team event" ? "Training" : s.title })}>Training</button>
-        <button className={s.kind === "event" ? "sel" : ""} onClick={() => setS({ ...s, kind: "event", title: s.title === "Training" ? "Team event" : s.title })}>Activity / event</button>
+        <button className={s.kind === "training" ? "sel" : ""} onClick={() => setKind("training")}>Training</button>
+        <button className={s.kind === "event" ? "sel" : ""} onClick={() => setKind("event")}>Activity / event</button>
+        <button className={carnival ? "sel" : ""} onClick={() => setKind("carnival")}>Carnival</button>
       </div>
     </div>
     <div className="field"><label>Title</label><input className="inp" value={s.title} onChange={e => setS({ ...s, title: e.target.value })} /></div>
+    {/* A carnival can fall outside the season (pre-season, end-of-season), so its date isn't bound to the window. */}
+    {carnival && <div className="field"><label>Date</label><input className="inp" type="date" aria-label="Carnival date" value={s.dateISO} onChange={e => setS({ ...s, dateISO: e.target.value })} /></div>}
     <div className="field"><label>Location</label><input className="inp" value={s.location} onChange={e => setS({ ...s, location: e.target.value })} /></div>
     <div className="row2">
       <div className="field"><label>Start time</label><input className="inp" type="time" value={s.time} onChange={e => setS({ ...s, time: e.target.value })} /></div>
       <div className="field"><label>End time</label><input className="inp" type="time" value={s.endTime} onChange={e => setS({ ...s, endTime: e.target.value })} /></div>
     </div>
 
-    <div className="field"><label>Repeats</label>
-      <div className="seg">
-        <button className={s.recur === "once" ? "sel" : ""} onClick={() => setS({ ...s, recur: "once" })}>One-off</button>
-        <button className={s.recur === "weekly" ? "sel" : ""} onClick={() => setS({ ...s, recur: "weekly" })}>Weekly</button>
-      </div>
-    </div>
+    {carnival && (
+      <div className="note" style={{ marginTop: -4, marginBottom: 12 }}>Add the day's games under Results and choose this carnival in each one — they show here and in Results, tagged with the carnival. Parents can reply and block out the day before the schedule is out.</div>
+    )}
 
-    {s.recur === "once" ? (
+    {!carnival && (
+      <div className="field"><label>Repeats</label>
+        <div className="seg">
+          <button className={s.recur === "once" ? "sel" : ""} onClick={() => setS({ ...s, recur: "once" })}>One-off</button>
+          <button className={s.recur === "weekly" ? "sel" : ""} onClick={() => setS({ ...s, recur: "weekly" })}>Weekly</button>
+        </div>
+      </div>
+    )}
+
+    {carnival ? null : s.recur === "once" ? (
       <div className="field"><label>Date</label><input className="inp" type="date" min={MIN} max={MAX} value={s.dateISO} onChange={e => setS({ ...s, dateISO: e.target.value })} /></div>
     ) : (<>
       <div className="field"><label>Day of week</label>

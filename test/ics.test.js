@@ -122,6 +122,73 @@ describe("seasonICS — sessions", () => {
   });
 });
 
+describe("seasonICS — carnivals", () => {
+  const carnival = (over = {}) => ({
+    id: "c1", kind: "carnival", recur: "once", title: "Winter carnival", dateISO: "2026-06-13", time: "08:00", endTime: "14:00",
+    location: "Perry Park", notes: "Bring a chair",
+    games: [{ id: "g2", time: "09:30", opponent: "Oxley United", pitch: "4" }, { id: "g1", time: "08:30", opponent: "Zebras FC", pitch: "Pitch 2" }],
+    ...over
+  });
+
+  it("is ONE timed event across the carnival window, titled 'Carnival: …', with the games and notes in the description", () => {
+    const evs = events(seasonICS({ sessions: [carnival()] }));
+    expect(evs).toHaveLength(1); // never one event per game
+    const ev = evs[0];
+    expect(find(ev, "UID:")).toBe("UID:c12026-06-13@fqdash");
+    expect(find(ev, "SUMMARY:")).toBe("SUMMARY:Carnival: Winter carnival");
+    expect(find(ev, "DTSTART:")).toBe("DTSTART:20260613T080000");
+    expect(find(ev, "DTEND:")).toBe("DTEND:20260613T140000");
+    expect(find(ev, "LOCATION:")).toBe("LOCATION:Perry Park");
+    expect(find(ev, "DESCRIPTION:")).toBe("DESCRIPTION:08:30 vs Zebras FC (Pitch 2)\\n09:30 vs Oxley United (Pitch 4)\\n\\nBring a chair");
+  });
+
+  it("falls back to a six-hour window when no end time is set", () => {
+    const ev = events(seasonICS({ sessions: [carnival({ endTime: "" })] }))[0];
+    expect(find(ev, "DTSTART:")).toBe("DTSTART:20260613T080000");
+    expect(find(ev, "DTEND:")).toBe("DTEND:20260613T140000");
+  });
+
+  it("with no games and no notes there is no description; games alone list without a trailing notes block", () => {
+    const bare = events(seasonICS({ sessions: [carnival({ games: [], notes: "" })] }))[0];
+    expect(find(bare, "DESCRIPTION:")).toBeUndefined();
+    expect(find(bare, "SUMMARY:")).toBe("SUMMARY:Carnival: Winter carnival");
+    const noNotes = events(seasonICS({ sessions: [carnival({ notes: "" })] }))[0];
+    expect(find(noNotes, "DESCRIPTION:")).toBe("DESCRIPTION:08:30 vs Zebras FC (Pitch 2)\\n09:30 vs Oxley United (Pitch 4)");
+  });
+
+  it("is included outside the season window (an explicit date, like a fixture) within the season's years", () => {
+    const season = { startISO: "2026-03-01", endISO: "2026-09-30" };
+    const evs = events(seasonICS({ team: { season }, sessions: [carnival({ dateISO: "2026-11-07" })] }));
+    expect(evs.map((e) => find(e, "DTSTART:"))).toEqual(["DTSTART:20261107T080000"]);
+  });
+
+  it("carnival games (fixtures linked by carnivalId) get no event of their own; the carnival's description lists them, with the score once played", () => {
+    const data = {
+      team: { name: "Olympic FC" },
+      sessions: [carnival({ games: undefined })],
+      fixtures: [
+        { id: "cg1", carnivalId: "c1", status: "played", dateISO: "2026-06-13", time: "09:30", opponent: "Oxley United", homeAway: "H", venue: "Perry Park", us: 3, them: 1 },
+        { id: "cg2", carnivalId: "c1", status: "upcoming", dateISO: "2026-06-13", time: "08:30", opponent: "Zebras FC", homeAway: "A", venue: "Perry Park", pitch: "2" },
+        { id: "f1", round: 7, status: "upcoming", dateISO: "2026-06-20", time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park" }
+      ]
+    };
+    const evs = events(seasonICS(data));
+    expect(evs.map((e) => find(e, "UID:"))).toEqual(["UID:f1@fqdash", "UID:c12026-06-13@fqdash"]);
+    const c = evs[1];
+    expect(find(c, "SUMMARY:")).toBe("SUMMARY:Carnival: Winter carnival");
+    expect(find(c, "DESCRIPTION:")).toBe("DESCRIPTION:08:30 vs Zebras FC (Pitch 2)\\n09:30 vs Oxley United · 3–1\\n\\nBring a chair");
+  });
+
+  it("a fixture whose carnivalId names no carnival is an ordinary game event, and a game without a round has no 'Round' in its description", () => {
+    const evs = events(seasonICS({ team: { name: "Olympic FC" }, sessions: [], fixtures: [
+      { id: "cg1", carnivalId: "gone", status: "played", dateISO: "2026-06-13", time: "09:30", opponent: "Oxley United", homeAway: "H", us: 3, them: 1 }
+    ] }));
+    expect(evs).toHaveLength(1);
+    expect(find(evs[0], "SUMMARY:")).toBe("SUMMARY:⚽ Olympic FC v Oxley United");
+    expect(find(evs[0], "DESCRIPTION:")).toBe("DESCRIPTION:(3-1)");
+  });
+});
+
 describe("seasonICS — birthdays", () => {
   it("creates a 'turns N' all-day event for a player with a birth year", () => {
     const ev = events(seasonICS({ players: [{ id: "p1", name: "Sam", dob: "2018-07-04" }] }))[0];
