@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { getData, setData } from "@/lib/store";
 import { resolveViewer, viewerError } from "@/lib/viewer";
-import { sanitizeParentsSee, sanitizeMatchFormat, sanitizeRules } from "@/lib/teamSetup";
+import { sanitizeParentsSee, sanitizeMatchFormat, sanitizeRules, sanitizeSeason } from "@/lib/teamSetup";
 
 export const dynamic = "force-dynamic";
 
 // Narrow team-settings endpoint: writes ONLY the named team.* fields (what
-// parents see, the match format, the match-day rules) and nothing else. The
+// parents see, the match format, the match-day rules, the season window) and
+// nothing else. The
 // coach's settings screen may sit open for a long time; a parent's RSVP (or a
 // live plan autosave) that lands between the coach's read and their save must
 // survive, so this route re-reads the document, merges just the provided keys
@@ -16,10 +17,11 @@ export const dynamic = "force-dynamic";
 // trusts any code holder (the original one-code-no-roles model — the settings
 // UI itself is coach-gated).
 //
-// Body: { parentsSee?, matchFormat?, rules? } — at least one key required.
+// Body: { parentsSee?, matchFormat?, rules?, season? } — at least one key
+// required. season: { startISO, endISO } sets the window, null clears it.
 // Response: { ok: true, team: { <only the provided keys, sanitised> } } so the
 // client can patch its local state with exactly what was stored.
-const SETTING_KEYS = ["parentsSee", "matchFormat", "rules"];
+const SETTING_KEYS = ["parentsSee", "matchFormat", "rules", "season"];
 
 export async function POST(req) {
   let body;
@@ -47,6 +49,7 @@ export async function POST(req) {
   if ("parentsSee" in body) patch.parentsSee = sanitizeParentsSee(body.parentsSee);
   if ("matchFormat" in body) patch.matchFormat = sanitizeMatchFormat(body.matchFormat, data.team?.ageGroup);
   if ("rules" in body) patch.rules = sanitizeRules(body.rules);
+  if ("season" in body) patch.season = sanitizeSeason(body.season);
 
   // Merge just these team fields; players, fixtures and sessions are the
   // freshly read copies, so any RSVP that landed meanwhile rides along intact.

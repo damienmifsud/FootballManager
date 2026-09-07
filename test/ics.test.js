@@ -1,9 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { seasonICS } from "@/lib/ics";
 
 // seasonICS is the only export; the date math, recurrence, escaping and
-// birthday logic are exercised through the generated ICS text. SEASON in the
-// module is 2026, so all in-season dates below use 2026.
+// birthday logic are exercised through the generated ICS text. A team with no
+// season follows the current calendar year, so "now" is pinned to 2026 and
+// all in-season dates below use 2026; the season-window block sets its own.
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 5, 18, 12, 0, 0)); });
+afterEach(() => { vi.useRealTimers(); });
 
 // Split the feed into its component lines (the module joins with CRLF).
 const lines = (ics) => ics.split("\r\n");
@@ -76,7 +79,7 @@ describe("seasonICS — game fixtures", () => {
     expect(find(ev, "DTEND;VALUE=DATE:")).toBe("DTEND;VALUE=DATE:20260621");
   });
 
-  it("excludes fixtures outside the season year", () => {
+  it("excludes fixtures outside the (default calendar-year) season", () => {
     const ics = seasonICS({ fixtures: [game({ dateISO: "2025-06-20" })] });
     expect(events(ics)).toHaveLength(0);
   });
@@ -148,5 +151,58 @@ describe("seasonICS — birthdays", () => {
       players: [{ id: "p1", name: "Guest", dob: "2017-07-15", guest: true, fromISO: "2026-06-01", untilISO: "2026-09-01" }]
     });
     expect(events(ics)).toHaveLength(1);
+  });
+});
+
+describe("seasonICS — season window", () => {
+  const season = { startISO: "2027-02-01", endISO: "2027-11-30" };
+  const weekly = (over = {}) => ({ id: "w1", title: "Training", recur: "weekly", weekday: 2, time: "17:00", endTime: "18:00", ...over });
+
+  it("names the calendar with the season label and runs an unbounded weekly session from the season start to its end", () => {
+    const ics = seasonICS({ team: { name: "Olympic FC", season }, sessions: [weekly()] });
+    expect(lines(ics)).toContain("X-WR-CALNAME:Olympic FC 2027");
+    const ev = events(ics)[0];
+    expect(find(ev, "DTSTART:")).toBe("DTSTART:20270202T170000"); // first Tuesday on/after 1 Feb 2027
+    expect(find(ev, "RRULE:")).toContain("UNTIL=20271130T235959"); // the season end
+  });
+
+  it("a session's own until wins when it is earlier than the season end; a later one is clamped to the season", () => {
+    const early = events(seasonICS({ team: { season }, sessions: [weekly({ untilISO: "2027-09-01" })] }))[0];
+    expect(find(early, "RRULE:")).toContain("UNTIL=20270901T235959");
+    const late = events(seasonICS({ team: { season }, sessions: [weekly({ untilISO: "2027-12-25" })] }))[0];
+    expect(find(late, "RRULE:")).toContain("UNTIL=20271130T235959");
+    // A session starting before the season still begins at the season start.
+    const before = events(seasonICS({ team: { season }, sessions: [weekly({ startISO: "2026-11-01" })] }))[0];
+    expect(find(before, "DTSTART:")).toBe("DTSTART:20270202T170000");
+    // No overlap at all: no event.
+    expect(events(seasonICS({ team: { season }, sessions: [weekly({ untilISO: "2027-01-15" })] }))).toHaveLength(0);
+  });
+
+  it("includes fixtures inside the window whatever the year, and drops those outside it", () => {
+    const fx = (id, dateISO) => ({ id, round: 1, dateISO, time: "09:00", homeAway: "H", opponent: "Wests", venue: "Park", status: "upcoming" });
+    const ics = seasonICS({ team: { season }, fixtures: [fx("in", "2027-06-20"), fx("edge", "2027-11-30"), fx("before", "2027-01-31"), fx("after", "2027-12-01"), fx("lastyear", "2026-06-20")] });
+    expect(events(ics).map((e) => find(e, "UID:"))).toEqual(["UID:in@fqdash", "UID:edge@fqdash"]);
+  });
+
+  it("a spanning season is labelled 'YYYY/YY' and generates birthdays for each year it touches, inside the window only", () => {
+    const span = { startISO: "2026-10-01", endISO: "2027-03-31" };
+    const ics = seasonICS({ team: { name: "Us", season: span }, players: [{ id: "p1", name: "Sam", dob: "2018-11-15" }, { id: "p2", name: "Lee", dob: "2019-02-20" }, { id: "p3", name: "Mo", dob: "2018-06-01" }] });
+    expect(lines(ics)).toContain("X-WR-CALNAME:Us 2026/27");
+    const evs = events(ics);
+    expect(evs.map((e) => find(e, "SUMMARY:"))).toEqual(["SUMMARY:🎂 Sam turns 8", "SUMMARY:🎂 Lee turns 8"]); // Mo's June birthday is outside the window both years
+    expect(evs.map((e) => find(e, "DTSTART;VALUE=DATE:"))).toEqual(["DTSTART;VALUE=DATE:20261115", "DTSTART;VALUE=DATE:20270220"]);
+    expect(evs.map((e) => find(e, "UID:"))).toEqual(["UID:bdayp12026@fqdash", "UID:bdayp22027@fqdash"]);
+  });
+
+  it("a weekly series across the year boundary starts in the first year and runs to the season end", () => {
+    const span = { startISO: "2026-10-01", endISO: "2027-03-31" };
+    const ev = events(seasonICS({ team: { season: span }, sessions: [weekly({ weekday: 6 })] }))[0];
+    expect(find(ev, "DTSTART:")).toBe("DTSTART:20261003T170000");
+    expect(find(ev, "RRULE:")).toContain("UNTIL=20270331T235959");
+  });
+
+  it("a one-off session is included for any year in the window", () => {
+    const evs = events(seasonICS({ team: { season }, sessions: [{ id: "o1", title: "Photo day", dateISO: "2027-05-10", time: "09:00" }, { id: "o2", title: "Old", dateISO: "2026-05-10", time: "09:00" }] }));
+    expect(evs.map((e) => find(e, "SUMMARY:"))).toEqual(["SUMMARY:Photo day"]);
   });
 });

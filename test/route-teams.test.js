@@ -432,3 +432,59 @@ describe("DELETE", () => {
     expect(deleteData).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("season — the team's window", () => {
+  const SEASON = { startISO: "2027-02-01", endISO: "2027-11-30" };
+
+  it("POST seeds season into the starter doc, and stores null when omitted or invalid", async () => {
+    const { POST } = await asAdmin();
+    expect((await POST(fakeRequest({ body: { name: "Wiz S", password: "swift-roo-44", season: SEASON } }))).status).toBe(200);
+    expect(setData.mock.calls[0][1].team.season).toEqual(SEASON);
+    getStoredTeams.mockResolvedValue([]);
+    expect((await POST(fakeRequest({ body: { name: "Wiz T", password: "swift-roo-45" } }))).status).toBe(200);
+    expect(setData.mock.calls[1][1].team.season).toBeNull();
+    expect((await POST(fakeRequest({ body: { name: "Wiz U", password: "swift-roo-46", season: { startISO: "2027-11-30", endISO: "2027-02-01" } } }))).status).toBe(200);
+    expect(setData.mock.calls[2][1].team.season).toBeNull(); // inverted → unset
+    // Seeded training stays unbounded: the window clamps it, so moving the season later moves the training.
+    expect((await POST(fakeRequest({ body: { name: "Wiz V", password: "swift-roo-47", season: SEASON, training: [{ weekday: 2, time: "17:00" }] } }))).status).toBe(200);
+    const doc = setData.mock.calls[3][1];
+    expect(doc.sessions[0]).not.toHaveProperty("startISO");
+    expect(doc.sessions[0]).not.toHaveProperty("untilISO");
+  });
+
+  it("PATCH updates the doc's season, clears it with null and leaves it alone when the key is absent", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b", calendarKey: "key-b" }]);
+    getData.mockResolvedValue({ team: { name: "Wiz B", division: "K2" }, players: [{ id: "p1" }], fixtures: [], sessions: [{ id: "s1" }] });
+    const { PATCH } = await asAdmin();
+    let res = await PATCH(fakeRequest({ body: { slug: "wiz-b", season: SEASON } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).docUpdated).toBe(true);
+    expect(setData.mock.calls[0][1].team).toMatchObject({ division: "K2", season: SEASON });
+    expect(setData.mock.calls[0][1].sessions).toEqual([{ id: "s1" }]);
+
+    getData.mockResolvedValue({ team: { name: "Wiz B", season: SEASON }, players: [], fixtures: [] });
+    res = await PATCH(fakeRequest({ body: { slug: "wiz-b", season: null } }));
+    expect((await res.json()).docUpdated).toBe(true);
+    expect(setData.mock.calls[1][1].team.season).toBeNull();
+
+    res = await PATCH(fakeRequest({ body: { slug: "wiz-b", season: { startISO: "nope", endISO: "2027-11-30" } } }));
+    expect(setData.mock.calls[2][1].team.season).toBeNull(); // invalid → unset
+
+    setData.mockClear();
+    res = await PATCH(fakeRequest({ body: { slug: "wiz-b", name: "Wiz B2" } }));
+    expect(setData.mock.calls[0][1].team.season).toEqual(SEASON); // untouched
+  });
+
+  it("GET returns the sanitised season, or null", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b" }, { slug: "wiz-c", name: "Wiz C", password: "code-c" }]);
+    getData.mockImplementation(async (slug) => slug === "wiz-b"
+      ? { team: { name: "Wiz B", season: SEASON } }
+      : slug === "wiz-c" ? { team: { name: "Wiz C", season: { startISO: "2027-11-30", endISO: "2027-02-01" } } } : null);
+    const { GET } = await asAdmin();
+    const body = await (await GET()).json();
+    const bySlug = Object.fromEntries(body.teams.map((t) => [t.slug, t]));
+    expect(bySlug["wiz-b"].season).toEqual(SEASON);
+    expect(bySlug["wiz-c"].season).toBeNull();
+    expect(bySlug["env-a"].season).toBeNull();
+  });
+});
