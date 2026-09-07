@@ -27,6 +27,7 @@ import { shapeCall } from "@/lib/shapes";
 import { downscaleImage } from "@/lib/clientImage";
 import { crestFor, OUR_CREST } from "@/lib/clubs";
 import { hatLabel, joinNames as joinKidNames } from "@/lib/hats";
+import { cannedQuestions, cannedAnswer, askFallback } from "@/lib/askCanned";
 import { signOut } from "next-auth/react";
 
 /* ============================================================
@@ -256,6 +257,15 @@ function outlookUrl(ev) {
    STYLES — Direction C "Clean sheet": white cards on paper, one red,
    no gradients, no dark chrome (the toast is the only ink fill).
 ============================================================ */
+// Bottom offsets (brief override 2), derived from the app's own nav: the nav
+// sits --nav-inset (14) above the bottom and is 62 tall (48 item + 6×2 padding
+// + 1×2 border), so its top edge is 76. The Ask bar sits 12 above that (88);
+// content clears the nav by 38 (114). The Ask bar reads ASK_BAR_BOTTOM inline
+// (it drops to 0 while the keyboard is up); the CSS block exposes both as tokens.
+const NAV_INSET = 14, NAV_HEIGHT = 62;
+const ASK_BAR_BOTTOM = NAV_INSET + NAV_HEIGHT + 12;
+const NAV_CLEARANCE = NAV_INSET + NAV_HEIGHT + 38;
+
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,800&family=DM+Mono:wght@500&display=swap');
 :root{
@@ -278,12 +288,12 @@ const CSS = `
   --crest-ring:0 0 0 2px var(--pitch);
   --seg-track:var(--line); --seg-thumb-shadow:0 1px 2px rgba(10,30,18,.08);
   --r-sheet:20px; --r-seg:13px; --r-seg-thumb:11px; --r-icon-sm:9px;
+  --nav-clearance:${NAV_CLEARANCE}px; --ask-bar-bottom:${ASK_BAR_BOTTOM}px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-/* Bottom clearance (brief override 2): nav bottom offset 14 + nav height 62
-   (48 item + 6×2 padding + 1×2 border) + 38 content clearance = 114px. */
+/* Bottom clearance: --nav-clearance (114px), derived above from the nav's own offsets. */
 .fqd{font-family:'DM Sans',system-ui,sans-serif;color:var(--ink);background:var(--paper);
-  min-height:100vh;max-width:560px;margin:0 auto;position:relative;padding-bottom:114px;}
+  min-height:100vh;max-width:560px;margin:0 auto;position:relative;padding-bottom:var(--nav-clearance);}
 .fqd h1,.fqd h2,.fqd h3,.disp{font-family:'Anton',sans-serif;font-weight:400;letter-spacing:.01em;text-transform:uppercase;}
 .num{font-family:'DM Mono',monospace;}
 /* header — white 96% + blur, hairline below, sticky. Root variant: crest + team
@@ -482,12 +492,32 @@ const CSS = `
 .notes{padding:12px 16px 14px;}
 .softbadge{border-radius:999px;padding:3px 8px;font-size:10px;font-weight:800;background:var(--soft);color:var(--muted);white-space:nowrap;}
 .crest{width:30px;height:30px;object-fit:cover;border-radius:50%;flex-shrink:0;vertical-align:middle;}
-.askmsg{padding:11px 14px;border-radius:14px;margin-bottom:10px;font-size:14px;line-height:1.5;max-width:90%;white-space:pre-wrap;}
-.askmsg.you{background:var(--pitch);color:#fff;margin-left:auto;border-bottom-right-radius:4px;}
-.askmsg.bot{background:var(--soft);color:var(--ink);border-bottom-left-radius:4px;}
-.askmsg.bot .src{display:block;margin-top:6px;font-size:11px;color:var(--muted);}
-.askchip{display:inline-block;background:var(--soft);border:1px solid var(--line);border-radius:999px;
-  padding:7px 12px;font-size:12.5px;margin:0 6px 8px 0;cursor:pointer;color:var(--ink);}
+/* Ask (S9, Direction C): intro card, question chips, thread bubbles with a
+   source line, typing bubble and the sticky input bar above the nav. */
+.ask{display:flex;flex-direction:column;gap:12px;}
+.ask-intro{padding:14px 16px;display:flex;gap:12px;align-items:flex-start;}
+.ask-intro-body{min-width:0;}
+.ask-intro-title{font-weight:800;font-size:15px;line-height:1.3;}
+.ask-intro-sub{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.45;}
+.ask-chips{display:flex;flex-wrap:wrap;gap:8px;}
+.ask-chip{background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:9px 13px;
+  font:inherit;font-size:13px;font-weight:700;cursor:pointer;min-height:38px;text-align:left;}
+.ask-me{align-self:flex-end;max-width:85%;background:var(--pitch);color:#fff;border-radius:16px 16px 4px 16px;
+  padding:10px 14px;font-size:14px;line-height:1.4;white-space:pre-wrap;}
+.ask-ai{align-self:flex-start;max-width:92%;background:var(--card);border:1px solid var(--line);border-radius:16px 16px 16px 4px;
+  padding:12px 14px;font-size:14px;line-height:1.5;white-space:pre-wrap;}
+.ask-src{font-size:11px;color:var(--muted);margin-top:8px;font-weight:600;}
+.ask-typing{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-radius:16px 16px 16px 4px;
+  padding:10px 14px;font-size:13px;color:var(--muted);}
+.ask-bar{position:sticky;bottom:var(--ask-bar-bottom);z-index:15;display:flex;gap:8px;background:var(--paper);padding:8px 0 4px;margin-top:4px;}
+.ask-bar input{flex:1;min-width:0;border:1px solid var(--line);border-radius:999px;padding:12px 16px;font:inherit;font-size:14px;
+  background:var(--card);color:var(--ink);outline:none;min-height:46px;}
+.ask-send{width:46px;height:46px;border-radius:50%;background:var(--pitch);color:#fff;border:none;display:flex;
+  align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;padding:0;}
+.ask-send:disabled{opacity:.45;cursor:default;}
+.ask-signin{padding:14px 16px;}
+.ask-signin-title{font-size:14px;font-weight:800;}
+.ask-signin-sub{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.45;}
 .kdoc{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);}
 .kdoc:last-child{border-bottom:none;}
 /* position tag: 9/800 .06em radius 6 (rows); .lg is the Player hero's 10/800 */
@@ -2363,69 +2393,93 @@ function AskTab({ data, viewer, isCoach, account }) {
   // needs the device identity or coach mode.
   const allowed = account ? true : (isCoach || viewer?.kind === "parent");
   const [q, setQ] = useState("");
-  const [msgs, setMsgs] = useState([]);
+  const [msgs, setMsgs] = useState([]);   // { role: "you" | "bot", text, src? }
   const [busy, setBusy] = useState(false);
+  // Focus is tracked here only for the bar's own offset; the nav hides through
+  // App's typing mechanism.
+  const [focused, setFocused] = useState(false);
   const docs = data.knowledge || [];
-
-  const suggestions = [
-    "When and where is our next game?",
-    "What are this season's match focuses?",
-    "How long are the halves at U8?",
-    "What's the wet weather / cancellation policy?"
-  ];
+  const chips = cannedQuestions(data);
+  const endRef = useRef(null);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  // Newest bubble into view (jsdom has no scrollIntoView).
+  useEffect(() => {
+    const el = endRef.current;
+    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [msgs, busy]);
 
   const ask = async (text) => {
     const question = (text ?? q).trim();
     if (!question || busy) return;
     setQ("");
+    const history = msgs.slice(-6);
     const next = [...msgs, { role: "you", text: question }];
     setMsgs(next);
     setBusy(true);
+    const push = (answer, src) => { if (!alive.current) return; setMsgs([...next, { role: "bot", text: answer, src }]); setBusy(false); };
+    const canned = cannedAnswer(data, question);
+    if (canned) { setTimeout(() => push(canned.text, canned.src), 650); return; }
+    const fallback = askFallback(data.team);
     try {
       const res = await fetch("/api/ask", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, history: msgs.slice(-6) })
+        body: JSON.stringify({ question, history })
       });
-      const j = await res.json();
-      setMsgs([...next, { role: "bot", text: j.answer || j.error || "Sorry, I couldn't answer that right now." }]);
+      let j = null;
+      try { j = await res.json(); } catch { j = null; }
+      const answer = String(j?.answer || "").trim();
+      if (answer) push(answer, "Team assistant");
+      else if (!res.ok && j?.error) push(String(j.error), "Team assistant");
+      else push(fallback, "Team assistant");
     } catch {
-      setMsgs([...next, { role: "bot", text: "The Ask feature only works on the live website (it needs the team's secure connection to Claude). Try it there." }]);
-    } finally { setBusy(false); }
+      push(fallback, "Team assistant");
+    }
   };
 
-  if (!allowed) {
-    return <div className="empty"><Sparkles size={26} color="var(--muted)" /><div className="disp" style={{ marginTop: 8 }}>Sign in to ask</div>
-      <div className="note">Tap “Sign in to respond” at the top to use the team assistant.</div></div>;
-  }
+  const docsLine = isCoach
+    ? (docs.length ? `${docs.length} document${docs.length === 1 ? "" : "s"} loaded.` : "No documents loaded yet. Add club and Football Queensland PDFs in Team settings.")
+    : null;
 
   return (
-    <>
-      <div className="card">
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <Sparkles size={18} color="var(--pitch)" /><div className="label">Ask the team assistant</div>
+    <div className="ask">
+      <div className="card ask-intro">
+        <span className="lc-ic"><Sparkles size={18} /></span>
+        <div className="ask-intro-body">
+          <div className="ask-intro-title">Ask about fixtures, training, duties or the MiniRoos rules.</div>
+          <div className="ask-intro-sub">It answers from our documents and schedule. It won't make up rules.{docsLine && <><br />{docsLine}</>}</div>
         </div>
-        <div className="note">Answers come from the team's documents{docs.length ? ` (${docs.length} loaded)` : " (none loaded yet — ask your coach to add club & Football QLD PDFs)"} plus our live fixtures, squad and focuses. It won't make up rules.</div>
       </div>
 
-      <div style={{ marginBottom: 12 }}>
-        {msgs.length === 0 && suggestions.map((s, i) => (
-          <span className="askchip" key={i} onClick={() => ask(s)}>{s}</span>
-        ))}
-      </div>
+      {!allowed ? (
+        <div className="card ask-signin">
+          <div className="ask-signin-title">Sign in to ask.</div>
+          <div className="ask-signin-sub">Open Viewing as and choose who you are, then come back here.</div>
+        </div>
+      ) : (<>
+        {msgs.length === 0 && (
+          <div className="ask-chips">
+            {chips.map((c) => <button type="button" className="ask-chip" key={c} onClick={() => ask(c)}>{c}</button>)}
+          </div>
+        )}
 
-      <div style={{ display: "flex", flexDirection: "column", marginBottom: 12 }}>
-        {msgs.map((m, i) => <div key={i} className={"askmsg " + m.role}>{m.text}</div>)}
-        {busy && <div className="askmsg bot">Thinking…</div>}
-      </div>
+        {msgs.map((m, i) => m.role === "you"
+          ? <div className="ask-me" key={i}>{m.text}</div>
+          : <div className="ask-ai" key={i}>{m.text}<div className="ask-src">From: {m.src || "Team assistant"}</div></div>
+        )}
+        {busy && <div className="ask-typing">Checking the team's documents…</div>}
+        <div ref={endRef} />
 
-      <div style={{ display: "flex", gap: 8, position: "sticky", bottom: 8 }}>
-        <input className="inp" value={q} placeholder="Ask a question…" onChange={e => setQ(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && ask()} style={{ flex: 1 }} />
-        <button className="btn" style={{ width: "auto", padding: "0 18px" }} onClick={() => ask()} disabled={busy || !q.trim()}>
-          <Send size={16} />
-        </button>
-      </div>
-    </>
+        <div className="ask-bar" style={{ bottom: focused ? 0 : ASK_BAR_BOTTOM }}>
+          <input value={q} placeholder="Ask about the team…" aria-label="Ask about the team"
+            onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); ask(); } }}
+            onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} />
+          <button type="button" className="ask-send" aria-label="Send" onClick={() => ask()} disabled={busy || !q.trim()}>
+            <Send size={18} />
+          </button>
+        </div>
+      </>)}
+    </div>
   );
 }
 
