@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   computeStats, nextFixture, isPastGame, fmtDate, countdown, ytId, videoKind,
   mapsUrl, activeOn, intlPhone, recentChanges, initials, secToClock, clockToSec,
-  occurrences, monthItems, upcomingItems, nextBirthdays
+  occurrences, monthItems, upcomingItems, nextBirthdays,
+  carnivalGames, carnivalMeta, carnivalDescription, pitchLabel
 } from "@/lib/dashboardData";
 
 // Pin "now" for the helpers that read the clock (countdown, isPastGame,
@@ -293,6 +294,55 @@ describe("upcomingItems", () => {
     expect(items[1].dateISO).toBe("2026-06-23"); // Tuesday the 16th is gone, the 23rd stays
     const none = upcomingItems({ ...data, team: { season: { startISO: "2026-07-01", endISO: "2026-12-31" } } }, "2026-06-18", 7);
     expect(none.map((i) => i.title)).toEqual(["vs Wests"]);
+  });
+});
+
+describe("carnivals", () => {
+  const carnival = (over = {}) => ({
+    id: "c1", kind: "carnival", recur: "once", title: "Winter carnival", dateISO: "2026-06-13", time: "08:00", endTime: "14:00",
+    location: "Perry Park", notes: "Bring a chair",
+    games: [{ id: "g2", time: "09:30", opponent: "Oxley United", pitch: "4" }, { id: "g1", time: "08:30", opponent: "Zebras FC", pitch: "Pitch 2" }, { id: "g3", time: "10:30", opponent: "  ", pitch: "" }],
+    availability: {}, ...over
+  });
+  it("appears in monthItems and upcomingItems as kind carnival on its date, with the occurrence set", () => {
+    const data = { fixtures: [], sessions: [carnival()], players: [] };
+    const m = monthItems(data, 2026, 5).filter((i) => i.kind === "carnival");
+    expect(m).toHaveLength(1);
+    expect(m[0]).toMatchObject({ dateISO: "2026-06-13", occ: "2026-06-13", time: "08:00", title: "Winter carnival" });
+    expect(m[0].ref.games).toHaveLength(3);
+    expect(monthItems(data, 2026, 6).filter((i) => i.kind === "carnival")).toEqual([]);
+    const u = upcomingItems(data, "2026-06-10", 7);
+    expect(u.map((i) => i.kind)).toEqual(["carnival"]);
+    expect(upcomingItems(data, "2026-06-14", 7)).toEqual([]);
+  });
+  it("is an explicit date like a fixture: the season window does not hide it", () => {
+    const data = { team: { season: { startISO: "2026-03-01", endISO: "2026-05-31" } }, fixtures: [], sessions: [carnival()], players: [] };
+    expect(monthItems(data, 2026, 5).map((i) => i.kind)).toEqual(["carnival"]);
+    expect(upcomingItems(data, "2026-06-12", 7).map((i) => i.kind)).toEqual(["carnival"]);
+  });
+  it("carnivalGames sorts by time and drops rows without an opponent", () => {
+    expect(carnivalGames(carnival()).map((g) => g.id)).toEqual(["g1", "g2"]);
+    expect(carnivalGames(carnival({ games: undefined }))).toEqual([]);
+    expect(carnivalGames(null)).toEqual([]);
+  });
+  it("pitchLabel prefixes a bare number and leaves typed labels alone", () => {
+    expect(pitchLabel("4")).toBe("Pitch 4");
+    expect(pitchLabel("4a")).toBe("Pitch 4a");
+    expect(pitchLabel("Pitch 2")).toBe("Pitch 2");
+    expect(pitchLabel("Main oval")).toBe("Main oval");
+    expect(pitchLabel("")).toBe("");
+  });
+  it("carnivalMeta reads '{N} games · location · window', or 'Games to be announced' with no games", () => {
+    expect(carnivalMeta(carnival())).toBe("2 games · Perry Park · 08:00–14:00");
+    expect(carnivalMeta(carnival({ games: [{ id: "g", time: "09:00", opponent: "Wests" }] }))).toBe("1 game · Perry Park · 08:00–14:00");
+    expect(carnivalMeta(carnival({ games: [] }))).toBe("Games to be announced · Perry Park · 08:00–14:00");
+    expect(carnivalMeta(carnival({ games: [], location: "", endTime: "" }))).toBe("Games to be announced · 08:00");
+  });
+  it("carnivalDescription lists the games in time order, then the notes", () => {
+    expect(carnivalDescription(carnival())).toBe("08:30 vs Zebras FC (Pitch 2)\n09:30 vs Oxley United (Pitch 4)\n\nBring a chair");
+    expect(carnivalDescription(carnival({ notes: "" }))).toBe("08:30 vs Zebras FC (Pitch 2)\n09:30 vs Oxley United (Pitch 4)");
+    expect(carnivalDescription(carnival({ games: [] }))).toBe("Bring a chair");
+    expect(carnivalDescription(carnival({ games: [], notes: "" }))).toBe("");
   });
 });
 
