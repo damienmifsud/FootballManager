@@ -193,7 +193,7 @@ describe("monthItems", () => {
     const kinds = new Set(items.map(i => i.kind));
     expect(kinds).toEqual(new Set(["game", "training", "birthday"]));
     expect(items.find(i => i.kind === "game").title).toBe("vs Wests");
-    expect(items.find(i => i.kind === "birthday").title).toContain("Sam turns 8");
+    expect(items.find(i => i.kind === "birthday").title).toBe("Sam turns 8"); // plain text, no emoji (S4)
     // July fixture is excluded
     expect(items.some(i => i.title === "vs Souths")).toBe(false);
     // sorted ascending by date+time
@@ -203,6 +203,11 @@ describe("monthItems", () => {
   it("excludes an expired guest's birthday", () => {
     const d = { fixtures: [], sessions: [], players: [{ id: "g", name: "Guest", dob: "2018-06-15", guest: true, untilISO: "2026-01-01" }] };
     expect(monthItems(d, 2026, 5)).toEqual([]);
+  });
+  it("uses the plain birthday title when the birth year is unknown", () => {
+    const d = { fixtures: [], sessions: [], players: [{ id: "p", name: "Sam", dob: "1900-06-15" }] };
+    expect(monthItems(d, 2026, 5)[0].title).toBe("Sam's birthday");
+    expect(upcomingItems(d, "2026-06-14", 7)[0].title).toBe("Sam's birthday");
   });
 });
 
@@ -216,7 +221,7 @@ describe("upcomingItems", () => {
     const items = upcomingItems(data, "2026-06-18", 7); // 18th–24th
     const titles = items.map(i => i.title);
     expect(titles).toContain("vs Wests");
-    expect(titles.some(t => t.includes("Sam turns 8"))).toBe(true);
+    expect(titles).toContain("Sam turns 8"); // plain text, no emoji (S4)
     expect(titles).toContain("Training");
     expect(titles).not.toContain("vs Far"); // outside the 7-day window
   });

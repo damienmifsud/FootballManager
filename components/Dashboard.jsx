@@ -550,34 +550,43 @@ const CSS = `
 .chrow input.tm{width:78px;text-align:center;font-family:'DM Mono';}
 .copybox{background:var(--soft);border-radius:12px;padding:12px;font-family:'DM Mono';font-size:12px;
   white-space:pre-wrap;line-height:1.7;margin-bottom:8px;color:var(--ink);}
-/* calendar */
-.calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
-.calhead .mname{font-family:'Anton';font-size:24px;line-height:1;}
-.calhead .yr{font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.12em;}
-.calnav{display:flex;gap:8px;}
-.calnav button{width:38px;height:38px;border-radius:12px;border:1px solid var(--line);background:#fafbfa;
-  display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink);}
-.calnav button:disabled{opacity:.3;cursor:default;}
-.grid7{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
-.dow{text-align:center;font-size:10px;font-weight:800;letter-spacing:.04em;color:var(--muted);text-transform:uppercase;padding-bottom:7px;}
-.daycell{aspect-ratio:1/1;border-radius:11px;display:flex;flex-direction:column;align-items:center;
-  padding-top:6px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink);background:transparent;border:1px solid transparent;}
-.daycell.blank{cursor:default;}
-.daycell.today{border-color:var(--pitch);}
-.daycell.sel{background:var(--pitch);color:#fff;border-color:var(--pitch);}
-.daycell .dots{display:flex;gap:3px;margin-top:4px;height:6px;}
-.cdot{width:6px;height:6px;border-radius:50%;}
-.cdot.game{background:var(--pitch);} .cdot.training{background:var(--amber);} .cdot.event{background:#2563a8;} .cdot.birthday{background:#d6409f;}
-.daycell.sel .cdot.game{background:var(--lime);} .daycell.sel .cdot.training{background:#ffd27a;} .daycell.sel .cdot.event{background:#9cc2f5;}
-.legend{display:flex;gap:16px;justify-content:center;margin-top:14px;font-size:11px;color:var(--muted);font-weight:600;}
-.legend span{display:flex;align-items:center;gap:6px;}
-.agenda-title{display:flex;align-items:center;gap:8px;margin:6px 2px 4px;}
-.agenda-title .disp{font-size:16px;}
-.agitem{display:flex;align-items:stretch;gap:11px;padding:12px 2px;border-bottom:1px solid var(--line);cursor:pointer;}
-.agitem:last-child{border-bottom:none;}
-.agbar{width:4px;border-radius:3px;flex-shrink:0;}
-.agbar.game{background:var(--pitch);} .agbar.training{background:var(--amber);} .agbar.event{background:#2563a8;} .agbar.birthday{background:#d6409f;}
-.agtime{width:50px;font-family:'DM Mono';font-size:12px;color:var(--muted);flex-shrink:0;padding-top:1px;}
+/* calendar (S4, Direction C): month grid card, list card, day sheet, subscribe card */
+.calgrid{padding:12px 12px 10px;}
+.cg-head{display:flex;align-items:center;justify-content:space-between;padding:0 2px 8px;}
+.cg-nav{width:36px;height:36px;border-radius:12px;border:none;background:var(--soft);color:var(--ink);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;flex-shrink:0;}
+.cg-nav:disabled{opacity:.3;cursor:default;}
+.cg-month{font-weight:800;font-size:15px;}
+.cg-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.06em;}
+.cg-cells{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:4px;}
+.cal-cell{height:54px;border:none;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  padding:0;cursor:pointer;background:transparent;color:var(--ink);font:inherit;}
+.cal-cell .n{font-size:13px;line-height:1;font-weight:500;}
+.cal-cell.today{background:var(--red-tint);color:var(--pitch);}
+.cal-cell.sel{background:var(--pitch);color:#fff;}
+.cal-cell.today .n,.cal-cell.sel .n{font-weight:800;}
+.cal-blank{height:54px;}
+.cal-crest{width:22px;height:22px;border-radius:50%;object-fit:cover;flex-shrink:0;}
+.cal-crest.ph{display:inline-flex;align-items:center;justify-content:center;background:var(--soft);font-size:8px;font-weight:800;color:var(--muted);}
+.cal-cell.sel .cal-crest.ph{background:rgba(255,255,255,.22);color:#fff;}
+.cal-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.cal-dot.training{background:var(--amber);} .cal-dot.birthday{background:var(--ev-birthday);} .cal-dot.event{background:var(--blue-strong);}
+.cg-legend{display:flex;gap:14px;padding:10px 4px 0;font-size:11px;color:var(--muted);font-weight:600;flex-wrap:wrap;}
+.cg-legend span{display:inline-flex;align-items:center;gap:5px;}
+.cg-legend img{width:14px;height:14px;border-radius:50%;object-fit:cover;}
+.callist .wk-empty{padding:16px 0 12px;font-size:14px;color:var(--muted);}
+.day-title{font-size:20px;font-weight:800;line-height:1.2;}
+.day-rows{margin-top:6px;}
+.day-rows .wk-row{padding:12px 0;}
+.day-rows .wk-ic{width:34px;height:34px;}
+.day-rows .wk-empty{padding:16px 0 4px;font-size:14px;color:var(--muted);}
+.subcard{padding:12px 16px 14px;}
+.sub-text{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.45;}
+.sub-btns{display:flex;gap:8px;margin-top:12px;}
+.sub-btns .softbtn{margin-top:0;flex:1;padding:11px 8px;font-size:13px;text-align:center;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;}
+.sub-fine{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.45;}
+.sub-links{display:flex;gap:16px;flex-wrap:wrap;}
+.sub-links .ghostlink{padding:8px 0 0;min-height:32px;display:inline-flex;align-items:center;gap:6px;}
 .kpill{font-size:9px;font-weight:800;padding:2px 6px;border-radius:5px;text-transform:uppercase;letter-spacing:.04em;}
 .kpill.game{background:#fdeaec;color:var(--pitch);} .kpill.training{background:#fff1da;color:#b3760a;} .kpill.event{background:#e6f0ff;color:#2563a8;} .kpill.birthday{background:#fde7f3;color:#d6409f;}
 .recur-line{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);margin-top:2px;}
@@ -816,6 +825,9 @@ export default function App() {
   const [viewer, setViewerState] = useState(() => readIdentity() || { kind: "guest" });
   const setViewer = (v) => { setViewerState(v); saveIdentity(v); };
   const [modal, setModal] = useState(null); // {type, payload}
+  // The month the Calendar tab shows (index within SEASON). Lives here so the
+  // root header's kicker can read it.
+  const [calMonth, setCalMonth] = useState(() => { const t = new Date(); return t.getFullYear() === SEASON ? t.getMonth() : 0; });
   // Server-side identity/role (account mode). undefined until /api/me has
   // answered; null in legacy team-code mode (or when the call failed); the
   // account payload otherwise. Nothing coach-shaped renders while undefined,
@@ -994,6 +1006,8 @@ export default function App() {
     : screen === "whosin" ? ["Who's in", screenFixture ? `${roundOf(screenFixture) ? roundOf(screenFixture) + " " : ""}vs ${screenFixture.opponent} · ${fmtDate(screenFixture.dateISO)}${screenFixture.time ? " " + screenFixture.time : ""}` : ""]
     : (SUB_TITLES[screen] || [screen, ""]);
   const chipLabel = account ? hatText : (isCoach ? "Coach" : "Parent");
+  // Root kicker: the shown month on Calendar, division · age group elsewhere.
+  const rootKicker = tab === "calendar" ? monthYearLabel(calMonth) : `${data.team.division} · ${data.team.ageGroup}`;
   // Everything the Viewing-as sheet needs from here.
   const hatSheet = {
     isAdmin, wear, strongestRoleOf, signOut: signOutEverywhere, toggleCoach,
@@ -1026,7 +1040,7 @@ export default function App() {
         )}
         <div className="hbody">
           <div className={"hname" + (isSub ? " sub" : "")}>{isSub ? subTitle[0] : data.team.name}</div>
-          {!condensed && <div className="hkick">{isSub ? subTitle[1] : `${data.team.division} · ${data.team.ageGroup}`}</div>}
+          {!condensed && <div className="hkick">{isSub ? subTitle[1] : rootKicker}</div>}
         </div>
         <button className="hatchip" aria-label="Viewing as" onClick={() => setModal({ type: "hats" })}>{chipLabel}</button>
       </header>
@@ -1040,7 +1054,7 @@ export default function App() {
         )}
 
         {screen === "home" && <HomeTab {...{ data, stats, next, setModal, viewer, me, isCoach, openMatch, onOpen: push, onTab: goTab }} />}
-        {screen === "calendar" && <CalendarTab {...{ data, isCoach, setModal, openMatch }} />}
+        {screen === "calendar" && <CalendarTab {...{ data, isCoach, viewer, me, setModal, openMatch, month: calMonth, setMonth: setCalMonth }} />}
         {screen === "results" && <ResultsTab {...{ data, stats, isCoach, setModal, openMatch, onOpen: push }} />}
         {screen === "match" && screenFixture && <MatchScreen {...{ data, f: screenFixture, persist, patchLocal, isCoach, viewer, me, setModal, onOpen: push, showToast }} />}
         {screen === "whosin" && screenFixture && <WhosInScreen {...{ data, f: screenFixture, isCoach, viewer, me, setModal, patchLocal }} />}
@@ -1071,7 +1085,7 @@ export default function App() {
           close={() => setModal(null)}
         />
       ) : modal ? (
-        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast }} />
+        <Modal {...{ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast, openMatch }} />
       ) : null}
     </div>
   );
@@ -1084,6 +1098,8 @@ const shortName = (name) => {
   return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : (parts[0] || "");
 };
 const monthLong = (d) => d.toLocaleDateString("en-AU", { month: "long" });
+// "June 2026" for the Calendar header kicker and grid head (month index within SEASON).
+const monthYearLabel = (month) => `${monthLong(new Date(SEASON, month, 1))} ${SEASON}`;
 // "SAT 13 JUNE" (uppercased by CSS) for the match-up centre.
 const matchDate = (iso) => { if (!iso) return "Date TBC"; const d = new Date(iso + "T00:00:00"); return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${monthLong(d)}`; };
 // "Thu, 18 June" for birthday rows.
@@ -1129,6 +1145,51 @@ const ownPlayers = (data, { isCoach, me, viewer }) => {
   const ids = isCoach ? [] : me ? (me.role === "parent" ? (me.playerIds || []) : []) : (viewer?.kind === "parent" && viewer.pid ? [viewer.pid] : []);
   return ids.map(id => data.players.find(p => p.id === id)).filter(Boolean);
 };
+
+// Status pill(s) for a game/training row: the parent's own children's replies,
+// or the team-wide tally for coaches and viewers (D5: training replies live at
+// session.availability[occurrence][playerId], the same shape as a fixture's).
+const pillsFor = (data, own, av, iso) => {
+  if (own.length === 0) { const c = replyCounts(data.players, av, iso); return [{ cls: "nr", label: `${c.in} in · ${c.nr} to reply` }]; }
+  return own.map(p => {
+    const st = av?.[p.id]?.status, first = firstName(p.name);
+    return st === "in" ? { cls: "in", label: `${first}'s in` } : st === "out" ? { cls: "out", label: `${first}'s out` }
+      : { cls: "nr", label: own.length > 1 ? `${first}: no reply` : "No reply" };
+  });
+};
+
+// One event row, shared by Home's Next 7 days, the Calendar list card and the
+// day sheet: 34px day column (DOW + Anton number), 32px icon square by kind,
+// title + meta, the reply pill(s), chevron. `it` is a monthItems/upcomingItems
+// entry; `onOpen` is the tap handler or null for a static row. `noDay` drops the
+// day column (the day sheet's title already names the day).
+function EventRow({ data, it, isCoach, own, onOpen, noDay = false }) {
+  const d = new Date(it.dateISO + "T00:00:00");
+  const isGame = it.kind === "game", isBday = it.kind === "birthday", isEvent = it.kind === "event";
+  const kind = isGame ? "game" : isBday ? "birthday" : isEvent ? "event" : "training";
+  const Ic = isGame ? Trophy : isBday ? Cake : isEvent ? Star : ClipboardList;
+  const cancelled = isGame && it.ref.status === "cancelled";
+  const place = isGame ? it.ref.venue : isBday ? "" : it.ref.location;
+  const age = isBday && it.ref.dob && parseInt(it.ref.dob.slice(0, 4), 10) > 1990 ? d.getFullYear() - parseInt(it.ref.dob.slice(0, 4), 10) : null;
+  const title = isBday ? (age ? `${shortName(it.ref.name)} turns ${age}` : `${shortName(it.ref.name)}'s birthday`) : it.title;
+  const meta = isBday ? "Birthday" : `${it.time || "Time TBC"}${place ? " · " + place : ""}`;
+  const av = isGame ? it.ref.availability : it.ref.availability?.[it.occ];
+  const pills = isBday ? [] : cancelled ? [{ cls: "out", label: "Cancelled" }] : pillsFor(data, own, av, it.dateISO);
+  const open = onOpen || null;
+  return (
+    <div className={"wk-row" + (open ? "" : " static")} role={open ? "button" : undefined} tabIndex={open ? 0 : undefined}
+      onClick={open || undefined} onKeyDown={open ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } : undefined}>
+      {!noDay && <div className="wk-day"><div className="wk-dow">{WEEKDAYS[d.getDay()]}</div><div className="wk-num">{d.getDate()}</div></div>}
+      <span className={"wk-ic " + kind}><Ic size={noDay ? 16 : 15} /></span>
+      <div className="wk-body">
+        <div className={"wk-title" + (cancelled ? " off" : "")}>{title}</div>
+        <div className="wk-meta">{meta}</div>
+      </div>
+      {pills.map((pl, i) => <span key={i} className={"wk-pill " + pl.cls}>{pl.label}</span>)}
+      <ChevronRight size={15} color="#9AA3A6" style={{ flexShrink: 0, visibility: open ? "visible" : "hidden" }} />
+    </div>
+  );
+}
 
 // One own-child reply row (S2): initials, short name, hint, Reply / In / Out pill.
 function ReplyRow({ p, status, onTap }) {
@@ -1185,16 +1246,8 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
   const oppCrest = next ? crestFor(next.opponent) : null;
   const nextCounts = next ? replyCounts(data.players, next.availability, next.dateISO) : null;
   const openReply = (p) => setModal({ type: "reply", payload: { fixture: next, playerId: p.id } });
-  // Status pill(s) for a game/training row: the parent's own children, or the
-  // team-wide tally for coaches and viewers.
-  const pillsFor = (av, iso) => {
-    if (own.length === 0) { const c = replyCounts(data.players, av, iso); return [{ cls: "nr", label: `${c.in} in · ${c.nr} to reply` }]; }
-    return own.map(p => {
-      const st = av?.[p.id]?.status, first = firstName(p.name);
-      return st === "in" ? { cls: "in", label: `${first}'s in` } : st === "out" ? { cls: "out", label: `${first}'s out` }
-        : { cls: "nr", label: own.length > 1 ? `${first}: no reply` : "No reply" };
-    });
-  };
+  // Row tap: game → Match detail, training/activity → session sheet, birthday → static here.
+  const openFor = (it) => it.kind === "birthday" ? null : it.kind === "game" ? () => openMatch(it.ref) : () => setModal({ type: "session", payload: it.ref, occ: it.occ });
   const miniRoos = isMiniRoos(data.team);
 
   return (
@@ -1259,33 +1312,7 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
           <button className="ghostlink" onClick={() => onTab("calendar")}>Calendar ›</button>
         </div>
         {week.length === 0 && <div className="note wk-empty">Nothing in the next 7 days. Enjoy the rest.</div>}
-        {week.map(it => {
-          const d = new Date(it.dateISO + "T00:00:00");
-          const isGame = it.kind === "game", isBday = it.kind === "birthday", isEvent = it.kind === "event";
-          const kind = isGame ? "game" : isBday ? "birthday" : isEvent ? "event" : "training";
-          const Ic = isGame ? Trophy : isBday ? Cake : isEvent ? Calendar : ClipboardList;
-          const cancelled = isGame && it.ref.status === "cancelled";
-          const place = isGame ? it.ref.venue : isBday ? "" : it.ref.location;
-          const age = isBday && it.ref.dob && parseInt(it.ref.dob.slice(0, 4), 10) > 1990 ? d.getFullYear() - parseInt(it.ref.dob.slice(0, 4), 10) : null;
-          const title = isBday ? (age ? `${shortName(it.ref.name)} turns ${age}` : `${shortName(it.ref.name)}'s birthday`) : it.title;
-          const meta = isBday ? "Birthday" : `${it.time || "Time TBC"}${place ? " · " + place : ""}`;
-          const av = isGame ? it.ref.availability : it.ref.availability?.[it.occ];
-          const pills = isBday ? [] : cancelled ? [{ cls: "out", label: "Cancelled" }] : pillsFor(av, it.dateISO);
-          const open = isBday ? null : isGame ? () => openMatch(it.ref) : () => setModal({ type: "session", payload: it.ref, occ: it.occ });
-          return (
-            <div key={it.key} className={"wk-row" + (open ? "" : " static")} role={open ? "button" : undefined} tabIndex={open ? 0 : undefined}
-              onClick={open || undefined} onKeyDown={open ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } : undefined}>
-              <div className="wk-day"><div className="wk-dow">{WEEKDAYS[d.getDay()]}</div><div className="wk-num">{d.getDate()}</div></div>
-              <span className={"wk-ic " + kind}><Ic size={15} /></span>
-              <div className="wk-body">
-                <div className={"wk-title" + (cancelled ? " off" : "")}>{title}</div>
-                <div className="wk-meta">{meta}</div>
-              </div>
-              {pills.map((pl, i) => <span key={i} className={"wk-pill " + pl.cls}>{pl.label}</span>)}
-              <ChevronRight size={15} color="#9AA3A6" style={{ flexShrink: 0, visibility: open ? "visible" : "hidden" }} />
-            </div>
-          );
-        })}
+        {week.map(it => <EventRow key={it.key} data={data} it={it} isCoach={isCoach} own={own} onOpen={openFor(it)} />)}
       </div>
 
       <div className="card season">
@@ -1356,11 +1383,12 @@ function ReplySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast,
   );
 }
 
-/* ---------------- CALENDAR ---------------- */
-// One-tap calendar subscription. The feed URL comes from the website's
-// /api/feedinfo endpoint; in environments without it (e.g. the chat artifact)
-// the card simply doesn't render.
-function SubscribeCard() {
+/* ---------------- CALENDAR (S4, Direction C) ---------------- */
+// Add to your calendar: one-tap subscription to the website's feed (Google /
+// Apple / Outlook soft buttons, copy link) plus the one-off .ics download. The
+// feed URL comes from /api/feedinfo; without it (e.g. the chat artifact) the
+// card keeps only the one-off download.
+function AddToCalendarCard({ data }) {
   const [feed, setFeed] = useState(null);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -1369,128 +1397,137 @@ function SubscribeCard() {
       .then(j => { if (j?.feedUrl) setFeed(j.feedUrl); })
       .catch(() => {});
   }, []);
-  if (!feed) return null;
-  const webcal = feed.replace(/^https?:/, "webcal:");
+  const webcal = feed ? feed.replace(/^https?:/, "webcal:") : null;
   const copy = () => { navigator.clipboard?.writeText(feed); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const download = () => downloadICS(`${data.team.name}-${SEASON}-season.ics`, seasonICS(data));
   return (
-    <div className="card">
-      <div className="label" style={{ marginBottom: 6 }}>Subscribe to the team calendar</div>
-      <div className="note" style={{ marginBottom: 10 }}>
-        Subscribe once and every game, training, birthday — and any schedule change — updates in your own calendar automatically. Better than importing: it stays in sync.
-      </div>
-      <div className="chips">
-        <a className="chip lnk" target="_blank" rel="noopener noreferrer"
-          href={"https://calendar.google.com/calendar/render?cid=" + encodeURIComponent(webcal)}>
-          <Calendar size={13} />Google Calendar
-        </a>
-        <a className="chip lnk" target="_blank" rel="noopener noreferrer"
-          href={"https://outlook.office.com/calendar/0/addfromweb?url=" + encodeURIComponent(feed) + "&name=" + encodeURIComponent("Team Calendar")}>
-          <Calendar size={13} />Outlook
-        </a>
-        <a className="chip lnk" href={webcal}><Calendar size={13} />Apple / other</a>
-        <button className="chip" onClick={copy}><Check size={13} />{copied ? "Copied!" : "Copy link"}</button>
-      </div>
-      <div className="note" style={{ marginTop: 8, fontSize: 11 }}>
-        Calendars refresh on their own schedule (typically a few hours). Treat the link as team-private.
-      </div>
+    <div className="card subcard">
+      <div className="label">Add to your calendar</div>
+      {feed ? (
+        <>
+          <div className="sub-text">Subscribe once and it stays in sync when a game moves — better than importing.</div>
+          <div className="sub-btns">
+            <a className="softbtn" target="_blank" rel="noopener noreferrer" href={"https://calendar.google.com/calendar/render?cid=" + encodeURIComponent(webcal)}>Google</a>
+            <a className="softbtn" href={webcal}>Apple</a>
+            <a className="softbtn" target="_blank" rel="noopener noreferrer"
+              href={"https://outlook.office.com/calendar/0/addfromweb?url=" + encodeURIComponent(feed) + "&name=" + encodeURIComponent("Team Calendar")}>Outlook</a>
+          </div>
+          <div className="sub-fine">Calendars refresh on their own schedule. Treat the link as team-private.</div>
+          <div className="sub-links">
+            <button className="ghostlink" onClick={copy}>{copied ? "Copied" : "Copy link"}</button>
+            <button className="ghostlink" onClick={download}>Download a one-off .ics instead</button>
+          </div>
+        </>
+      ) : (
+        <div className="sub-links">
+          <button className="ghostlink" onClick={download}><Download size={13} />Download a one-off .ics instead</button>
+        </div>
+      )}
     </div>
   );
 }
 
-function CalendarTab({ data, isCoach, setModal, openMatch }) {
+// What a day shows in the grid: the opponent's crest on a game day, else one
+// dot (birthday beats event beats training).
+const dayMarker = (evs) => {
+  const game = evs.find(e => e.kind === "game");
+  if (game) return { game };
+  const dot = evs.some(e => e.kind === "birthday") ? "birthday" : evs.some(e => e.kind === "event") ? "event" : evs.length ? "training" : null;
+  return { dot };
+};
+// Row tap on the Calendar tab and in the day sheet.
+const calOpenFor = (it, { openMatch, setModal }) => it.kind === "game"
+  ? () => openMatch(it.ref)
+  : it.kind === "birthday"
+    ? () => setModal({ type: "playerView", payload: it.ref })
+    : () => setModal({ type: "session", payload: it.ref, occ: it.occ });
+const monthISO = (month, d) => `${SEASON}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+
+function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, month, setMonth }) {
   const today = new Date();
+  const todayISO = isoLocal(today);
   const inSeason = today.getFullYear() === SEASON;
-  const [month, setMonth] = useState(inSeason ? today.getMonth() : 0);
-  const [selISO, setSelISO] = useState(inSeason ? isoLocal(today) : `${SEASON}-01-01`);
+  const [selISO, setSelISO] = useState(inSeason ? todayISO : `${SEASON}-01-01`);
+  const own = ownPlayers(data, { isCoach, me, viewer });
 
   const items = useMemo(() => monthItems(data, SEASON, month), [data, month]);
   const byDay = useMemo(() => {
     const m = {}; items.forEach(it => { (m[it.dateISO] = m[it.dateISO] || []).push(it); }); return m;
   }, [items]);
 
-  // build the month grid (Monday-first)
+  // Month grid, Monday-first: leading blanks, then one button per day.
   const first = new Date(SEASON, month, 1);
-  const lead = (first.getDay() + 6) % 7; // days before the 1st
+  const lead = (first.getDay() + 6) % 7;
   const daysInMonth = new Date(SEASON, month + 1, 0).getDate();
-  const cells = [];
-  for (let i = 0; i < lead; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
+  const monthName = monthLong(first);
+  const isThisMonth = inSeason && today.getMonth() === month;
+  const listItems = isThisMonth ? items.filter(it => it.dateISO >= todayISO) : items;
+  const hasEvent = items.some(it => it.kind === "event");
 
-  const monthName = first.toLocaleDateString("en-AU", { month: "long" });
-  const todayISO = isoLocal(today);
-  const selItems = (byDay[selISO] || []);
-
-  const open = (it) => it.kind === "game"
-    ? openMatch(it.ref)
-    : it.kind === "birthday"
-      ? setModal({ type: "playerView", payload: it.ref })
-      : setModal({ type: "session", payload: it.ref, occ: it.occ });
+  const tapDay = (iso) => {
+    setSelISO(iso);
+    if ((byDay[iso] || []).length) setModal({ type: "day", payload: { iso } });
+  };
 
   return (
     <>
-      {isCoach && <button className="addfab" onClick={() => setModal({ type: "sessionEdit", payload: null })}><Plus size={17} />Add training / activity</button>}
-
-      <div className="card">
-        <div className="calhead">
-          <div><div className="mname">{monthName}</div><div className="yr">{SEASON} Season</div></div>
-          <div className="calnav">
-            <button disabled={month === 0} onClick={() => setMonth(m => Math.max(0, m - 1))}><ChevronLeft size={18} /></button>
-            <button disabled={month === 11} onClick={() => setMonth(m => Math.min(11, m + 1))}><ChevronRight size={18} /></button>
-          </div>
+      <div className="card calgrid">
+        <div className="cg-head">
+          <button className="cg-nav" aria-label="Previous month" disabled={month === 0} onClick={() => setMonth(Math.max(0, month - 1))}><ChevronLeft size={16} strokeWidth={2.2} /></button>
+          <span className="cg-month">{monthYearLabel(month)}</span>
+          <button className="cg-nav" aria-label="Next month" disabled={month === 11} onClick={() => setMonth(Math.min(11, month + 1))}><ChevronRight size={16} strokeWidth={2.2} /></button>
         </div>
-
-        <div className="grid7">
-          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => <div className="dow" key={d}>{d[0]}</div>)}
-          {cells.map((d, i) => {
-            if (d == null) return <div className="daycell blank" key={i} />;
-            const iso = `${SEASON}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-            const evs = byDay[iso] || [];
-            const cls = "daycell" + (iso === selISO ? " sel" : iso === todayISO ? " today" : "");
-            const kinds = [...new Set(evs.map(e => e.kind))].slice(0, 3);
+        <div className="cg-dow">{["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <span key={i}>{d}</span>)}</div>
+        <div className="cg-cells">
+          {Array.from({ length: lead }, (_, i) => <span className="cal-blank" key={"b" + i} />)}
+          {Array.from({ length: daysInMonth }, (_, i) => {
+            const d = i + 1, iso = monthISO(month, d), evs = byDay[iso] || [];
+            const { game, dot } = dayMarker(evs);
+            const cls = "cal-cell" + (iso === selISO ? " sel" : iso === todayISO ? " today" : "");
             return (
-              <div className={cls} key={i} onClick={() => setSelISO(iso)}>
-                {d}
-                <div className="dots">{kinds.map(k => <span key={k} className={"cdot " + k} />)}</div>
-              </div>
+              <button key={iso} className={cls} onClick={() => tapDay(iso)} aria-label={`${d} ${monthName}`}>
+                <span className="n">{d}</span>
+                {game && <Crest src={crestFor(game.ref.opponent)} name={game.ref.opponent} className="cal-crest" discClass="cal-crest ph" />}
+                {!game && dot && <span className={"cal-dot " + dot} />}
+              </button>
             );
           })}
         </div>
-
-        <div className="legend">
-          <span><span className="cdot game" />Game</span>
-          <span><span className="cdot training" />Training</span>
-          <span><span className="cdot event" />Event</span>
-          <span><span className="cdot birthday" />Birthday</span>
+        <div className="cg-legend">
+          <span><img src={OUR_CREST} alt="" />Game</span>
+          <span><span className="cal-dot training" />Training</span>
+          <span><span className="cal-dot birthday" />Birthday</span>
+          {hasEvent && <span><span className="cal-dot event" />Event</span>}
         </div>
       </div>
 
-      <SubscribeCard />
-
-      <button className="btn ghost" style={{ marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
-        onClick={() => downloadICS(`${data.team.name}-${SEASON}-season.ics`, seasonICS(data))}>
-        <Download size={16} />One-off download (.ics) instead
-      </button>
-
-      <div className="agenda-title">
-        <Calendar size={16} color="var(--pitch)" />
-        <div className="disp">{fmtDate(selISO)}</div>
+      <div className="card week callist">
+        <div className="wk-head">
+          <span className="label">{isThisMonth ? `Coming up in ${monthName}` : monthName}</span>
+          {isCoach && <button className="ghostlink" onClick={() => setModal({ type: "sessionEdit", payload: null })}>Add training / activity</button>}
+        </div>
+        {listItems.length === 0 && <div className="wk-empty">Nothing scheduled in {monthName}.</div>}
+        {listItems.map(it => <EventRow key={it.key} data={data} it={it} isCoach={isCoach} own={own} onOpen={calOpenFor(it, { openMatch, setModal })} />)}
       </div>
-      <div className="card" style={{ padding: "4px 14px" }}>
-        {selItems.length === 0
-          ? <div className="empty" style={{ padding: "26px 10px" }}><div className="note">Nothing scheduled this day.</div></div>
-          : selItems.map(it => (
-            <div className="agitem" key={it.key} onClick={() => open(it)}>
-              <div className={"agbar " + it.kind} />
-              <div className="agtime">{it.time || "—"}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{it.title}</div>
-                <div className="ven" style={{ marginTop: 2 }}><MapPin size={11} />{it.ref.venue || it.ref.location || "—"}</div>
-              </div>
-              <span className={"kpill " + it.kind}>{it.kind === "game" ? "Game" : it.kind === "training" ? "Train" : it.kind === "birthday" ? "🎂" : "Event"}</span>
-              <ChevronRight size={16} color="var(--muted)" style={{ alignSelf: "center" }} />
-            </div>
-          ))}
+
+      <AddToCalendarCard data={data} />
+    </>
+  );
+}
+
+// Day sheet (modal type "day"): "Thursday 18 June", then that day's rows.
+// Tapping a row closes the sheet and opens the item as the list card does.
+function DaySheet({ data, iso, isCoach, viewer, me, setModal, openMatch, close }) {
+  const d = new Date(iso + "T00:00:00");
+  const own = ownPlayers(data, { isCoach, me, viewer });
+  const items = monthItems(data, d.getFullYear(), d.getMonth()).filter(it => it.dateISO === iso);
+  const openThen = (it) => { const fn = calOpenFor(it, { openMatch, setModal }); return () => { close(); fn(); }; };
+  return (
+    <>
+      <div className="day-title">{FULLDAYS[d.getDay()]} {d.getDate()} {monthLong(d)}</div>
+      <div className="day-rows">
+        {items.length === 0 && <div className="wk-empty">Nothing on this day. Enjoy the rest.</div>}
+        {items.map(it => <EventRow key={it.key} data={data} it={it} isCoach={isCoach} own={own} onOpen={openThen(it)} noDay />)}
       </div>
     </>
   );
@@ -2334,7 +2371,7 @@ function LineupRulesCard({ team, patchLocal }) {
 /* ============================================================
    MODALS
 ============================================================ */
-function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast }) {
+function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach, viewer, setViewer, me, hatSheet, showToast, openMatch }) {
   const close = () => setModal(null);
   return (
     <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) close(); }}>
@@ -2345,6 +2382,7 @@ function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach
         {modal.type === "signin" && !me && <SignInSheet {...{ data, viewer, setViewer, close }} />}
         {modal.type === "fixture" && <FixtureSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "reply" && <ReplySheet {...{ data, payload: modal.payload, isCoach, viewer, me, patchLocal, showToast, close }} />}
+        {modal.type === "day" && <DaySheet {...{ data, iso: modal.payload?.iso, isCoach, viewer, me, setModal, openMatch, close }} />}
         {modal.type === "session" && <SessionSheet {...{ data, persist, payload: modal.payload, occ: modal.occ, isCoach, viewer, me, setModal, close }} />}
         {modal.type === "sessionEdit" && <SessionEditSheet {...{ data, persist, payload: modal.payload, close }} />}
         {modal.type === "player" && <PlayerSheet {...{ data, persist, payload: modal.payload, me, close }} />}
