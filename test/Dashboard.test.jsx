@@ -157,7 +157,7 @@ describe("App — account-mode roles (/api/me)", () => {
     { id: "p3", name: "Milo Park", number: 9, position: "DEF" }
   ];
   const openMatch = async () => {
-    fireEvent.click(await screen.findByText("Who's playing?"));
+    fireEvent.click(await screen.findByText("Details"));
     await screen.findByText("Who's playing? Tap your player");
   };
   const clearCookies = () => document.cookie.split(";").forEach((c) => {
@@ -469,7 +469,7 @@ describe("App — RSVP toggle (match modal)", () => {
     await enterCoachMode(); // coach can mark anyone
 
     // Open the match modal from the Home "Who's playing?" card.
-    fireEvent.click(screen.getByText("Who's playing?"));
+    fireEvent.click(screen.getByText("Details"));
     const inBtn = await screen.findByRole("button", { name: "In" });
     fireEvent.click(inBtn);
 
@@ -1174,7 +1174,7 @@ describe("S1 shell — header, nav, back stack, toast", () => {
     expect(document.querySelector(".head img.hcrest")).toBeNull();
     expect(activeNav()).toBe("Home"); // the root stays lit under a pushed screen
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    expect(await screen.findByText("Who's playing?")).toBeTruthy();
+    expect(await screen.findByText("Details")).toBeTruthy(); // the Next game card is back
     expect(headerTitle()).toBe("Test FC");
     expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
   });
@@ -1234,8 +1234,231 @@ describe("S1 shell — header, nav, back stack, toast", () => {
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await waitForLoaded();
-    fireEvent.click(screen.getByText("Who's playing?"));
+    fireEvent.click(screen.getByText("Details"));
     await screen.findByText("Who's playing? Tap your player");
     expect(document.querySelector(".sheet > .grab")).toBeTruthy();
+  });
+});
+
+describe("S2 Home — Direction C cards", () => {
+  // Account mode with a working /api/rsvp (rsvpOk=false makes the route refuse).
+  const meFetch = (me, rsvpOk = true) => {
+    fetch.mockImplementation((url) => {
+      if (String(url).includes("/api/me")) return Promise.resolve({ ok: true, json: async () => me });
+      if (String(url).includes("/api/rsvp")) return Promise.resolve({ ok: rsvpOk, json: async () => ({ ok: rsvpOk }) });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+  };
+  const account = (role, playerIds = [], playerNames = [], extra = {}) => {
+    const hat = { role, playerIds, playerNames, ...extra };
+    return {
+      mode: "account", email: "x@a.com", admin: false, clubAdmin: false, teamSlug: "a", teamName: "Test FC", role, playerIds, playerNames,
+      hats: [hat], teams: [{ teamSlug: "a", teamName: "Test FC", hats: [hat] }], canSwitch: false, memberships: [], ...extra
+    };
+  };
+  const kids = [
+    { id: "p1", name: "Sam Smith", number: 7, position: "FWD" },
+    { id: "p2", name: "Alex Smith", number: 8, position: "MID" },
+    { id: "p3", name: "Milo Park", number: 9, position: "DEF" }
+  ];
+  const game = (over = {}) => ({ id: "f1", round: 7, status: "upcoming", dateISO: daysFromNow(7), time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park", availability: {}, ...over });
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); render(<App />); return waitForLoaded(); };
+  const sheet = () => within(document.querySelector(".sheet"));
+  const weekday = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-AU", { weekday: "long" });
+  const rsvpBodies = () => fetch.mock.calls.filter((c) => String(c[0]).includes("/api/rsvp")).map((c) => JSON.parse(c[1].body));
+  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  it("next game: label, countdown, our ringed crest and an initials disc for an opponent without artwork", async () => {
+    await load(makeData({ fixtures: [game()] }));
+    expect(screen.getByText("Next game · Round 7 · Home")).toBeTruthy();
+    expect(document.querySelector(".ng-cd").textContent).toMatch(/^\d+d \d+h$/);
+    expect(document.querySelector(".mu-crest.ours").getAttribute("src")).toBe("/crests/olympic-fc.png");
+    expect(document.querySelector(".mu-disc").textContent).toBe("W");
+    expect(document.querySelector(".mu-time").textContent).toBe("09:00");
+    const d = new Date(daysFromNow(7) + "T00:00:00");
+    expect(document.querySelector(".mu-date").textContent).toBe(`${DOW[d.getDay()]} ${d.getDate()} ${d.toLocaleDateString("en-AU", { month: "long" })}`);
+    expect(screen.getByText("Perry Park")).toBeTruthy();
+    fireEvent.click(screen.getByText("Details"));
+    await screen.findByText("Who's playing? Tap your player");
+  });
+
+  it("an opponent in the crest registry gets its crest on the right, without the ring", async () => {
+    await load(makeData({ fixtures: [game({ opponent: "Oxley United U8 Eagles", homeAway: "A" })] }));
+    expect(screen.getByText("Next game · Round 7 · Away")).toBeTruthy();
+    const imgs = document.querySelectorAll(".mu-crest");
+    expect(imgs.length).toBe(2);
+    expect(imgs[0].classList.contains("ours")).toBe(true);
+    expect(imgs[1].getAttribute("src")).toBe("/crests/oxley-united.png");
+    expect(imgs[1].classList.contains("ours")).toBe(false);
+    expect(document.querySelector(".mu-disc")).toBeNull();
+  });
+
+  it("a parent gets one reply row per own child; In posts /api/rsvp, toasts, flips the row to the In pill; In again clears", async () => {
+    meFetch(account("parent", ["p1", "p2"], ["Sam Smith", "Alex Smith"]));
+    await load(makeData({ players: kids, fixtures: [game()] }));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Reply" }).length).toBe(2));
+    expect(screen.getByText("Reply for Sam", { selector: ".rr-hint" })).toBeTruthy();
+    expect(screen.getByText("Alex S.")).toBeTruthy();
+    expect(screen.queryByText("Milo P.")).toBeNull(); // not this parent's child
+    expect(screen.queryByText("Who's in ›")).toBeNull();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Reply" })[0]);
+    expect(await screen.findByText("Reply for Sam", { selector: ".rs-title" })).toBeTruthy();
+    expect(sheet().getByText(/vs Wests · .* · 09:00/)).toBeTruthy();
+    expect(sheet().getByText(/Coach Byron sees replies straight away/)).toBeTruthy();
+    fireEvent.click(sheet().getByRole("button", { name: "In" }));
+
+    expect(await screen.findByText(`Sam's in for ${weekday(daysFromNow(7))}`)).toBeTruthy();
+    await waitFor(() => expect(rsvpBodies()[0]).toEqual({ kind: "game", id: "f1", playerId: "p1", status: "in" }));
+    expect(document.querySelector(".sheet")).toBeNull(); // the sheet closes on reply
+    const row = screen.getByText("Sam S.").closest(".replyrow");
+    expect(within(row).getByRole("button", { name: "In" }).classList.contains("in")).toBe(true);
+    expect(within(row).getByText("Tap to change")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Reply" }).length).toBe(1); // Alex still to reply
+
+    // Reopen from the pill: In is selected; tapping it again clears the reply.
+    fireEvent.click(within(row).getByRole("button", { name: "In" }));
+    const inBtn = await sheet().findByRole("button", { name: "In" });
+    expect(inBtn.classList.contains("sel")).toBe(true);
+    fireEvent.click(inBtn);
+    expect(await screen.findByText("Sam's reply cleared")).toBeTruthy();
+    await waitFor(() => expect(rsvpBodies()[1]).toEqual({ kind: "game", id: "f1", playerId: "p1", status: null }));
+    expect(screen.getAllByRole("button", { name: "Reply" }).length).toBe(2);
+  });
+
+  it("Out sends the note as the reason and shows the Out pill; a refused write reverts the row", async () => {
+    meFetch(account("parent", ["p1"], ["Sam Smith"]));
+    await load(makeData({ fixtures: [game()] }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reply" }));
+    fireEvent.change(await sheet().findByPlaceholderText("Add a note for coach (optional)"), { target: { value: "Grandma's 80th" } });
+    fireEvent.click(sheet().getByRole("button", { name: "Out" }));
+    expect(await screen.findByText(`Sam's out for ${weekday(daysFromNow(7))}`)).toBeTruthy();
+    await waitFor(() => expect(rsvpBodies()[0]).toEqual({ kind: "game", id: "f1", playerId: "p1", status: "out", reason: "Grandma's 80th" }));
+    expect(screen.getByRole("button", { name: "Out" }).classList.contains("out")).toBe(true);
+
+    // Now the route refuses: the optimistic Out is undone and the row goes back to Reply.
+    meFetch(account("parent", ["p1"], ["Sam Smith"]), false);
+    fireEvent.click(screen.getByRole("button", { name: "Out" }));
+    fireEvent.click(await sheet().findByRole("button", { name: "In" }));
+    expect(await screen.findByText("Couldn't save Sam's reply — try again.")).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Out" })).toBeTruthy()); // back to the last saved reply
+    expect(rsvpBodies()[1]).toEqual({ kind: "game", id: "f1", playerId: "p1", status: "in" });
+  });
+
+  it("a coach sees the counts pills and Who's in ›; the week row carries the tally", async () => {
+    await load(makeData({ players: kids, fixtures: [game({ dateISO: daysFromNow(5), availability: { p1: { status: "in" }, p2: { status: "out" } } })] }));
+    await enterCoachMode();
+    expect(screen.getByText("1 in")).toBeTruthy();
+    expect(screen.getByText("1 out")).toBeTruthy();
+    expect(screen.getByText("1 no reply")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+    expect(screen.getByText("1 in · 1 to reply", { selector: ".wk-pill" })).toBeTruthy();
+    fireEvent.click(screen.getByText("Who's in ›"));
+    await screen.findByText("Who's playing? Tap your player");
+  });
+
+  it("a view-only account gets the counts only — no Reply, no Who's in", async () => {
+    meFetch(account("viewer", [], [], { clubAdmin: true }));
+    await load(makeData({ fixtures: [game()] }));
+    await expectChip("Club admin (view only)");
+    expect(screen.getByText("0 in")).toBeTruthy();
+    expect(screen.getByText("1 no reply")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+    expect(screen.queryByText("Who's in ›")).toBeNull();
+  });
+
+  it("duties card: player names for assigned slots, 'Not assigned yet' otherwise; tapping pushes Duties", async () => {
+    await load(makeData({ players: kids, fixtures: [game({ fruit: "p1" })] }));
+    const card = screen.getByRole("button", { name: "Duties" });
+    expect(within(card).getByText("Fruit duty")).toBeTruthy();
+    expect(within(card).getByText("Sam Smith")).toBeTruthy();
+    expect(within(card).getByText("In goal")).toBeTruthy();
+    expect(within(card).getByText("Not assigned yet")).toBeTruthy();
+    expect(within(card).queryByText("—")).toBeNull();
+    fireEvent.click(card);
+    expect(await screen.findByText("Roster")).toBeTruthy();
+    expect(headerTitle()).toBe("Duties");
+  });
+
+  it("next 7 days lists training and the game with the parent's pills; the training row opens the session sheet", async () => {
+    const trainISO = daysFromNow(2);
+    const session = {
+      id: "s1", title: "Training", kind: "training", recur: "weekly", weekday: new Date(trainISO + "T00:00:00").getDay(),
+      startISO: daysFromNow(-30), untilISO: daysFromNow(60), time: "16:30", location: "JF O'Grady",
+      availability: { [trainISO]: { p1: { status: "out", reason: "Sick" } } }
+    };
+    meFetch(account("parent", ["p1"], ["Sam Smith"]));
+    await load(makeData({ players: kids, fixtures: [game({ dateISO: daysFromNow(5), availability: { p1: { status: "in" } } })], sessions: [session] }));
+    await screen.findByText("Sam's in", { selector: ".wk-pill" });
+    const rows = document.querySelectorAll(".wk-row");
+    expect(rows.length).toBe(2);
+    const td = new Date(trainISO + "T00:00:00");
+    expect(rows[0].querySelector(".wk-dow").textContent).toBe(DOW[td.getDay()]);
+    expect(rows[0].querySelector(".wk-num").textContent).toBe(String(td.getDate()));
+    expect(rows[0].querySelector(".wk-ic").classList.contains("training")).toBe(true);
+    expect(within(rows[0]).getByText("Training")).toBeTruthy();
+    expect(within(rows[0]).getByText("16:30 · JF O'Grady")).toBeTruthy();
+    expect(within(rows[0]).getByText("Sam's out").classList.contains("out")).toBe(true);
+    expect(rows[1].querySelector(".wk-ic").classList.contains("game")).toBe(true);
+    expect(within(rows[1]).getByText("vs Wests")).toBeTruthy();
+    expect(within(rows[1]).getByText("09:00 · Perry Park")).toBeTruthy();
+    expect(within(rows[1]).getByText("Sam's in").classList.contains("in")).toBe(true);
+    fireEvent.click(rows[0]);
+    expect(await screen.findByText("Training", { selector: ".sheet h2" })).toBeTruthy();
+  });
+
+  it("a parent who hasn't replied sees 'No reply' on the game row; Calendar › switches tab", async () => {
+    meFetch(account("parent", ["p1"], ["Sam Smith"]));
+    await load(makeData({ fixtures: [game({ dateISO: daysFromNow(3) })] }));
+    expect(await screen.findByText("No reply", { selector: ".wk-pill" })).toBeTruthy();
+    fireEvent.click(screen.getByText("Calendar ›"));
+    expect(document.querySelector(".nav button.active").textContent).toBe("Calendar");
+  });
+
+  it("season so far: tiles, form pips and for/against from played fixtures, with the MiniRoos footnote at U8", async () => {
+    await load(makeData({ fixtures: [
+      game(),
+      { id: "f5", round: 5, status: "played", dateISO: daysFromNow(-14), time: "09:00", opponent: "Rovers", homeAway: "A", venue: "X", us: 1, them: 1 },
+      { id: "f6", round: 6, status: "played", dateISO: daysFromNow(-7), time: "09:00", opponent: "United", homeAway: "H", venue: "X", us: 3, them: 1 }
+    ] }));
+    expect([...document.querySelectorAll(".tile")].map((t) => t.textContent)).toEqual(["2Played", "1Won", "1Drawn", "4Pts"]);
+    expect(document.querySelector(".tile.pts .v").textContent).toBe("4");
+    expect([...document.querySelectorAll(".pip")].map((p) => p.textContent + ":" + p.className)).toEqual(["D:pip D", "W:pip W"]);
+    expect(screen.getByText("4 for · 2 against")).toBeTruthy();
+    expect(screen.getByText("MiniRoos doesn't publish ladders at U8 — these are just our own numbers.")).toBeTruthy();
+    expect(screen.getByText("All stats ›")).toBeTruthy(); // the push itself is covered by the S1 shell tests
+  });
+
+  it("no ladder footnote outside MiniRoos ages", async () => {
+    const data = makeData({ fixtures: [game()] });
+    data.team.ageGroup = "U12";
+    await load(data);
+    expect(screen.queryByText(/MiniRoos doesn't publish ladders/)).toBeNull();
+    expect(screen.getByText("0 for · 0 against")).toBeTruthy();
+  });
+
+  it("birthdays coming up from a dob within the week, and the same birthday on the Next 7 days list", async () => {
+    const iso = daysFromNow(3);
+    const y = +iso.slice(0, 4);
+    await load(makeData({ players: [{ id: "p1", name: "Sam Smith", number: 7, position: "FWD", dob: `${y - 8}${iso.slice(4)}` }], fixtures: [] }));
+    expect(screen.getByText("Birthdays coming up")).toBeTruthy();
+    expect(screen.getAllByText("Sam S. turns 8").length).toBe(2); // card row + week row
+    const d = new Date(iso + "T00:00:00");
+    expect(screen.getByText(`${DOW[d.getDay()]}, ${d.getDate()} ${d.toLocaleDateString("en-AU", { month: "long" })}`)).toBeTruthy();
+    expect(screen.getByText("Birthday", { selector: ".wk-meta" })).toBeTruthy();
+    expect(document.querySelector(".wk-row .wk-ic").classList.contains("birthday")).toBe(true);
+    expect(document.querySelector(".wk-pill")).toBeNull(); // birthdays carry no status pill
+    expect(document.body.textContent).not.toMatch(/🎂/);
+  });
+
+  it("an empty club shows the empty next-game card and nothing else it can't back up", async () => {
+    await load(makeData({ fixtures: [] }));
+    expect(screen.getByText("No upcoming match")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Duties" })).toBeNull();
+    expect(screen.queryByText("Birthdays coming up")).toBeNull();
+    expect(screen.getByText("Nothing in the next 7 days. Enjoy the rest.")).toBeTruthy();
+    expect(screen.getByText("Season so far")).toBeTruthy();
+    fireEvent.click(screen.getByText("Duties ›"));
+    expect(await screen.findByText("Roster")).toBeTruthy();
   });
 });
