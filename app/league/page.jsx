@@ -99,7 +99,7 @@ export default function LeaguePage() {
           setLoadError("No team linked to your account. Ask your coach to add you to the team.");
           return;
         }
-        if (r.status === 409) { location.href = "/"; return; } // several teams, none chosen: the picker
+        if (r.status === 409) { location.href = "/"; return; } // several teams, none chosen: on to My teams
         if (!r.ok) { setLoadError(await errorText(r, "Could not load the team.")); return; }
         const d = await r.json();
         if (!d) return;

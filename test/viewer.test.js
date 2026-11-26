@@ -92,6 +92,36 @@ describe("account mode — team selection", () => {
     expect(teamBySlug).not.toHaveBeenCalled();
   });
 
+  it("a super admin with one team of their own among many they can only open: theirs without a cookie, any of them with one", async () => {
+    const OWNER = [
+      { teamSlug: "a", teamName: "Team A", role: "coach", admin: true, club: true },
+      { teamSlug: "b", teamName: "Team B", role: "coach", admin: true, club: true },
+      { teamSlug: "b", teamName: "Team B", role: "parent", playerId: "p1", playerName: "Sam" },
+      { teamSlug: "c", teamName: "Team C", role: "coach", admin: true, club: true }
+    ];
+    const { resolveViewer } = await load({ authOn: true });
+    auth.mockResolvedValue({ user: { email: "owner@example.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships: OWNER });
+    const own = await resolveViewer(fakeRequest());
+    expect(own).toMatchObject({ mode: "account", team: { slug: "b" }, hat: { role: "coach", admin: true, club: true } });
+    // Opened from club admin: the cookie names a team they hold no role on.
+    const opened = await resolveViewer(fakeRequest({ cookies: { team_slug: "c" } }));
+    expect(opened).toMatchObject({ team: { slug: "c" }, hat: { role: "coach", admin: true, club: true } });
+  });
+
+  it("a club admin on no team themselves is asked to pick, and reads a team they open as view only", async () => {
+    const CLUB = [
+      { teamSlug: "a", teamName: "Team A", role: "viewer", clubAdmin: true, club: true },
+      { teamSlug: "b", teamName: "Team B", role: "viewer", clubAdmin: true, club: true }
+    ];
+    const { resolveViewer, PICK_TEAM_MESSAGE } = await load({ authOn: true });
+    auth.mockResolvedValue({ user: { email: "td@example.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships: CLUB });
+    expect(await resolveViewer(fakeRequest())).toEqual({ error: 409, message: PICK_TEAM_MESSAGE });
+    const opened = await resolveViewer(fakeRequest({ cookies: { team_slug: "b", act_as: "coach" } }));
+    expect(opened).toMatchObject({ team: { slug: "b" }, hat: { role: "viewer", clubAdmin: true } });
+  });
+
   it("401s when the memberships give no recognised hat on the chosen team", async () => {
     auth.mockResolvedValue({ user: { email: "odd@a.com" } });
     membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", teamName: "Team A", role: "mystery" }] });

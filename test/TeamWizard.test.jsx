@@ -94,10 +94,13 @@ describe("TeamWizard — the team list", () => {
     expect(u8.getByRole("button", { name: "Copy the calendar link for Olympic FC U8 White" }).textContent).toBe("Calendar link copied");
   });
 
-  it("Open selects the team (team_slug cookie) before heading to the dashboard", async () => {
+  it("Open selects the team (team_slug cookie) before heading to the dashboard, in the strongest role held there", async () => {
+    // A role last worn on some other team must not follow them in.
+    document.cookie = "act_as=parent; path=/";
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Olympic FC U8 White" }));
     expect(document.cookie).toContain("team_slug=u8-white");
+    expect(document.cookie).not.toContain("act_as=");
   });
 
   it("an empty club says so and offers the first team", async () => {

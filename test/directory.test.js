@@ -141,6 +141,63 @@ describe("membershipsForEmail", () => {
   });
 });
 
+describe("personal or club-level", () => {
+  beforeEach(() => { process.env.TEAMS = TWO_TEAMS; });
+  const flagsBySlug = (memberships) => memberships.map((m) => [m.teamSlug, m.role, !!m.club]);
+
+  it("a super admin's access to a team they hold no role on is club-level", async () => {
+    process.env.ADMIN_EMAILS = "owner@example.com";
+    withRosters({ a: { players: [] }, b: { players: [] } });
+    const { membershipsForEmail } = await loadDir();
+    const { memberships } = await membershipsForEmail("owner@example.com");
+    expect(flagsBySlug(memberships)).toEqual([["a", "coach", true], ["b", "coach", true]]);
+    expect(memberships.every((m) => m.admin === true)).toBe(true);
+  });
+
+  it("a super admin in a team's coachEmails, or on its staff, holds that coach role personally", async () => {
+    process.env.ADMIN_EMAILS = "coach@a.com"; // listed in Team A's coachEmails
+    withRosters({ a: { players: [] }, b: { players: [], team: { staff: [{ role: "Assistant coach", name: "Sam", email: "Coach@A.com" }] } } });
+    const { membershipsForEmail } = await loadDir();
+    const { memberships } = await membershipsForEmail("coach@a.com");
+    expect(memberships).toEqual([
+      { teamSlug: "a", teamName: "Team A", role: "coach", admin: true },
+      { teamSlug: "b", teamName: "Team B", role: "coach", staffRole: "Assistant coach", admin: true }
+    ]);
+  });
+
+  it("a super admin whose child plays in a team is its parent personally, with club-level coach access beside it", async () => {
+    process.env.ADMIN_EMAILS = "owner@example.com";
+    withRosters({ a: { players: [{ id: "p1", name: "Sam", parentEmails: ["owner@example.com"] }] }, b: { players: [] } });
+    const { membershipsForEmail } = await loadDir();
+    const { memberships } = await membershipsForEmail("owner@example.com");
+    expect(flagsBySlug(memberships)).toEqual([["a", "coach", true], ["a", "parent", false], ["b", "coach", true]]);
+  });
+
+  it("a club admin's default view of a team is club-level; a role given by override is their own", async () => {
+    process.env.CLUB_ADMIN_EMAILS = "td@example.com";
+    withRosters({ a: { players: [] }, b: { players: [] } });
+    let { membershipsForEmail } = await loadDir();
+    expect(flagsBySlug((await membershipsForEmail("td@example.com")).memberships)).toEqual([["a", "viewer", true], ["b", "viewer", true]]);
+    getClubAccess.mockResolvedValue({ overrides: { "td@example.com": { a: "viewer", b: "coach" } } });
+    ({ membershipsForEmail } = await loadDir());
+    expect(flagsBySlug((await membershipsForEmail("td@example.com")).memberships)).toEqual([["a", "viewer", false], ["b", "coach", false]]);
+  });
+
+  it("nobody else ever gets the flag: coaches, staff, parents and overridden roles are personal", async () => {
+    withRosters({
+      a: { players: [{ id: "p1", name: "Sam", parentEmails: ["mum@example.com"] }], team: { staff: [{ role: "Manager", name: "Kim", email: "kim@example.com" }] } },
+      b: { players: [] }
+    });
+    getClubAccess.mockResolvedValue({ overrides: { "aunt@example.com": { b: "viewer" }, "helper@example.com": { b: "coach" } } });
+    const { membershipsForEmail } = await loadDir();
+    for (const email of ["coach@a.com", "kim@example.com", "mum@example.com", "aunt@example.com", "helper@example.com"]) {
+      const { memberships } = await membershipsForEmail(email);
+      expect(memberships.length, email).toBeGreaterThan(0);
+      expect(memberships.some((m) => "club" in m), email).toBe(false);
+    }
+  });
+});
+
 describe("club admins (view-only everywhere)", () => {
   beforeEach(() => {
     process.env.TEAMS = TWO_TEAMS;

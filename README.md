@@ -187,14 +187,16 @@ Roles exist only in account mode. They are resolved from the signed-in email in
 `lib/directory.js`, from most to least access:
 
 - **Super admin** — the emails in `ADMIN_EMAILS` (comma-separated, no quotes). A super
-  admin is a coach on every team, including teams added later, and is the only role
+  admin has coach access to every team, including teams added later (opened from club
+  admin when it is not one of their own: see My teams below), and is the only role
   that can open `/admin`: club access control, the team wizard, league sync, managing
   club admins, setting per-person per-team overrides, and **View as** any user
   (read-only, marked by an orange banner). Super admins are immune to overrides.
   **Set this before enabling `AUTH_SECRET`** — with no `ADMIN_EMAILS` nobody can
   reach `/admin`.
 - **Club admin** — the emails in `CLUB_ADMIN_EMAILS`, or added at `/admin`. View-only
-  on every team: reads everything, writes nothing to team data. Can open `/admin` to
+  on every team (opened from club admin): reads everything, writes nothing to team
+  data. Can open `/admin` to
   create and edit teams in the wizard (not delete them, and no access control). Typical
   use: the club's technical director.
 - **Coach** — either listed in the team's `coachEmails` (in the `TEAMS` JSON or set in
@@ -253,18 +255,38 @@ coach-level. Duties: coaches assign or clear any duty; parents claim fruit or je
 for their own family (never the goalkeeper) and can hand it back. Every duty write goes
 through its own narrow route (`/api/duty`), so a claim never touches the rest of the fixture.
 
-### Hats: several roles, several teams
+### My teams, roles, and running the club
 
 One email can hold more than one role on the same team (a coach whose child plays
-there) and belong to several teams. On first sign-in, a person with a real choice picks
-the team and the hat — "Viewing as Coach" or "Viewing as Parent of Leo" — and a header
-chip shows the current hat and switches it. The choice is stored in the `team_slug` and
-`act_as` cookies and re-validated on every request: a cookie can only narrow what the
-person is entitled to, never widen it. Someone with a single team and a single hat never
-sees the picker.
+there) and be on several teams. There are three levels, and a person can be at any of
+them at once:
 
-**Sign out** is the bottom-left button (in both modes). **Switch team or role** is also
-bottom-left, shown only when there is a choice.
+- **Club**: the super admin and club admins. They create teams and manage access, and
+  can open any team when they need to.
+- **Team**: the staff (head coach, assistant coach, manager). They run their own team.
+- **Squad**: players and their families. A parent replies for their own child.
+
+**My teams** (`/teams`) lists the teams a person is on *themselves*, each with their
+roles there as pills ("Assistant coach", "Parent of Leo"). Someone on one team goes
+straight into it; someone on several lands on My teams and picks.
+
+Running the club is not the same as being on every team in it. A super admin's coach
+access to a team they hold no role on, and a club admin's view of it, are **club-level**:
+the access is exactly as described above, but those teams are not listed under My teams.
+They are opened from **Club admin** (Teams, then Open), which My teams links to. A super
+admin who is on a team's staff reads as that role there ("Assistant coach"); "Super
+admin" is the label only where they hold no role of their own.
+
+Inside a team, the chip in the header shows the current role. Tapping it opens **Viewing
+as**: the person's roles on this team (tap one to switch), **Team settings** for a coach,
+**Switch team** back to My teams, **Club admin** for the people who run the club, and
+**Sign out**. Nobody is asked to choose a role up front: a team opens in the strongest
+role held there.
+
+The choice is stored in the `team_slug` and `act_as` cookies and re-validated on every
+request: a cookie can only narrow what the person is entitled to, never widen it. The
+home page and every API route resolve the team with the same rule (`resolveTeamSlug` in
+`lib/hats.js`), so what a page shows and what its data routes serve cannot differ.
 
 ### Prerequisites and notes
 

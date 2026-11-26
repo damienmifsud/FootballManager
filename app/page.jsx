@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import DashboardHost from "@/components/DashboardHost";
-import { teamsFor, hatsFor, hasChoice } from "@/lib/hats";
+import { resolveTeamSlug, hasChoice } from "@/lib/hats";
 
 const AUTH_ON = !!process.env.AUTH_SECRET;
 
@@ -12,7 +12,6 @@ export default async function Page() {
   // Auth mode: resolve the signed-in email to their team(s).
   const { auth } = await import("@/auth");
   const { membershipsForEmail, isAdminEmail, isClubAdminEmail } = await import("@/lib/directory");
-  const TeamPicker = (await import("@/components/TeamPicker")).default;
   const { AuthPage, AuthHeader, AuthFooter, SignOutButton } = await import("@/components/AuthShell");
 
   const session = await auth();
@@ -20,7 +19,7 @@ export default async function Page() {
   if (!realEmail) {
     // Safety net: if middleware didn't redirect (e.g. bare "/"), do it here
     // rather than rendering a blank page.
-    redirect("/login");
+    return redirect("/login");
   }
 
   // A super admin "viewing as" someone resolves as that person (read-only —
@@ -29,7 +28,6 @@ export default async function Page() {
   const va = cookieStore.get("view_as")?.value;
   const impersonating = va && isAdminEmail(realEmail) ? decodeURIComponent(va) : null;
   const email = impersonating || realEmail;
-  const emailLabel = impersonating ? `${email} (viewing as)` : email;
 
   const { memberships } = await membershipsForEmail(email);
   if (memberships.length === 0) {
@@ -71,27 +69,18 @@ export default async function Page() {
     );
   }
 
-  // Which team: the team_slug cookie if it names a team this email belongs to;
-  // a lone team needs no choice; otherwise the picker.
-  const teams = teamsFor(memberships);
-  const slugCookie = cookieStore.get("team_slug")?.value;
-  const slug = teams.some((t) => t.teamSlug === slugCookie)
-    ? slugCookie
-    : (teams.length === 1 ? teams[0].teamSlug : null);
-  if (!slug) return <TeamPicker memberships={memberships} email={emailLabel} />;
-
-  // Which hat: one login can hold several roles on one team (a coach whose
-  // child plays there is coach AND parent). The act_as cookie carries the hat
-  // the session wears; lib/viewer.js re-validates it on every request and a
-  // value the email doesn't hold falls back to the strongest hat, so the
-  // cookie can only narrow. A multi-hat person with no valid act_as yet is
-  // asked once (picker preselected on their team); a single-hat person never
-  // is — there's nothing to choose.
-  const hats = hatsFor(memberships, slug);
-  const actAs = cookieStore.get("act_as")?.value;
-  if (hats.length > 1 && !hats.some((h) => h.role === actAs)) {
-    return <TeamPicker memberships={memberships} email={emailLabel} preselect={slug} />;
-  }
+  // Which team: the team_slug cookie if it names a team this login can open
+  // (set by My teams, the Viewing-as sheet, or club admin's Open); without
+  // one, the only team there is no choice about. Anything else is a choice
+  // to make, on the My teams page. lib/viewer.js applies the same rule to
+  // every API route, so the dashboard and its data always agree.
+  //
+  // Which role: the act_as cookie carries the one the session wears, and a
+  // value the login doesn't hold on that team falls back to the strongest, so
+  // nobody is asked up front. The header chip shows the role and the
+  // Viewing-as sheet switches it.
+  const slug = resolveTeamSlug(memberships, cookieStore.get("team_slug")?.value);
+  if (!slug) return redirect("/teams");
 
   return <DashboardHost canSwitch={hasChoice(memberships)} />;
 }
