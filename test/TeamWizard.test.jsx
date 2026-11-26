@@ -12,6 +12,11 @@ const U8 = {
   slug: "u8-white", name: "Olympic FC U8 White", ageGroup: "U8", password: "red-kanga-42", calendarKey: "abc123",
   coachEmails: ["coach@a.com"], source: "stored", season: { startISO: "2027-01-01", endISO: "2027-12-31" },
   division: "K1 Central", whatsapp: "", squadi: { competitionId: "1439", divisionId: "10661", teamId: "110013" },
+  // Two more competitions: one with its Squadi ids, one whose draw is not published yet.
+  competitions: [
+    { id: "c1a2b3c4d", name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: 300123 } },
+    { id: "c5e6f7a8b", name: "Premier Invitational" }
+  ],
   features: { fruitDuty: true, jerseyDuty: true, gkDuty: false, focus: true },
   parentsSee: { planBefore: true }, hasLogo: true, coachPin: "2468",
   staff: [{ role: "Head coach", name: "Dee", mobile: "0400000000", email: "dee@a.com" }, { role: "Physio", name: "Pat", mobile: "", email: "" }]
@@ -124,7 +129,7 @@ describe("TeamWizard — creating a team", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
     expect(screen.getByRole("heading", { level: 3, name: "New team" })).toBeTruthy();
     expect(stepTitles()).toEqual([
-      "1 Team name", "2 Age group", "3 Team code", "4 Extra coach logins", "5 Squadi sync", "6 Players and parents",
+      "1 Team name", "2 Age group", "3 Team code", "4 Extra coach logins", "5 Competitions", "6 Players and parents",
       "7 Season", "8 Weekly training", "9 Features", "10 Parents can see", "11 Team identity"
     ]);
   });
@@ -249,8 +254,73 @@ describe("TeamWizard — creating a team", () => {
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].body.season).toBeNull();
     expect("squadi" in calls[0].body).toBe(false);
+    expect("competitions" in calls[0].body).toBe(false);
     expect("players" in calls[0].body).toBe(false);
     expect("training" in calls[0].body).toBe(false);
+  });
+
+  it("other competitions: add as many as the team plays in, skip the ids of any not published yet", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    fireEvent.change(screen.getByLabelText("Team name"), { target: { value: "Olympic FC U10 Red" } });
+    const comps = step("Competitions");
+    // The season's ids are the same three fields as ever, under their own label.
+    expect(comps.getByText("Season")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Squadi competition ID"), { target: { value: "1439" } });
+    expect(comps.queryByLabelText("Competition 1 name")).toBeNull();
+
+    // Winterfest, with its ids.
+    fireEvent.click(comps.getByRole("button", { name: "Add a competition" }));
+    fireEvent.change(comps.getByLabelText("Competition 1 name"), { target: { value: "Winterfest" } });
+    // Once named, its fields are known by its name.
+    fireEvent.change(comps.getByLabelText("Winterfest competition ID"), { target: { value: " 1750 " } });
+    fireEvent.change(comps.getByLabelText("Winterfest division ID"), { target: { value: "20001" } });
+    fireEvent.change(comps.getByLabelText("Winterfest team ID"), { target: { value: "300123" } });
+    // The Premier Invitational: named now, ids later.
+    fireEvent.click(comps.getByRole("button", { name: "Add a competition" }));
+    fireEvent.change(comps.getByLabelText("Competition 2 name"), { target: { value: "  Premier Invitational " } });
+    // A row added and never filled in.
+    fireEvent.click(comps.getByRole("button", { name: "Add a competition" }));
+    expect(comps.getByLabelText("Competition 3 name").value).toBe("");
+    // The season's fields were not disturbed by any of that.
+    expect(screen.getByLabelText("Squadi competition ID").value).toBe("1439");
+
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].method).toBe("POST");
+    expect(calls[0].body.squadi).toEqual({ competitionId: "1439", divisionId: "", teamId: "" });
+    // New rows carry no id (the server gives them one); the untouched row is not sent.
+    expect(calls[0].body.competitions).toEqual([
+      { name: "Winterfest", squadi: { competitionId: " 1750 ", divisionId: "20001", teamId: "300123" } },
+      { name: "Premier Invitational" }
+    ]);
+  });
+
+  it("a competition row can be removed, typing in one keeps the field, and the list stops at eight", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    const comps = step("Competitions");
+    for (const name of ["Alpha", "Bravo", "Charlie"]) {
+      fireEvent.click(comps.getByRole("button", { name: "Add a competition" }));
+      const n = comps.getAllByPlaceholderText("Name (e.g. Winterfest)").length;
+      fireEvent.change(comps.getByLabelText(`Competition ${n} name`), { target: { value: name } });
+    }
+    // Typing never remounts the field.
+    const field = comps.getByLabelText("Competition 2 name");
+    fireEvent.change(field, { target: { value: "Bravo Cup" } });
+    expect(comps.getByLabelText("Competition 2 name")).toBe(field);
+    // Remove the middle one, by name.
+    fireEvent.click(comps.getByRole("button", { name: "Remove Bravo Cup" }));
+    expect(comps.getAllByPlaceholderText("Name (e.g. Winterfest)").map((i) => i.value)).toEqual(["Alpha", "Charlie"]);
+    expect(comps.getByLabelText("Competition 2 name").value).toBe("Charlie");
+    // An unnamed row is removed by its position.
+    fireEvent.click(comps.getByRole("button", { name: "Add a competition" }));
+    fireEvent.click(comps.getByRole("button", { name: "Remove Competition 3" }));
+    expect(comps.getAllByPlaceholderText("Name (e.g. Winterfest)")).toHaveLength(2);
+    // Eight is the most a team can have.
+    for (let i = 0; i < 6; i++) fireEvent.click(comps.getByRole("button", { name: "Add a competition" }));
+    expect(comps.getAllByPlaceholderText("Name (e.g. Winterfest)")).toHaveLength(8);
+    expect(comps.queryByRole("button", { name: "Add a competition" })).toBeNull();
   });
 
   it("an unreadable paste says so, and a refused save shows the server's reason and keeps the form", async () => {
@@ -282,7 +352,7 @@ describe("TeamWizard — editing a team", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit Olympic FC U8 White" }));
     expect(screen.getByRole("heading", { level: 3, name: "Edit Olympic FC U8 White" })).toBeTruthy();
     expect(stepTitles()).toEqual([
-      "1 Team name", "2 Age group", "3 Team code", "4 Extra coach logins", "5 Squadi sync",
+      "1 Team name", "2 Age group", "3 Team code", "4 Extra coach logins", "5 Competitions",
       "6 Season", "7 Features", "8 Parents can see", "9 Team identity"
     ]);
     expect(screen.getByLabelText("Team name").value).toBe("Olympic FC U8 White");
@@ -327,6 +397,53 @@ describe("TeamWizard — editing a team", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull());
     expect(onTeamsChanged).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/is live/)).toBeNull(); // the success panel is for new teams only
+  });
+
+  it("prefills the team's other competitions and sends them back with their ids", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Olympic FC U8 White" }));
+    const comps = step("Competitions");
+    expect(comps.getByLabelText("Competition 1 name").value).toBe("Winterfest");
+    expect(comps.getByLabelText("Winterfest competition ID").value).toBe("1750");
+    expect(comps.getByLabelText("Winterfest division ID").value).toBe("20001");
+    expect(comps.getByLabelText("Winterfest team ID").value).toBe("300123");
+    // The one skipped at set-up: named, no ids yet.
+    expect(comps.getByLabelText("Competition 2 name").value).toBe("Premier Invitational");
+    expect(comps.getByLabelText("Premier Invitational competition ID").value).toBe("");
+
+    // Its draw is out now: add the ids. And rename the other.
+    fireEvent.change(comps.getByLabelText("Premier Invitational competition ID"), { target: { value: "1800" } });
+    fireEvent.change(comps.getByLabelText("Premier Invitational division ID"), { target: { value: "21000" } });
+    fireEvent.change(comps.getByLabelText("Premier Invitational team ID"), { target: { value: "310000" } });
+    fireEvent.change(comps.getByLabelText("Competition 1 name"), { target: { value: "Winterfest 2027" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].method).toBe("PATCH");
+    // Each row keeps the id it came with, so its games stay its games.
+    expect(calls[0].body.competitions).toEqual([
+      { id: "c1a2b3c4d", name: "Winterfest 2027", squadi: { competitionId: "1750", divisionId: "20001", teamId: 300123 } },
+      { id: "c5e6f7a8b", name: "Premier Invitational", squadi: { competitionId: "1800", divisionId: "21000", teamId: "310000" } }
+    ]);
+  });
+
+  it("an edit always sends the list, so removing the last competition removes it", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Olympic FC U8 White" }));
+    const comps = step("Competitions");
+    fireEvent.click(comps.getByRole("button", { name: "Remove Winterfest" }));
+    fireEvent.click(comps.getByRole("button", { name: "Remove Premier Invitational" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.competitions).toEqual([]);
+    // A team that never had any sends an empty list too, which changes nothing.
+    cleanup();
+    calls = [];
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Env Team" }));
+    expect(step("Competitions").queryByLabelText("Competition 1 name")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.competitions).toEqual([]);
   });
 
   it("rotating the calendar key asks first", async () => {

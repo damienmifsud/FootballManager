@@ -7,6 +7,7 @@ import { isAdminEmail, isClubAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
 import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE, sanitizeSeason } from "@/lib/teamSetup";
+import { sanitizeCompetitions, sanitizeSquadiIds } from "@/lib/competitions";
 
 export const dynamic = "force-dynamic";
 
@@ -53,15 +54,21 @@ function sanitizeTeam(input, existing = {}) {
     t.coachEmails = (Array.isArray(input.coachEmails) ? input.coachEmails : String(input.coachEmails).split(","))
       .map(norm).filter((e) => e.includes("@"));
   }
+  // The season's Squadi ids.
   if (input.squadi != null) {
-    const s = input.squadi || {};
-    t.squadi = (s.competitionId || s.divisionId || s.teamId)
-      ? { competitionId: String(s.competitionId || "").trim(), divisionId: String(s.divisionId || "").trim(), teamId: Number(s.teamId) || 0 }
-      : undefined;
-    if (!t.squadi) delete t.squadi;
+    const ids = sanitizeSquadiIds(input.squadi);
+    if (ids) t.squadi = ids; else delete t.squadi;
+  }
+  // Every other competition the team plays in (lib/competitions.js). The list
+  // is replaced whole: a row left out has been removed. A row keeps the id it
+  // came with, so the games already tagged with it stay its games.
+  if (input.competitions != null) {
+    const list = sanitizeCompetitions(input.competitions, newCompetitionId);
+    if (list.length) t.competitions = list; else delete t.competitions;
   }
   return t;
 }
+const newCompetitionId = () => "c" + crypto.randomBytes(4).toString("hex");
 
 // Uniqueness across BOTH sources — the password is the team selector and the
 // calendar key is the feed credential, so collisions would cross team lines.
@@ -83,6 +90,7 @@ export async function GET() {
     return {
       slug: t.slug, name: t.name, password: t.password, calendarKey: t.calendarKey || "",
       ageGroup: t.ageGroup || "", coachEmails: t.coachEmails || [], squadi: t.squadi || null,
+      competitions: Array.isArray(t.competitions) ? t.competitions : [],
       source: t.stored ? "stored" : (t.legacy ? "legacy" : "env"),
       division: doc?.team?.division || "",
       whatsapp: doc?.team?.whatsapp || "",

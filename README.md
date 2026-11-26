@@ -347,6 +347,24 @@ deliberately not emailed.
 Caveat: this is an undocumented endpoint — it may change shape without notice. The sync
 fails closed (no writes, error logged) rather than guessing.
 
+### More than one competition
+
+A team often plays something alongside its season: a winter tournament with part of the
+squad, an invitational league on other days. In the `/admin` wizard the **Competitions**
+step holds the season's Squadi IDs and a row for each other competition: a name and its
+three IDs. A row can be saved with just its name while its draw is not published yet;
+the sync leaves it alone until the IDs are added with Edit.
+
+Every sync pulls each draw that has its IDs. A game from another competition is labelled
+with that competition's name wherever its round shows (Results, the match screen, Home,
+Duties, the calendar feed), keeps its own round numbers, and does not count toward the
+season record or the stats, the same as a carnival game. If one draw cannot be fetched
+the others are still applied, and the Sync button names the one that failed.
+
+For a team defined in `TEAMS`, the same list goes on the team entry:
+`"competitions":[{"id":"winterfest","name":"Winterfest","squadi":{"competitionId":"…","divisionId":"…","teamId":0}}]`.
+`id` is permanent (a game is tagged with it) and `name` can change.
+
 ---
 
 ## Honest limits (unchanged by going to a website)

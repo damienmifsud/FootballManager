@@ -4,7 +4,8 @@ import {
   mapsUrl, activeOn, intlPhone, recentChanges, initials, secToClock, clockToSec,
   occurrences, monthItems, upcomingItems, nextBirthdays,
   carnivalGames, carnivalMeta, carnivalDescription, pitchLabel,
-  carnivalOf, isCarnivalGame, carnivalFixtures, carnivalGameRows
+  carnivalOf, isCarnivalGame, carnivalFixtures, carnivalGameRows,
+  competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff
 } from "@/lib/dashboardData";
 
 // Pin "now" for the helpers that read the clock (countdown, isPastGame,
@@ -497,3 +498,68 @@ describe("playerFullName", () => {
   });
 });
 
+
+// A team's other competitions (lib/competitions.js): a game synced from one
+// carries its id and name. It is labelled, and it is not a season game.
+describe("competitions — games outside the season", () => {
+  const season = (over = {}) => ({ id: "s5", round: 5, status: "played", dateISO: "2026-06-06", us: 3, them: 1, goals: [{ pid: "p1", n: 3 }], assists: [], ...over });
+  const winter = (over = {}) => ({ id: "w1", round: 1, status: "played", dateISO: "2026-06-13", us: 6, them: 0, goals: [{ pid: "p2", n: 4 }], assists: [{ pid: "p1", n: 2 }], comp: "cwinter", compName: "Winterfest", ...over });
+  const players = [{ id: "p1", name: "Sam" }, { id: "p2", name: "Alex" }];
+  const data = (fixtures, sessions = []) => ({ team: {}, players, fixtures, sessions });
+
+  it("competitionOf reads the game's own tag, and is null for a season game", () => {
+    expect(competitionOf(winter())).toEqual({ id: "cwinter", name: "Winterfest" });
+    expect(competitionOf(season())).toBeNull();
+    expect(competitionOf({ comp: "cx" })).toEqual({ id: "cx", name: "Competition" }); // tagged but unnamed
+    expect(competitionOf({ comp: "cx", compName: "   " })).toEqual({ id: "cx", name: "Competition" });
+    expect(competitionOf({ compName: "Winterfest" })).toBeNull(); // a name alone is not a tag
+    expect(competitionOf(null)).toBeNull();
+    expect(competitionOf(undefined)).toBeNull();
+  });
+
+  it("roundLabel: 'Round 5' in the season, the competition's name with the round elsewhere", () => {
+    expect(roundLabel(season())).toBe("Round 5");
+    expect(roundLabel(winter())).toBe("Winterfest · Round 1");
+    expect(roundLabel(winter({ round: null }))).toBe("Winterfest");
+    expect(roundLabel(season({ round: null }))).toBe("");
+    expect(roundLabel(season({ round: 0 }))).toBe("");
+    expect(roundLabel(null)).toBe("");
+  });
+
+  it("countsForSeason: only an untagged game that is not part of a carnival", () => {
+    const carnival = { id: "c1", kind: "carnival", recur: "once", dateISO: "2026-06-20", title: "Winter carnival" };
+    const d = data([season(), winter(), season({ id: "cg", carnivalId: "c1" }), season({ id: "dangling", carnivalId: "gone" })], [carnival]);
+    expect(d.fixtures.map((f) => countsForSeason(d, f))).toEqual([true, false, false, true]);
+    expect(countsForSeason(d, null)).toBe(true); // nothing to exclude it by
+  });
+
+  it("computeStats leaves another competition's games out of the record, form, goals, rounds and scorers", () => {
+    const stats = computeStats(data([season(), winter()]));
+    expect(stats).toMatchObject({ played: 1, w: 1, dr: 0, l: 0, gf: 3, ga: 1, pts: 3, form: ["W"] });
+    expect(stats.perRound).toEqual([{ round: "R5", GF: 3, GA: 1 }]);
+    expect(stats.scorers.map((p) => [p.name, p.goals, p.assists])).toEqual([["Sam", 3, 0]]);
+    // With only the other competition played, the season has no record at all.
+    expect(computeStats(data([winter()]))).toMatchObject({ played: 0, w: 0, pts: 0, form: [], scorers: [], perRound: [] });
+  });
+
+  it("hasSeveralDraws: true once games come from more than one draw", () => {
+    expect(hasSeveralDraws([season(), season({ id: "s6", round: 6 })])).toBe(false);
+    expect(hasSeveralDraws([season(), winter()])).toBe(true);
+    expect(hasSeveralDraws([winter(), winter({ id: "w2" })])).toBe(false); // one competition, no season games
+    expect(hasSeveralDraws([winter(), winter({ id: "c1", comp: "ccup", compName: "Cup" })])).toBe(true);
+    expect(hasSeveralDraws([])).toBe(false);
+    expect(hasSeveralDraws(undefined)).toBe(false);
+  });
+
+  it("byKickOff orders by date, then kick-off, then round, with undated games last", () => {
+    const g = (id, dateISO, time, round) => ({ id, dateISO, time, round });
+    const list = [g("tbc", "", "09:00", 1), g("late", "2026-07-05", "10:30", 1), g("early", "2026-07-05", "08:00", 4), g("first", "2026-06-20", "17:00", 9), g("r2", "2026-07-05", "10:30", 2)];
+    expect([...list].sort(byKickOff).map((x) => x.id)).toEqual(["first", "early", "late", "r2", "tbc"]);
+  });
+
+  it("nextFixture is the soonest upcoming game whatever its competition", () => {
+    const up = (over) => ({ status: "upcoming", time: "09:00", ...over });
+    const d = data([up({ id: "s7", round: 7, dateISO: "2026-06-27" }), up({ id: "w2", round: 2, dateISO: "2026-06-20", comp: "cwinter", compName: "Winterfest" })]);
+    expect(nextFixture(d).id).toBe("w2");
+  });
+});
