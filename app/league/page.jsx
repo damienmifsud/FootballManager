@@ -76,9 +76,11 @@ export default function LeaguePage() {
       const res = await fetch("/api/sync", { cache: "no-store" });
       const j = await res.json();
       if (!res.ok || !j.ok) { setSyncMsg("Sync failed: " + (j.error || res.status)); return; }
-      setSyncMsg(j.changes.length
+      // A two-team squad syncs two feeds; one can fail while the other applies.
+      const failed = (j.errors || []).map((e) => `${e.side ? e.side + ": " : ""}${e.error}`).join(" · ");
+      setSyncMsg((j.changes.length
         ? `Updated ${j.changes.length} item${j.changes.length > 1 ? "s" : ""}: ` + j.changes.slice(0, 3).join(" · ") + (j.changes.length > 3 ? " …" : "")
-        : "Already up to date with Squadi.");
+        : failed ? "" : "Already up to date with Squadi.") + (failed ? `${j.changes.length ? " " : ""}Sync failed for ${failed}` : ""));
     } catch (e) { setSyncMsg("Sync failed: " + e.message); }
   };
 

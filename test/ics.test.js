@@ -273,3 +273,19 @@ describe("seasonICS — season window", () => {
     expect(evs.map((e) => find(e, "SUMMARY:"))).toEqual(["SUMMARY:Photo day"]);
   });
 });
+
+describe("seasonICS — a two-team squad's paired round (U4)", () => {
+  const g = (id, side, over = {}) => ({ id, round: 7, side, dateISO: "2026-06-21", time: "09:00", homeAway: "H", opponent: "Oxley United", venue: "Perry Park – Field 4C", status: "upcoming", ...over });
+  it("emits one event per game with the side in our name", () => {
+    const evs = events(seasonICS({ team: { name: "U9 Academy" }, fixtures: [g("a", "McKay"), g("b", "McKain", { homeAway: "A", time: "10:30" })] }));
+    expect(evs).toHaveLength(2);
+    expect(find(evs[0], "SUMMARY:")).toBe("SUMMARY:⚽ U9 Academy McKay v Oxley United");
+    expect(find(evs[1], "SUMMARY:")).toBe("SUMMARY:⚽ Oxley United v U9 Academy McKain");
+  });
+  it("an unpaired game (bye on the other side) and a single-feed team keep the plain team name", () => {
+    const bye = events(seasonICS({ team: { name: "U9 Academy" }, fixtures: [g("a", "McKay")] }))[0];
+    expect(find(bye, "SUMMARY:")).toBe("SUMMARY:⚽ U9 Academy v Oxley United");
+    const { side: _s, ...plain } = g("a", "McKay");
+    expect(find(events(seasonICS({ team: { name: "Olympic" }, fixtures: [plain] }))[0], "SUMMARY:")).toBe("SUMMARY:⚽ Olympic v Oxley United");
+  });
+});

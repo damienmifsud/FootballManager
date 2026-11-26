@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getData, setData, getMeta, setMeta } from "@/lib/store";
 import { fetchSquadi, applySync } from "@/lib/squadiSync";
-import { getTeams } from "@/lib/teams";
+import { getTeams, squadiFeeds } from "@/lib/teams";
 import { resolveViewer, viewerError } from "@/lib/viewer";
 
 export const dynamic = "force-dynamic";
@@ -37,8 +37,13 @@ async function emailChanges(teamName, changes) {
   return res.ok ? "emailed" : `email failed (${res.status})`;
 }
 
+// One team's sync. A two-feed squad (lib/teams squadiFeeds) applies each feed
+// in turn onto the same document and saves once. A failing feed never blocks
+// the other: what succeeded is saved and the failure is reported in `errors`.
+// When every feed fails the first error is thrown, as a single feed always has.
 async function syncTeam(team, ifStale) {
-  if (!team.squadi?.competitionId) return { team: team.slug, skipped: "no squadi config" };
+  const feeds = squadiFeeds(team).filter((f) => f.competitionId);
+  if (!feeds.length) return { team: team.slug, skipped: "no squadi config" };
   if (ifStale) {
     const meta = await getMeta(team.slug);
     if (meta.lastSyncAt && Date.now() - meta.lastSyncAt < STALE_MS) {
@@ -47,21 +52,43 @@ async function syncTeam(team, ifStale) {
   }
   const data = await getData(team.slug);
   if (!data) return { team: team.slug, skipped: "no team data yet" };
-  const squadi = await fetchSquadi(team.squadi);
-  const { data: next, changes, created, mutated } = applySync(data, squadi);
+
+  let doc = data, matchesSeen = 0, created = 0, dirty = false, anyInitial = false, firstError = null;
+  const changes = [], toEmail = [], errors = [];
+  for (const feed of feeds) {
+    try {
+      const squadi = await fetchSquadi(feed);
+      const r = applySync(doc, squadi, { side: feed.label });
+      matchesSeen += squadi.length;
+      if (!r.changes.length && !r.mutated) continue;
+      // A feed's first import (all new games, more than three) is not news:
+      // no email, and its games carry no "New game" change banner.
+      const isInitialImport = r.created === r.changes.length && r.created > 3;
+      // On a two-feed squad only that feed's new games are cleared, so the
+      // other side's real changes keep their banners.
+      const before = new Set((doc.fixtures || []).map((f) => f.id));
+      const fresh = (f) => feeds.length === 1 || !before.has(f.id);
+      doc = isInitialImport ? { ...r.data, fixtures: r.data.fixtures.map((f) => (fresh(f) ? { ...f, schedChanges: [] } : f)) } : r.data;
+      dirty = true;
+      created += r.created;
+      changes.push(...r.changes);
+      if (isInitialImport) anyInitial = true; else toEmail.push(...r.changes);
+    } catch (e) {
+      firstError = firstError || e;
+      errors.push({ ...(feed.label ? { side: feed.label } : {}), error: String(e?.message || e) });
+    }
+  }
+  if (errors.length === feeds.length) throw firstError;
+
   let emailStatus = "no changes";
-  if (changes.length || mutated) {
-    const isInitialImport = created === changes.length && created > 3;
-    const toSave = isInitialImport
-      ? { ...next, fixtures: next.fixtures.map((f) => ({ ...f, schedChanges: [] })) }
-      : next;
-    await setData(team.slug, toSave);
-    emailStatus = changes.length
-      ? (isInitialImport ? "initial import — email skipped" : await emailChanges(team.name, changes))
+  if (dirty) {
+    await setData(team.slug, doc);
+    emailStatus = toEmail.length ? await emailChanges(team.name, toEmail)
+      : anyInitial ? "initial import — email skipped"
       : "silent update (e.g. logos) — saved, no email";
   }
   await setMeta(team.slug, { ...(await getMeta(team.slug)), lastSyncAt: Date.now() });
-  return { team: team.slug, matchesSeen: squadi.length, created, changes, emailStatus };
+  return { team: team.slug, matchesSeen, created, changes, emailStatus, ...(errors.length ? { errors } : {}) };
 }
 
 export async function GET(req) {

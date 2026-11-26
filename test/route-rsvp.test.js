@@ -272,3 +272,61 @@ describe("account mode — view as blocks RSVPs", () => {
     expect(setData).not.toHaveBeenCalled();
   });
 });
+
+describe("one reply per round on a two-team squad", () => {
+  const paired = (over = {}) => ({
+    ...TEAM_DATA(),
+    fixtures: [
+      { id: "f1", round: 3, side: "McKay", availability: { p2: { status: "out" } } },
+      { id: "f2", round: 3, side: "McKain", availability: {} },
+      { id: "f3", round: 4, side: "McKay", availability: {} }
+    ],
+    ...over
+  });
+  const post = async (body) => {
+    viewingAs.mockReset(); // the "view as" block above leaves an impersonation behind
+    const { POST } = await loadRoute({ authOn: true });
+    return POST(fakeRequest({ body }));
+  };
+  it("a game reply is written to the fixture and its twin in the same save", async () => {
+    happyPath();
+    getData.mockResolvedValue(paired());
+    expect((await post({ kind: "game", id: "f1", playerId: "p1", status: "out", reason: "Away" })).status).toBe(200);
+    expect(setData).toHaveBeenCalledTimes(1);
+    const [f1, f2, f3] = setData.mock.calls[0][1].fixtures;
+    expect(f1.availability.p1).toMatchObject({ status: "out", reason: "Away", by: "Sam" });
+    expect(f2.availability.p1).toEqual(f1.availability.p1);
+    expect(f1.availability.p2).toEqual({ status: "out" }); // other players untouched
+    expect(f2.availability.p2).toBeUndefined();
+    expect(f3.availability).toEqual({});
+  });
+  it("replying on the other game mirrors back, and clearing clears both", async () => {
+    happyPath();
+    const d = paired();
+    d.fixtures[0].availability.p1 = { status: "in" };
+    d.fixtures[1].availability.p1 = { status: "in" };
+    getData.mockResolvedValue(d);
+    await post({ kind: "game", id: "f2", playerId: "p1", status: null });
+    const [f1, f2] = setData.mock.calls[0][1].fixtures;
+    expect("p1" in f1.availability).toBe(false);
+    expect("p1" in f2.availability).toBe(false);
+    expect(f1.availability.p2).toEqual({ status: "out" });
+  });
+  it("an unpaired fixture (a bye round on the other side) is written alone", async () => {
+    happyPath();
+    getData.mockResolvedValue(paired());
+    await post({ kind: "game", id: "f3", playerId: "p1", status: "in" });
+    const [f1, f2, f3] = setData.mock.calls[0][1].fixtures;
+    expect(f3.availability.p1.status).toBe("in");
+    expect(f1.availability.p1).toBeUndefined();
+    expect(f2.availability.p1).toBeUndefined();
+  });
+  it("sessions are unchanged", async () => {
+    happyPath();
+    getData.mockResolvedValue(paired());
+    await post({ kind: "session", id: "s1", occ: "2026-06-17", playerId: "p1", status: "in" });
+    const saved = setData.mock.calls[0][1];
+    expect(saved.sessions[0].availability["2026-06-17"].p1.status).toBe("in");
+    expect(saved.fixtures).toEqual(paired().fixtures);
+  });
+});

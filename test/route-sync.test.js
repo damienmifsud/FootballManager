@@ -17,7 +17,8 @@ const m = vi.hoisted(() => ({
 vi.mock("@/auth", () => ({ auth: m.auth }));
 vi.mock("@/lib/store", () => ({ getData: m.getData, setData: m.setData, getMeta: m.getMeta, setMeta: m.setMeta }));
 vi.mock("@/lib/squadiSync", () => ({ fetchSquadi: m.fetchSquadi, applySync: m.applySync }));
-vi.mock("@/lib/teams", () => ({ getTeams: m.getTeams, teamBySlug: m.teamBySlug, teamFromCookieHeader: m.teamFromCookieHeader }));
+// squadiFeeds is the real one (pure): the route reads every team's feeds through it.
+vi.mock("@/lib/teams", async (orig) => ({ squadiFeeds: (await orig()).squadiFeeds, getTeams: m.getTeams, teamBySlug: m.teamBySlug, teamFromCookieHeader: m.teamFromCookieHeader }));
 vi.mock("@/lib/directory", () => ({ membershipsForEmail: m.membershipsForEmail, viewingAs: m.viewingAs }));
 
 const TEAM = { slug: "a", name: "Team A", squadi: { competitionId: "1", divisionId: "2", teamId: 3 } };
@@ -181,5 +182,90 @@ describe("account mode — view as blocks any sync", () => {
     expect((await GET(fakeRequest({ url: "https://x.test/api/sync" }))).status).toBe(403);
     expect((await GET(fakeRequest({ url: "https://x.test/api/sync?ifStale=1" }))).status).toBe(403);
     expect(m.fetchSquadi).not.toHaveBeenCalled();
+  });
+});
+
+describe("two Squadi feeds on one squad", () => {
+  const McKay = { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: 133944 };
+  const McKain = { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 };
+  const TWO = { slug: "a", name: "U9 Academy", squadi: [McKay, McKain] };
+  const cron = async () => {
+    m.getTeams.mockReturnValue([TWO]);
+    const { GET } = await loadRoute({ authOn: true });
+    const res = await GET(fakeRequest({ url: "https://x.test/api/sync", headers: { authorization: "Bearer s3cret" } }));
+    return (await res.json()).results[0];
+  };
+  // applySync stand-in: appends one fixture per call, tagged with the side.
+  const appending = () => m.applySync.mockImplementation((doc, squadi, { side } = {}) => ({
+    data: { ...doc, fixtures: [...doc.fixtures, { id: side, side, schedChanges: [] }] },
+    changes: [`NEW — ${side} · Round 1 vs X`], created: 1, mutated: true
+  }));
+
+  it("applies both feeds in order, threading the document, and saves once", async () => {
+    appending();
+    m.fetchSquadi.mockResolvedValue([{ squadiId: 1 }]);
+    const r = await cron();
+    expect(m.fetchSquadi.mock.calls.map((c) => c[0])).toEqual([McKay, McKain]);
+    expect(m.applySync.mock.calls.map((c) => c[2])).toEqual([{ side: "McKay" }, { side: "McKain" }]);
+    expect(m.applySync.mock.calls[1][0].fixtures.map((f) => f.id)).toEqual(["McKay"]); // second feed sees the first's result
+    expect(m.setData).toHaveBeenCalledTimes(1);
+    expect(m.setData.mock.calls[0][1].fixtures.map((f) => f.side)).toEqual(["McKay", "McKain"]);
+    expect(m.setMeta).toHaveBeenCalledTimes(1);
+    expect(r).toMatchObject({ team: "a", matchesSeen: 2, created: 2, changes: ["NEW — McKay · Round 1 vs X", "NEW — McKain · Round 1 vs X"] });
+    expect("errors" in r).toBe(false);
+  });
+
+  it("a failing feed leaves the other applied and is reported in errors", async () => {
+    appending();
+    m.fetchSquadi.mockImplementation(async (feed) => { if (feed.label === "McKay") throw new Error("Squadi responded 503"); return [{ squadiId: 2 }]; });
+    const r = await cron();
+    expect(m.setData).toHaveBeenCalledTimes(1);
+    expect(m.setData.mock.calls[0][1].fixtures.map((f) => f.side)).toEqual(["McKain"]);
+    expect(r.errors).toEqual([{ side: "McKay", error: "Squadi responded 503" }]);
+    expect(r).toMatchObject({ team: "a", created: 1, changes: ["NEW — McKain · Round 1 vs X"] });
+    expect(m.setMeta).toHaveBeenCalledTimes(1);
+  });
+
+  it("when every feed fails it responds as a failed single feed does and writes nothing", async () => {
+    m.fetchSquadi.mockRejectedValue(new Error("Unexpected Squadi response shape"));
+    const r = await cron();
+    expect(r).toMatchObject({ team: "a", ok: false });
+    expect(r.error).toContain("Unexpected Squadi response shape");
+    expect(m.setData).not.toHaveBeenCalled();
+    expect(m.setMeta).not.toHaveBeenCalled();
+  });
+
+  it("judges the first-import email suppression per feed and keeps the other side's change banners", async () => {
+    const news = (n, side) => Array.from({ length: n }, (_, i) => `NEW — ${side} · Round ${i + 1} vs X`);
+    m.getData.mockResolvedValue({ fixtures: [{ id: "old", side: "McKay", schedChanges: [{ field: "Time" }] }] });
+    m.applySync.mockImplementation((doc, squadi, { side }) => side === "McKay"
+      ? { data: doc, changes: ["McKay · Round 3 vs X: time a → b"], created: 0, mutated: true }
+      : { data: { ...doc, fixtures: [...doc.fixtures, ...[1, 2, 3, 4].map((n) => ({ id: "n" + n, side, schedChanges: [{ field: "New game" }] }))] }, changes: news(4, side), created: 4, mutated: true });
+    const r = await cron();
+    const saved = m.setData.mock.calls[0][1].fixtures;
+    expect(saved.find((f) => f.id === "old").schedChanges).toHaveLength(1);
+    expect(saved.filter((f) => f.id !== "old").every((f) => f.schedChanges.length === 0)).toBe(true);
+    expect(r.changes).toHaveLength(5);
+    expect(r.emailStatus).toBe("email not configured"); // the McKay change was sent on; the McKain import was not news
+  });
+
+  it("no changes on either feed: nothing saved, lastSyncAt set once, no errors", async () => {
+    const r = await cron();
+    expect(m.setData).not.toHaveBeenCalled();
+    expect(m.setMeta).toHaveBeenCalledTimes(1);
+    expect(r).toMatchObject({ team: "a", changes: [], created: 0, emailStatus: "no changes" });
+    expect("errors" in r).toBe(false);
+  });
+
+  it("a single-feed team is synced exactly as before: one fetch, no side", async () => {
+    m.getTeams.mockReturnValue([TEAM]);
+    m.applySync.mockReturnValue({ data: { fixtures: [{ id: "x", schedChanges: [] }] }, changes: ["Round 1 vs X: time a → b"], created: 0, mutated: true });
+    const { GET } = await loadRoute({ authOn: true });
+    const r = (await (await GET(fakeRequest({ url: "https://x.test/api/sync", headers: { authorization: "Bearer s3cret" } }))).json()).results[0];
+    expect(m.fetchSquadi).toHaveBeenCalledTimes(1);
+    expect(m.fetchSquadi).toHaveBeenCalledWith(TEAM.squadi);
+    expect(m.applySync.mock.calls[0][2]).toEqual({ side: undefined });
+    expect(m.setData).toHaveBeenCalledTimes(1);
+    expect(r).toEqual({ team: "a", matchesSeen: 0, created: 0, changes: ["Round 1 vs X: time a → b"], emailStatus: "email not configured" });
   });
 });
