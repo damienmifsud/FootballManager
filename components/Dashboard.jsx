@@ -18,7 +18,7 @@ import {
   playerFullName, timeWindow, twinOf, sideOf, teamSides, sideName, inSideOrder
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
-import { parsePlayerImport, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
+import { parsePlayerImport, mergeImportedPlayers, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { parseScheduleImport, onlyGroups, mergeSchedule, scheduleTemplate, stampImport, importBatches, removeImport } from "@/lib/scheduleImport";
 import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths } from "@/lib/teamSetup";
 import { seasonICS } from "@/lib/ics";
@@ -666,6 +666,10 @@ const CSS = `
 .imp-row .ghostlink{padding:0;min-height:44px;flex-shrink:0;}
 .imp-row .ghostlink.quiet{color:var(--muted);}
 .imp-row .ghostlink:disabled{opacity:.5;cursor:default;}
+.imp-staff{margin-bottom:12px;}
+.imp-staff .imp-row span{color:var(--muted);}
+.imp-staff .imp-row b{color:var(--ink);font-weight:800;}
+.imp-staffnote{margin-top:8px;}
 .btn.danger{background:#fdecec;color:var(--red);}
 .iconbtn{background:var(--soft);border:none;width:32px;height:32px;border-radius:9px;display:flex;
   align-items:center;justify-content:center;cursor:pointer;color:var(--muted);}
@@ -4482,12 +4486,30 @@ function PlayersImportSheet({ data, persist, close }) {
   const [fileErr, setFileErr] = useState("");
   // Parsing (Majestri CSV / Excel copy / simple list) lives in lib/majestri.js,
   // shared with the /admin team wizard's import step.
-  const { isMajestri, players: parsed } = useMemo(() => parsePlayerImport(txt), [txt]);
+  const { isMajestri, players: parsed, staff: parsedStaff } = useMemo(() => parsePlayerImport(txt), [txt]);
   // Anyone already in the squad is updated (blank last name, birthday, family
   // details), never added twice — so the same list can be imported again.
   const merged = useMemo(() => mergeImportedPlayers(data.players, parsed), [data.players, parsed]);
   const nAdd = merged.added.length, nUpd = merged.updated.length;
   const plural = (n) => `${n} player${n === 1 ? "" : "s"}`;
+  // The file's coach and manager rows, folded into the team's staff list the
+  // same way: nobody twice, nothing already there replaced. They come across
+  // unless the coach says not to, and each is read back first, because a
+  // staff member with an email can sign in and edit the team.
+  const [withStaff, setWithStaff] = useState(true);
+  const staffMerged = useMemo(() => mergeImportedStaff(getStaff(data.team), parsedStaff), [data.team, parsedStaff]);
+  const sAdd = withStaff ? staffMerged.added.length : 0, sUpd = withStaff ? staffMerged.updated.length : 0;
+  const staffChanging = sAdd + sUpd > 0;
+  // What happens to one person on the file's staff rows, in a line.
+  const staffLine = (who) => {
+    // Matched to a row typed another way ("Pat" for Pat Lane): say which, so a wrong match is seen.
+    const already = `Already on the staff${who.listedAs ? ` as ${who.listedAs}` : ""}.`;
+    return who.change === "add"
+      ? (who.login ? `Will be added, and can sign in as ${who.email}.` : "Will be added. No email for them in the file, so no login yet.")
+      : who.change === "update"
+      ? (who.login ? `${already} Adding their email, ${who.email}, so they can sign in.` : `${already} Filling in their missing details.`)
+      : already;
+  };
 
   // Upload: the chosen file's text goes into the same box a paste does, so one
   // parser and one preview serve both.
@@ -4503,14 +4525,20 @@ function PlayersImportSheet({ data, persist, close }) {
   };
 
   const save = () => {
-    if (!nAdd && !nUpd) return;
-    persist({ ...data, players: merged.players, isSample: false });
+    if (!nAdd && !nUpd && !staffChanging) return;
+    // One save for the whole import: the squad, and the staff list when it changes.
+    persist({ ...data, players: merged.players, ...(staffChanging ? { team: { ...data.team, staff: staffMerged.staff } } : {}), isSample: false });
     close();
   };
-  const action = nAdd && nUpd ? `Add ${nAdd} and update ${nUpd}`
+  // With staff coming across the button names both halves ("Update 19 players, add 2 staff").
+  const playersPart = nAdd && nUpd ? `add ${nAdd} and update ${nUpd} players` : nUpd ? `update ${plural(nUpd)}` : nAdd ? `add ${plural(nAdd)}` : "";
+  const staffPart = sAdd && sUpd ? `add ${sAdd} and update ${sUpd} staff` : sUpd ? `update ${sUpd} staff` : sAdd ? `add ${sAdd} staff` : "";
+  const both = [playersPart, staffPart].filter(Boolean).join(", ");
+  const action = staffPart ? both[0].toUpperCase() + both.slice(1)
+    : nAdd && nUpd ? `Add ${nAdd} and update ${nUpd}`
     : nUpd ? `Update ${plural(nUpd)}`
     : nAdd ? `Add ${plural(nAdd)}`
-    : parsed.length ? "Nothing to change" : "Add players";
+    : parsed.length || parsedStaff.length ? "Nothing to change" : "Add players";
 
   return (<>
     <SheetHead title="Import player list" close={close} />
@@ -4521,7 +4549,7 @@ function PlayersImportSheet({ data, persist, close }) {
     {fileName && <div className="note" style={{ marginBottom: 10 }}>Loaded <b>{fileName}</b></div>}
     {fileErr && <div className="note" role="alert" style={{ color: "var(--red)", marginBottom: 10 }}>{fileErr}</div>}
     <div className="note" style={{ marginBottom: 12 }}>
-      <b>Majestri:</b> upload the team contact list CSV, or paste it below (from the file, or straight out of <b>Excel</b>, with or without the header row). It's detected automatically. Players only: coach rows and medical fields are skipped; parents' names, emails and mobiles come across, and mobiles get their leading 0 restored.<br /><br />
+      <b>Majestri:</b> upload the team contact list CSV, or paste it below (from the file, or straight out of <b>Excel</b>, with or without the header row). It's detected automatically. Parents' names, emails and mobiles come across, and mobiles get their leading 0 restored. Coach and manager rows are offered as the team's staff, and you choose whether they come in. Medical fields are skipped.<br /><br />
       <b>Or a simple list</b>, one player per line: <b>Name, number, position, parent, parent mobile, birthday</b> (position GK/DEF/MID/FWD; birthday dd/mm/yyyy; only the name is required).<br /><br />
       Players already in the squad are updated, not added twice.
     </div>
@@ -4532,14 +4560,33 @@ function PlayersImportSheet({ data, persist, close }) {
     {txt.trim() && (
       <div className="note" role="status" style={{ marginBottom: 10 }}>
         {isMajestri && <div><b>Majestri export detected.</b></div>}
-        {parsed.length === 0 ? <div>Nothing readable yet. Check the format.</div> : (<>
+        {parsed.length === 0 ? (parsedStaff.length === 0 && <div>Nothing readable yet. Check the format.</div>) : (<>
           {nAdd > 0 && <div>Ready to add <b>{nAdd}</b>: {merged.added.join(", ")}</div>}
           {nUpd > 0 && <div>Filling in missing details for <b>{nUpd}</b> already in the squad: {merged.updated.join(", ")}</div>}
           {merged.unchanged > 0 && <div>{merged.unchanged} already up to date.</div>}
         </>)}
       </div>
     )}
-    <button className="btn" onClick={save} disabled={!nAdd && !nUpd}>{action}</button>
+    {parsedStaff.length > 0 && (
+      <div className="imp-staff" role="group" aria-label="Staff in this file">
+        <div className="swrow" style={{ borderBottom: "none", paddingTop: 0, alignItems: "flex-start" }}>
+          <span style={{ flex: 1, fontSize: 13 }}>
+            <b>{parsedStaff.length}</b> {parsedStaff.length === 1 ? "staff member" : "staff"} in this file. Bring them in as the team's staff.
+          </span>
+          <Switch on={withStaff} label="Bring in the staff from this file" onClick={() => setWithStaff(!withStaff)} />
+        </div>
+        {withStaff && staffMerged.people.map((who, i) => (
+          <div className="imp-row" key={i}>
+            <span><b>{who.name}</b> · {who.role}<br />{staffLine(who)}</span>
+          </div>
+        ))}
+        {withStaff && staffMerged.logins.length > 0 && (
+          <div className="note imp-staffnote">Staff who can sign in can edit this team: fixtures, scores, the squad and its settings. Check each address is theirs.</div>
+        )}
+        {!withStaff && <div className="note imp-staffnote">The staff list is left as it is.</div>}
+      </div>
+    )}
+    <button className="btn" onClick={save} disabled={!nAdd && !nUpd && !staffChanging}>{action}</button>
   </>);
 }
 
