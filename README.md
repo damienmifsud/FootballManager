@@ -296,6 +296,23 @@ them at once:
 roles there as pills ("Assistant coach", "Parent of Leo", "Player"). Someone on one team
 goes straight into it; someone on several lands on My teams and picks.
 
+**Both teams together.** A family on two or more teams (a child in each, or a parent's
+own team and their child's) also gets them together on My teams: **Coming up** lists the
+next two weeks across those teams by day, each event with its team, and a reply button
+for each of the family's own players. A reply is given right there, for whichever team it
+belongs to. **Together** or **One team at a time** is the family's choice and is
+remembered; the team cards below always open a single team.
+
+- The list is the family's view whatever role the person is otherwise acting in: a coach
+  who is also a parent sees their children's events there, not the squad's.
+- It carries only what a parent on each team already sees (opponent, date, time, place,
+  round) and the family's own replies (`GET /api/family`, `lib/familyWeek.js`).
+- A reply from it names its team (`teamSlug` on `/api/rsvp`). A reply that names its
+  team is always answered as the parent on that team, and a team the login is not on is
+  refused, so naming a team can never do more than the family's own reply could.
+- A player left out of a competition's squad, a guest outside their dates and a
+  cancelled game are not asked, the same as inside the team.
+
 Running the club is not the same as being on every team in it. A super admin's coach
 access to a team they hold no role on, and a club admin's view of it, are **club-level**:
 the access is exactly as described above, but those teams are not listed under My teams.

@@ -2,6 +2,7 @@
 import { ChevronRight, Settings } from "lucide-react";
 import { hatLabel } from "@/lib/hats";
 import { AuthPage, AuthHeader, SignOutButton } from "@/components/AuthShell";
+import FamilyWeek from "@/components/FamilyWeek";
 
 // My teams (account mode, /teams): the teams the signed-in person is on
 // themselves, one card each, with the roles they hold there as pills. A
@@ -13,6 +14,11 @@ import { AuthPage, AuthHeader, SignOutButton } from "@/components/AuthShell";
 // Running the club is not the same as being on every team in it, so a super
 // admin or club admin sees only their own teams here and reaches the rest
 // (and the people and access screens) through the Club admin link below.
+//
+// A family on two or more teams (a child in each, or their own team and their
+// child's) also gets both together above the cards: the next two weeks across
+// those teams, with replies given from here (components/FamilyWeek.jsx). They
+// choose between that and one team at a time, and the cards always open one.
 //
 // The choice lives in two plain cookies the browser sets here, team_slug and
 // act_as, which the server re-validates on every request against the
@@ -32,8 +38,9 @@ const pillClass = (hat) => (hat.role === "coach" ? " staff" : hat.role === "pare
 
 // teams: lib/hats teamsFor() for this login (every team it can open; the ones
 // with `mine` are listed). admin: "super" | "club" | null. viewingAs: a super
-// admin is looking at this page as someone else.
-export default function MyTeams({ teams = [], email, admin = null, viewingAs = false }) {
+// admin is looking at this page as someone else. family: this login has a
+// family on two or more teams, so the page offers them together.
+export default function MyTeams({ teams = [], email, admin = null, viewingAs = false, family = false }) {
   const open = (team) => {
     setCookie("team_slug", team.teamSlug);
     // Strongest role first; the server falls back to it anyway if this is not held.
@@ -51,7 +58,9 @@ export default function MyTeams({ teams = [], email, admin = null, viewingAs = f
   return (
     <AuthPage>
       <AuthHeader title="My teams" sub={`Signed in as ${email}`} />
+      {family && <FamilyWeek />}
       <div>
+        {family && mine.length > 0 && <div className="auth-label auth-group">Open a team</div>}
         {mine.map((team) => {
           const roles = (team.hats || []).filter((h) => !h.club);
           return (

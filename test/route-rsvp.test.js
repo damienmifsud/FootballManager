@@ -431,3 +431,88 @@ describe("one reply per round — never across competitions", () => {
     expect(replied()).toEqual(["s4"]);
   });
 });
+
+// The combined family view on My teams replies for children in several teams
+// from one page, so each reply names its team. A named team is always
+// answered as the family there, and can never reach further than that.
+describe("account mode — a reply that names its team", () => {
+  const A_COACH = { teamSlug: "a", teamName: "Team A", role: "coach" };
+  const A_KID = { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam" };
+  const B_KID = { teamSlug: "b", teamName: "Team B", role: "parent", playerId: "p2", playerName: "Other" };
+  const C_COACH = { teamSlug: "c", teamName: "Team C", role: "coach" };
+  const docs = () => ({ a: TEAM_DATA(), b: TEAM_DATA(), c: TEAM_DATA() });
+  const signIn = (memberships) => {
+    auth.mockResolvedValue({ user: { email: "sam@example.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships });
+    teamBySlug.mockImplementation((slug) => ({ slug, name: "Team " + slug.toUpperCase() }));
+    const stored = docs();
+    getData.mockImplementation(async (slug) => stored[slug] ?? null);
+    setData.mockResolvedValue();
+  };
+  const named = (teamSlug, playerId, extra = {}) => fakeRequest({ body: { kind: "game", id: "f1", playerId, status: "in", teamSlug }, ...extra });
+  beforeEach(() => { viewingAs.mockReset(); });
+  afterEach(() => { teamBySlug.mockReset(); getData.mockReset(); });
+
+  it("goes to the named team, whichever team the session has open", async () => {
+    signIn([A_KID, B_KID]);
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(named("b", "p2", { cookies: { team_slug: "a" } }));
+    expect(res.status).toBe(200);
+    expect(setData).toHaveBeenCalledTimes(1);
+    expect(setData.mock.calls[0][0]).toBe("b");
+    expect(setData.mock.calls[0][1].fixtures[0].availability.p2).toMatchObject({ status: "in", by: "Other" });
+    // Without a cookie a login on two teams cannot reply at all unless it names one.
+    expect((await POST(fakeRequest(rsvp("p1")))).status).toBe(409);
+    expect((await POST(named("a", "p1"))).status).toBe(200);
+  });
+
+  it("only for a player the family has on that team", async () => {
+    signIn([A_KID, B_KID]);
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await POST(named("b", "p1"))).status).toBe(403); // p1 is theirs on Team A, not on Team B
+    expect((await POST(named("a", "p2"))).status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("a team the login is not on is refused, and nothing is read from it", async () => {
+    signIn([A_KID]);
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(named("b", "p1"));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "forbidden" });
+    expect(getData).not.toHaveBeenCalled();
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("is answered as the family even by a coach: their own child, never the whole squad", async () => {
+    signIn([A_COACH, A_KID, C_COACH]);
+    const { POST } = await loadRoute({ authOn: true });
+    // The coach hat could set anyone; a reply that names its team cannot.
+    expect((await POST(named("a", "p2", { cookies: { team_slug: "a", act_as: "coach" } }))).status).toBe(403);
+    expect((await POST(named("a", "p1", { cookies: { team_slug: "a", act_as: "coach" } }))).status).toBe(200);
+    expect(setData.mock.calls[0][1].fixtures[0].availability.p1).toMatchObject({ by: "Sam" }); // not "Coach"
+    // A team they only coach has no family to answer for.
+    expect((await POST(named("c", "p1"))).status).toBe(403);
+    // The ordinary route is untouched: as coach, on the open team, anyone.
+    expect((await POST(fakeRequest(rsvp("p2", { cookies: { team_slug: "a" } })))).status).toBe(200);
+    expect(setData.mock.calls[1][1].fixtures[0].availability.p2).toMatchObject({ by: "Coach" });
+  });
+
+  it("a team name that is not text is a bad request", async () => {
+    signIn([A_KID]);
+    const { POST } = await loadRoute({ authOn: true });
+    for (const teamSlug of ["", 5, null, ["a"], {}]) {
+      const res = await POST(fakeRequest({ body: { kind: "game", id: "f1", playerId: "p1", status: "in", teamSlug } }));
+      expect(res.status, JSON.stringify(teamSlug)).toBe(400);
+    }
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("is refused while a super admin views as the family", async () => {
+    signIn([A_KID, B_KID]);
+    viewingAs.mockReturnValue("sam@example.com");
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await POST(named("b", "p2"))).status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
+  });
+});
