@@ -271,6 +271,14 @@ bottom-left, shown only when there is a choice.
 - Parent emails must be on the player records (the Majestri import captures them; or
   add them in the wizard roster or the Squad tab).
 - Coaches need an email in `coachEmails` or on the team's staff list.
+- **Player names:** the Majestri import keeps each player's full name. The whole team
+  sees it in the squad list and on the player's page; tight spots (replies, duties, the
+  planner, birthdays) use the short form, first name and initial ("Levi H."). Coaches
+  can edit both in the player editor.
+- **Importing players:** Squad tab, **Import player list**: upload the Majestri CSV or
+  paste it. Importing a list again updates the players already in the squad instead of
+  adding them twice, which is also how to fill in last names on a squad that was
+  imported before they were kept.
 - **Env teams taken over by the wizard:** editing an env-defined team in `/admin`
   stores a copy in the data store; from then on the stored copy wins for that slug.
 
