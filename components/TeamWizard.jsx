@@ -3,20 +3,17 @@
 // /api/teams — no TEAMS env editing, no restarts. Also lists every team with
 // its code + calendar feed, and can edit or remove wizard-created teams
 // (editing an env-defined team takes it over into the store).
+//
+// Direction C: one hairline card in the AdminShell, team rows split by
+// hairlines, numbered steps (Anton numerals), switches for on/off choices,
+// lucide icons in place of glyphs. Markup only: every request and payload is
+// what it was.
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { Plus, RefreshCw, X, Check } from "lucide-react";
 import { parsePlayerImport } from "@/lib/majestri";
 import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES, seasonLabel } from "@/lib/teamSetup";
 import { downscaleImage } from "@/lib/clientImage";
-
-const C = { red: "#C8102E", ink: "#1d1417", muted: "#7a6f72", line: "#eee", soft: "#f6f2f3", ok: "#1E9E57" };
-const card = { background: "#fff", borderRadius: 16, padding: 18, marginBottom: 16, boxShadow: "0 10px 26px rgba(40,0,8,.18)", color: C.ink };
-const label = { fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: C.muted, marginBottom: 10 };
-const inp = { padding: "9px 12px", borderRadius: 10, border: "2px solid " + C.line, fontSize: 14, boxSizing: "border-box", width: "100%" };
-const btn = { padding: "9px 14px", borderRadius: 10, border: "none", background: C.red, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" };
-const ghost = { ...btn, background: "#fff", color: C.red, border: "1px solid " + C.red };
-const chip = { display: "inline-block", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700 };
-const fieldLb = { display: "block", fontSize: 12, fontWeight: 700, color: C.ink, margin: "10px 0 4px" };
-const hint = { fontSize: 11.5, color: C.muted, marginTop: 3 };
+import { AdminSwitch } from "@/components/AdminShell";
 
 const AGE_GROUPS = ["U6", "U7", "U8", "U9", "U10", "U11", "U12+"];
 const WORDS_A = ["red", "gold", "swift", "lucky", "mighty", "brave", "flying", "rapid"];
@@ -60,7 +57,25 @@ function staffForEdit(existing) {
   return rows;
 }
 
-export default function TeamWizard() {
+// One numbered step of the form. A module-level component (never defined
+// inside the wizard's render) so typing in a field doesn't remount it.
+function Step({ n, title, optional, lead, children }) {
+  return (
+    <div className="adm-step">
+      <div className="adm-step-h">
+        <span className="adm-step-n" aria-hidden="true">{n}</span>
+        <h4 className="adm-step-t">{title}</h4>
+        {optional && <span className="adm-pill">Optional</span>}
+      </div>
+      {lead && <div className="adm-note lead">{lead}</div>}
+      {children}
+    </div>
+  );
+}
+
+// onTeamsChanged: told after a team is created, edited or removed, so the
+// page around the wizard can refresh anything that lists teams.
+export default function TeamWizard({ onTeamsChanged }) {
   const [teams, setTeams] = useState(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -165,6 +180,7 @@ export default function TeamWizard() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "save failed");
       await load();
+      onTeamsChanged?.();
       if (!editSlug) setCreated({ ...j.team, playersImported: j.playersImported || 0, trainingSeeded: j.trainingSeeded || 0 });
       setForm(null); setEditSlug(null);
     } catch (e) { setErr(String(e.message || e)); }
@@ -180,314 +196,331 @@ export default function TeamWizard() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "delete failed");
       await load();
+      onTeamsChanged?.();
     } catch (e) { setErr(String(e.message || e)); }
     setBusy(false);
   };
 
-  const srcChip = (t) => t.source === "stored"
-    ? <span style={{ ...chip, background: "rgba(30,158,87,.12)", color: C.ok }}>wizard</span>
-    : <span style={{ ...chip, background: C.soft, color: C.muted }}>{t.source}</span>;
+  // Where a team came from: made here (editable, removable) or defined in the
+  // TEAMS environment variable.
+  const srcPill = (t) => t.source === "stored"
+    ? <span className="adm-pill ok">Created here</span>
+    : <span className="adm-pill">Set in the environment</span>;
+
+  // Steps number themselves, so the create flow (11 steps) and the edit flow
+  // (9: no player import, no training seed) both read 1, 2, 3 with no gaps.
+  let stepNo = 0;
+  const editing = editSlug ? (teams || []).find((t) => t.slug === editSlug) : null;
 
   return (
-    <div style={card}>
-      <div style={label}>Teams</div>
-      {err && <div style={{ background: "#fff4f4", color: C.red, fontWeight: 700, fontSize: 13, borderRadius: 10, padding: "8px 12px", marginBottom: 10 }}>{err}</div>}
+    <section className="adm-card" aria-labelledby="adm-teams">
+      <h2 className="adm-label" id="adm-teams">Teams</h2>
+      {err && <div className="adm-msg err" role="alert" style={{ marginTop: 10 }}>{err}</div>}
 
       {created && (
-        <div style={{ background: "rgba(30,158,87,.08)", border: "1px solid rgba(30,158,87,.35)", borderRadius: 12, padding: 14, marginBottom: 14 }}>
-          <div style={{ fontWeight: 800, fontSize: 15, color: C.ok }}>✓ {created.name} is live</div>
-          <div style={{ fontSize: 13, marginTop: 8 }}>
-            Team code: <b style={{ fontSize: 15 }}>{created.password}</b>{" "}
-            <button style={{ ...ghost, padding: "3px 9px", fontSize: 11 }} onClick={() => copy(created.password, "newcode")}>{copied === "newcode" ? "Copied!" : "Copy"}</button>
+        <div className="adm-msg ok" role="status" style={{ marginTop: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 800 }}><Check size={16} aria-hidden="true" />{created.name} is live</div>
+          <div className="plain" style={{ marginTop: 8 }}>
+            Team code: <b className="adm-mono" style={{ fontSize: 15 }}>{created.password}</b>{" "}
+            <button className="adm-link" onClick={() => copy(created.password, "newcode")}>{copied === "newcode" ? "Copied" : "Copy"}</button>
           </div>
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
+          <div className="adm-note" style={{ marginTop: 6 }}>
             {created.playersImported > 0 && <b>{created.playersImported} player{created.playersImported > 1 ? "s" : ""} imported with parent details. </b>}
             {created.trainingSeeded > 0 && <b>{created.trainingSeeded} weekly training session{created.trainingSeeded > 1 ? "s" : ""} added to the calendar. </b>}
-            Share the code with the team. Parents log in with it at {typeof window !== "undefined" ? window.location.origin : ""} — the calendar subscribe link is on their Home tab.
+            Share the code with the team. Parents log in with it at {typeof window !== "undefined" ? window.location.origin : ""}, and the calendar subscribe link is on their Calendar tab.
           </div>
-          <button style={{ ...ghost, marginTop: 10, padding: "5px 10px", fontSize: 12 }} onClick={() => setCreated(null)}>Done</button>
+          <button className="adm-btn soft sm" style={{ marginTop: 10 }} onClick={() => setCreated(null)}>Done</button>
         </div>
       )}
 
       {!teams ? (
-        <div style={{ color: C.muted, fontSize: 13 }}>Loading…</div>
+        <div className="adm-empty">Loading…</div>
       ) : (
         <>
           {teams.map((t) => (
-            <div key={t.slug} style={{ padding: "10px 0", borderBottom: "1px solid " + C.line }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 800, fontSize: 14.5 }}>{t.name}</span>
-                {t.ageGroup && <span style={{ ...chip, background: C.soft, color: C.muted }}>{t.ageGroup}</span>}
-                {t.season && <span style={{ ...chip, background: C.soft, color: C.muted }}>{seasonLabel(t.season)}</span>}
-                {srcChip(t)}
-                <span style={{ flex: 1 }} />
-                <button style={{ ...btn, padding: "4px 9px", fontSize: 11.5 }} onClick={() => openDashboard(t)}>Open ▸</button>
-                <button style={{ ...ghost, padding: "4px 9px", fontSize: 11.5 }} onClick={() => openEdit(t)}>Edit</button>
-                {t.source === "stored" && (
-                  <button disabled={busy} style={{ ...ghost, padding: "4px 9px", fontSize: 11.5 }} onClick={() => remove(t.slug)}>Remove</button>
-                )}
+            <div key={t.slug} className="adm-team">
+              <div className="adm-team-top">
+                <span className="adm-team-name">{t.name}</span>
+                {t.ageGroup && <span className="adm-pill">{t.ageGroup}</span>}
+                {t.season && <span className="adm-pill">{seasonLabel(t.season)}</span>}
+                {srcPill(t)}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 6, fontSize: 12.5, color: C.muted }}>
-                <span>slug: <b style={{ color: C.ink }}>{t.slug}</b></span>
+              <div className="adm-team-meta">
+                <span>Slug <b>{t.slug}</b></span>
                 <span>
-                  code:{" "}
-                  <b style={{ color: C.ink }}>{reveal[t.slug] ? t.password : "••••••"}</b>{" "}
-                  <button style={{ background: "none", border: "none", color: C.red, fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0 }}
-                    onClick={() => setReveal((r) => ({ ...r, [t.slug]: !r[t.slug] }))}>{reveal[t.slug] ? "hide" : "show"}</button>{" "}
-                  <button style={{ background: "none", border: "none", color: C.red, fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0 }}
-                    onClick={() => copy(t.password, "code" + t.slug)}>{copied === "code" + t.slug ? "copied!" : "copy"}</button>
+                  Code <b>{reveal[t.slug] ? t.password : "••••••"}</b>{" "}
+                  <button className="adm-link" aria-label={`${reveal[t.slug] ? "Hide" : "Show"} the team code for ${t.name}`}
+                    onClick={() => setReveal((r) => ({ ...r, [t.slug]: !r[t.slug] }))}>{reveal[t.slug] ? "Hide" : "Show"}</button>{" "}
+                  <button className="adm-link" aria-label={`Copy the team code for ${t.name}`}
+                    onClick={() => copy(t.password, "code" + t.slug)}>{copied === "code" + t.slug ? "Copied" : "Copy"}</button>
                 </span>
+                {(t.coachEmails || []).length > 0 && <span>Coaches: {t.coachEmails.join(", ")}</span>}
+              </div>
+              <div className="adm-team-acts">
+                <button className="adm-btn sm" aria-label={`Open ${t.name}`} onClick={() => openDashboard(t)}>Open</button>
+                <button className="adm-btn soft sm" aria-label={`Edit ${t.name}`} onClick={() => openEdit(t)}>Edit</button>
                 {t.calendarKey && (
-                  <button style={{ background: "none", border: "none", color: C.red, fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0 }}
-                    onClick={() => copy(feedUrl(t), "cal" + t.slug)}>{copied === "cal" + t.slug ? "calendar link copied!" : "copy calendar link"}</button>
+                  <button className="adm-btn soft sm" aria-label={`Copy the calendar link for ${t.name}`}
+                    onClick={() => copy(feedUrl(t), "cal" + t.slug)}>{copied === "cal" + t.slug ? "Calendar link copied" : "Copy calendar link"}</button>
                 )}
-                {(t.coachEmails || []).length > 0 && <span>coaches: {t.coachEmails.join(", ")}</span>}
+                {t.source === "stored" && (
+                  <button disabled={busy} className="adm-btn danger sm" aria-label={`Remove ${t.name}`} onClick={() => remove(t.slug)}>Remove</button>
+                )}
               </div>
             </div>
           ))}
-          {teams.length === 0 && <div style={{ fontSize: 13, color: C.muted }}>No teams yet — add the first one below.</div>}
+          {teams.length === 0 && <div className="adm-empty">No teams yet. Add the first one below.</div>}
         </>
       )}
 
       {!form ? (
-        <button style={{ ...btn, marginTop: 14 }} onClick={openCreate}>＋ Add a team</button>
+        <button className="adm-btn" style={{ marginTop: 14 }} onClick={openCreate}><Plus size={16} aria-hidden="true" />Add a team</button>
       ) : (
-        <div style={{ marginTop: 14, borderTop: "2px solid " + C.soft, paddingTop: 12 }}>
-          <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>{editSlug ? `Edit ${editSlug}` : "New team"}</div>
+        <div className="adm-wizard">
+          <h3 className="adm-wizard-title">{editSlug ? `Edit ${editing?.name || editSlug}` : "New team"}</h3>
 
-          <span style={fieldLb}>1 · Team name</span>
-          <input style={inp} placeholder="Olympic FC U9 Wallabies Blue" value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} autoFocus />
-          {!editSlug && form.name && <div style={hint}>slug (permanent): <b>{slugify(form.name) || "—"}</b></div>}
-          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-            <input style={{ ...inp, flex: "1 1 180px" }} placeholder="Division label (e.g. Kangaroos K1 Central Hub)" value={form.division}
-              onChange={(e) => setForm((f) => ({ ...f, division: e.target.value }))} />
-            <input style={{ ...inp, flex: "1 1 180px" }} placeholder="WhatsApp group link (optional)" value={form.whatsapp}
-              onChange={(e) => setForm((f) => ({ ...f, whatsapp: e.target.value }))} />
-          </div>
+          <Step n={++stepNo} title="Team name">
+            <input className="adm-inp" aria-label="Team name" placeholder="Olympic FC U9 Wallabies Blue" value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} autoFocus />
+            {!editSlug && form.name && <div className="adm-note">Slug (permanent): <b className="adm-mono">{slugify(form.name) || "not set"}</b></div>}
+            <div className="adm-line">
+              <input className="adm-inp" style={{ flex: "1 1 180px" }} aria-label="Division label" placeholder="Division label (e.g. Kangaroos K1 Central Hub)" value={form.division}
+                onChange={(e) => setForm((f) => ({ ...f, division: e.target.value }))} />
+              <input className="adm-inp" style={{ flex: "1 1 180px" }} aria-label="WhatsApp group link" placeholder="WhatsApp group link (optional)" value={form.whatsapp}
+                onChange={(e) => setForm((f) => ({ ...f, whatsapp: e.target.value }))} />
+            </div>
+          </Step>
 
-          <span style={fieldLb}>2 · Age group</span>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {AGE_GROUPS.map((a) => (
-              <button key={a} onClick={() => setForm((f) => ({ ...f, ageGroup: a }))}
-                style={{ ...chip, cursor: "pointer", border: "1px solid " + (form.ageGroup === a ? C.red : C.line), background: form.ageGroup === a ? C.red : "#fff", color: form.ageGroup === a ? "#fff" : C.ink, padding: "6px 12px" }}>
-                {a}
+          <Step n={++stepNo} title="Age group">
+            <div className="adm-chips">
+              {AGE_GROUPS.map((a) => (
+                <button key={a} type="button" aria-pressed={form.ageGroup === a} className={"adm-chip" + (form.ageGroup === a ? " on" : "")}
+                  onClick={() => setForm((f) => ({ ...f, ageGroup: a }))}>
+                  {a}
+                </button>
+              ))}
+            </div>
+            <div className="adm-note">Sets the default match format, for example U8 and U9 play 7-a-side, 2 × 20 minutes.</div>
+          </Step>
+
+          <Step n={++stepNo} title="Team code" lead="What everyone types to log in.">
+            <div className="adm-line" style={{ marginTop: 0 }}>
+              <input className="adm-inp adm-mono" style={{ flex: 1, minWidth: 0 }} aria-label="Team code" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
+              <button type="button" className="adm-btn soft" onClick={() => setForm((f) => ({ ...f, password: friendlyCode() }))}><RefreshCw size={15} aria-hidden="true" />New code</button>
+            </div>
+            <div className="adm-note">Must be unique across teams: the code picks the team at login. The calendar key is generated automatically.</div>
+            {editSlug && (<>
+              <button type="button" disabled={busy} className="adm-btn soft sm" style={{ marginTop: 8 }} onClick={() => rotateKey(editSlug)}>
+                <RefreshCw size={13} aria-hidden="true" />Rotate calendar key
               </button>
-            ))}
-          </div>
-          <div style={hint}>Sets the default match format (e.g. U8–U9 → 7-a-side, 2 × 20').</div>
+              <div className="adm-note">Use this if the subscribe link has leaked. Everyone re-subscribes with the new link.</div>
+            </>)}
+          </Step>
 
-          <span style={fieldLb}>3 · Team code — what everyone types to log in</span>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input style={{ ...inp, flex: 1 }} value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
-            <button style={ghost} onClick={() => setForm((f) => ({ ...f, password: friendlyCode() }))}>↻ New</button>
-          </div>
-          <div style={hint}>Must be unique across teams — the code picks the team at login. The calendar key is generated automatically.</div>
-          {editSlug && (
-            <button disabled={busy} style={{ ...ghost, marginTop: 8, padding: "6px 11px", fontSize: 12 }} onClick={() => rotateKey(editSlug)}>
-              ↻ Rotate calendar key (if the subscribe link leaked)
-            </button>
-          )}
+          <Step n={++stepNo} title="Extra coach logins" optional>
+            <input className="adm-inp" aria-label="Extra coach emails" placeholder="coach@example.com, another@example.com" value={form.coachEmails}
+              onChange={(e) => setForm((f) => ({ ...f, coachEmails: e.target.value }))} />
+            <div className="adm-note">
+              Emails here get coach-level access. Anyone on the staff list under Team identity with an email
+              gets it too, with their title shown in the app.
+            </div>
+          </Step>
 
-          <span style={fieldLb}>4 · Extra coach logins (optional)</span>
-          <input style={inp} placeholder="coach@example.com, another@example.com" value={form.coachEmails}
-            onChange={(e) => setForm((f) => ({ ...f, coachEmails: e.target.value }))} />
-          <div style={hint}>
-            Emails here get coach-level access. Anyone on the staff list {editSlug ? "below" : "in step 11"} with an
-            email gets it too, with their title shown in the app.
-          </div>
-
-          <span style={fieldLb}>5 · Squadi sync (optional — fill in when FQ publishes the draw)</span>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <input style={{ ...inp, flex: "1 1 120px" }} placeholder="competitionId" value={form.squadi.competitionId}
-              onChange={(e) => setForm((f) => ({ ...f, squadi: { ...f.squadi, competitionId: e.target.value } }))} />
-            <input style={{ ...inp, flex: "1 1 120px" }} placeholder="divisionId" value={form.squadi.divisionId}
-              onChange={(e) => setForm((f) => ({ ...f, squadi: { ...f.squadi, divisionId: e.target.value } }))} />
-            <input style={{ ...inp, flex: "1 1 120px" }} placeholder="teamId" value={form.squadi.teamId}
-              onChange={(e) => setForm((f) => ({ ...f, squadi: { ...f.squadi, teamId: e.target.value } }))} />
-          </div>
-          <div style={hint}>From the FQ widget via DevTools (see the README) — leave blank to add later with Edit.</div>
+          <Step n={++stepNo} title="Squadi sync" optional lead="Fill in when FQ publishes the draw.">
+            <div className="adm-line" style={{ marginTop: 0 }}>
+              <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label="Squadi competition ID" placeholder="competitionId" value={form.squadi.competitionId}
+                onChange={(e) => setForm((f) => ({ ...f, squadi: { ...f.squadi, competitionId: e.target.value } }))} />
+              <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label="Squadi division ID" placeholder="divisionId" value={form.squadi.divisionId}
+                onChange={(e) => setForm((f) => ({ ...f, squadi: { ...f.squadi, divisionId: e.target.value } }))} />
+              <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label="Squadi team ID" placeholder="teamId" value={form.squadi.teamId}
+                onChange={(e) => setForm((f) => ({ ...f, squadi: { ...f.squadi, teamId: e.target.value } }))} />
+            </div>
+            <div className="adm-note">From the FQ widget via DevTools (see the README). Leave blank to add later with Edit.</div>
+          </Step>
 
           {!editSlug && (
-            <>
-              <span style={fieldLb}>6 · Players & parents — Majestri import (optional)</span>
-              <div style={hint}>
-                Upload the Majestri CSV export, or paste it (from the file or straight out of Excel).
-                Player rows only — parents' names, emails and mobiles come across, which is what
-                powers parent login and RSVPs. A simple list works too:
-                <i> Name, number, position, parent, mobile, dd/mm/yyyy</i>.
-              </div>
-              <div style={{ margin: "8px 0 6px" }}>
-                <label style={{ ...ghost, display: "inline-block", cursor: "pointer" }}>
-                  Upload CSV…
-                  <input type="file" accept=".csv,text/csv,text/plain" style={{ display: "none" }} onChange={onCsvFile} />
-                </label>
-              </div>
+            <Step n={++stepNo} title="Players and parents" optional
+              lead={<>Upload the Majestri CSV export, or paste it (from the file or straight out of Excel). Player rows only:
+                parents' names, emails and mobiles come across, which is what powers parent login and replies. A simple list
+                works too: <i>Name, number, position, parent, mobile, dd/mm/yyyy</i>.</>}>
+              <label className="adm-btn soft sm">
+                Upload CSV
+                <input type="file" accept=".csv,text/csv,text/plain" className="adm-file" onChange={onCsvFile} />
+              </label>
               <textarea
-                style={{ ...inp, minHeight: 96, fontFamily: "ui-monospace,monospace", fontSize: 12 }}
-                placeholder={"…or paste the export here\nSpencer, 6, MID, Damien, 0400 000 000, 12/03/2018"}
+                className="adm-inp" style={{ marginTop: 8 }} aria-label="Player import"
+                placeholder={"Or paste the export here\nSpencer, 6, MID, Damien, 0400 000 000, 12/03/2018"}
                 value={form.importText}
                 onChange={(e) => setForm((f) => ({ ...f, importText: e.target.value }))}
               />
               {form.importText.trim() && (
-                <div style={{ ...hint, marginTop: 6 }}>
-                  {imported.isMajestri && <b style={{ color: C.ok }}>Majestri export detected. </b>}
+                <div className="adm-note" role="status">
+                  {imported.isMajestri && <b style={{ color: "var(--green-strong)" }}>Majestri export detected. </b>}
                   {imported.players.length > 0 ? (
                     <>
-                      <b style={{ color: C.ok }}>{imported.players.length} player{imported.players.length > 1 ? "s" : ""} ready:</b>{" "}
+                      <b style={{ color: "var(--green-strong)" }}>{imported.players.length} player{imported.players.length > 1 ? "s" : ""} ready:</b>{" "}
                       {imported.players.slice(0, 8).map((p) => p.name).join(", ")}{imported.players.length > 8 ? "…" : ""}
                       {" · "}{imported.players.filter((p) => (p.parentEmails || []).length).length} with parent emails
                     </>
                   ) : (
-                    <span style={{ color: C.red, fontWeight: 700 }}>Nothing parseable yet — check the format.</span>
+                    <b style={{ color: "var(--red-strong)" }}>Nothing readable yet. Check the format.</b>
                   )}
                 </div>
               )}
-
-            </>
+            </Step>
           )}
 
-          <span style={fieldLb}>{editSlug ? "Season" : "7 · Season"} — when the team is active (optional)</span>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {SEASON_YEARS.map((yr) => {
-              const on = form.season.startISO === `${yr}-01-01` && form.season.endISO === `${yr}-12-31`;
-              return (
-                <button key={yr} type="button" onClick={() => setForm((f) => ({ ...f, season: { startISO: `${yr}-01-01`, endISO: `${yr}-12-31` } }))}
-                  style={{ ...chip, cursor: "pointer", border: "1px solid " + (on ? C.red : C.line), background: on ? C.red : "#fff", color: on ? "#fff" : C.ink, padding: "6px 12px" }}>
-                  {yr}
-                </button>
-              );
-            })}
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <input type="date" aria-label="Season starts" style={{ ...inp, flex: "1 1 140px" }} value={form.season.startISO}
-              onChange={(e) => setForm((f) => ({ ...f, season: { ...f.season, startISO: e.target.value } }))} />
-            <span style={{ fontSize: 12, color: C.muted }}>to</span>
-            <input type="date" aria-label="Season finishes" style={{ ...inp, flex: "1 1 140px" }} value={form.season.endISO}
-              onChange={(e) => setForm((f) => ({ ...f, season: { ...f.season, endISO: e.target.value } }))} />
+          <Step n={++stepNo} title="Season" optional lead="When the team is active.">
+            <div className="adm-chips">
+              {SEASON_YEARS.map((yr) => {
+                const on = form.season.startISO === `${yr}-01-01` && form.season.endISO === `${yr}-12-31`;
+                return (
+                  <button key={yr} type="button" aria-pressed={on} className={"adm-chip" + (on ? " on" : "")}
+                    onClick={() => setForm((f) => ({ ...f, season: { startISO: `${yr}-01-01`, endISO: `${yr}-12-31` } }))}>
+                    {yr}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="adm-grid2" style={{ marginTop: 10 }}>
+              <div>
+                <label className="adm-fl" htmlFor="tw-season-start">Season starts</label>
+                <input id="tw-season-start" type="date" className="adm-inp" value={form.season.startISO}
+                  onChange={(e) => setForm((f) => ({ ...f, season: { ...f.season, startISO: e.target.value } }))} />
+              </div>
+              <div>
+                <label className="adm-fl" htmlFor="tw-season-end">Season finishes</label>
+                <input id="tw-season-end" type="date" className="adm-inp" value={form.season.endISO}
+                  onChange={(e) => setForm((f) => ({ ...f, season: { ...f.season, endISO: e.target.value } }))} />
+              </div>
+            </div>
             {(form.season.startISO || form.season.endISO) && (
-              <button type="button" style={{ background: "none", border: "none", color: C.red, fontWeight: 700, fontSize: 11.5, cursor: "pointer", padding: 0 }}
-                onClick={() => setForm((f) => ({ ...f, season: { ...BLANK_SEASON } }))}>Clear</button>
+              <button type="button" className="adm-link" style={{ marginTop: 6 }} onClick={() => setForm((f) => ({ ...f, season: { ...BLANK_SEASON } }))}>Clear the season</button>
             )}
-          </div>
-          <div style={hint}>Weekly training and the calendar only run inside this window. Leave blank to follow the current calendar year.</div>
+            <div className="adm-note">Weekly training and the calendar only run inside this window. Leave blank to follow the current calendar year.</div>
+          </Step>
 
           {!editSlug && (
-            <>
-              <span style={fieldLb}>8 · Weekly training schedule (optional)</span>
-              <div style={hint}>
-                These become recurring sessions on the team calendar — and flow into every parent's
-                subscribed calendar automatically, exactly like Squadi-synced games.
-              </div>
-              {form.training.map((row, i) => (
-                <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
-                  <select style={{ ...inp, width: "auto" }} value={row.weekday}
-                    onChange={(e) => setForm((f) => ({ ...f, training: f.training.map((r, k) => k === i ? { ...r, weekday: e.target.value } : r) }))}>
-                    {WEEKDAYS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                  </select>
-                  <input type="time" style={{ ...inp, width: "auto" }} value={row.time}
-                    onChange={(e) => setForm((f) => ({ ...f, training: f.training.map((r, k) => k === i ? { ...r, time: e.target.value } : r) }))} />
-                  <span style={{ fontSize: 12, color: C.muted }}>to</span>
-                  <input type="time" style={{ ...inp, width: "auto" }} value={row.endTime}
-                    onChange={(e) => setForm((f) => ({ ...f, training: f.training.map((r, k) => k === i ? { ...r, endTime: e.target.value } : r) }))} />
-                  <input style={{ ...inp, flex: "1 1 120px" }} placeholder="Location" value={row.location}
-                    onChange={(e) => setForm((f) => ({ ...f, training: f.training.map((r, k) => k === i ? { ...r, location: e.target.value } : r) }))} />
-                  <button style={{ background: "none", border: "none", color: C.red, fontWeight: 700, cursor: "pointer" }}
-                    onClick={() => setForm((f) => ({ ...f, training: f.training.filter((_, k) => k !== i) }))}>✕</button>
-                </div>
-              ))}
-              <button style={{ ...ghost, marginTop: 8, padding: "6px 11px", fontSize: 12 }}
+            <Step n={++stepNo} title="Weekly training" optional
+              lead="These become recurring sessions on the team calendar, and flow into every parent's subscribed calendar automatically, exactly like Squadi-synced games.">
+              {form.training.map((row, i) => {
+                const setRow = (patch) => setForm((f) => ({ ...f, training: f.training.map((r, k) => (k === i ? { ...r, ...patch } : r)) }));
+                return (
+                  <div key={i} className="adm-train">
+                    <select className="adm-inp" aria-label={`Training day ${i + 1}`} value={row.weekday} onChange={(e) => setRow({ weekday: e.target.value })}>
+                      {WEEKDAYS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                    <input className="adm-inp" aria-label={`Training ${i + 1} location`} placeholder="Location" value={row.location}
+                      onChange={(e) => setRow({ location: e.target.value })} />
+                    <button type="button" className="adm-iconbtn" aria-label={`Remove training day ${i + 1}`}
+                      onClick={() => setForm((f) => ({ ...f, training: f.training.filter((_, k) => k !== i) }))}><X size={16} aria-hidden="true" /></button>
+                    <div className="times">
+                      <input type="time" className="adm-inp adm-mono" aria-label={`Training ${i + 1} starts`} value={row.time} onChange={(e) => setRow({ time: e.target.value })} />
+                      <span className="adm-note">to</span>
+                      <input type="time" className="adm-inp adm-mono" aria-label={`Training ${i + 1} finishes`} value={row.endTime} onChange={(e) => setRow({ endTime: e.target.value })} />
+                    </div>
+                  </div>
+                );
+              })}
+              <button type="button" className="adm-btn soft sm" style={{ marginTop: 8 }}
                 onClick={() => setForm((f) => ({ ...f, training: [...f.training, { weekday: "2", time: "17:00", endTime: "18:00", location: "" }] }))}>
-                ＋ Add training day
+                <Plus size={14} aria-hidden="true" />Add training day
               </button>
-            </>
+            </Step>
           )}
 
-          <span style={fieldLb}>{editSlug ? "Features" : "9 · Features"} — what this team uses</span>
-          <div style={hint}>Turn off anything that isn't relevant — the dashboard hides it for everyone on this team.</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-            {Object.keys(DEFAULT_FEATURES).map((k) => {
-              const on = !!form.features[k];
+          <Step n={++stepNo} title="Features" lead="What this team uses. Turn off anything that isn't relevant and the dashboard hides it for everyone on this team.">
+            <div>
+              {Object.keys(DEFAULT_FEATURES).map((k) => {
+                const on = !!form.features[k];
+                return (
+                  <div key={k} className="adm-swrow">
+                    <span>{FEATURE_LABELS[k]}</span>
+                    <AdminSwitch on={on} label={FEATURE_LABELS[k]} onClick={() => setForm((f) => ({ ...f, features: { ...f.features, [k]: !on } }))} />
+                  </div>
+                );
+              })}
+            </div>
+          </Step>
+
+          <Step n={++stepNo} title="Parents can see" lead="What parents see of match day.">
+            <div>
+              {Object.keys(DEFAULT_PARENTS_SEE).map((k) => {
+                const on = !!form.parentsSee[k];
+                return (
+                  <div key={k} className="adm-swrow">
+                    <span>{PARENTS_SEE_LABELS[k]}</span>
+                    <AdminSwitch on={on} label={PARENTS_SEE_LABELS[k]} onClick={() => setForm((f) => ({ ...f, parentsSee: { ...f.parentsSee, [k]: !on } }))} />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="adm-note">Coaches can change this any time in Team settings.</div>
+          </Step>
+
+          <Step n={++stepNo} title="Team identity" optional lead="Logo, staff and the coach PIN.">
+            <div className="adm-line" style={{ marginTop: 0 }}>
+              {form.logo
+                ? <img src={form.logo} alt="" className="adm-logo" />
+                : form.hasLogo
+                ? <span className="adm-pill ok lg"><Check size={12} aria-hidden="true" />Logo set</span>
+                : null}
+              <label className="adm-btn soft sm">
+                {form.logo || form.hasLogo ? "Replace logo" : "Upload logo"}
+                <input type="file" accept="image/*" className="adm-file" onChange={onLogoFile} />
+              </label>
+              <span className="adm-note">Shown on the header, login and calendar.</span>
+            </div>
+            <div className="adm-note" style={{ marginTop: 10 }}>
+              Staff with an email get coach-level login, with their title shown in the app. Mobile is optional. Add
+              anyone else on the bench with their own title.
+            </div>
+            {form.staff.map((s, i) => {
+              const set = (patch) => setForm((f) => ({ ...f, staff: f.staff.map((r, k) => (k === i ? { ...r, ...patch } : r)) }));
+              const who = s.role || `Staff member ${i + 1}`;
               return (
-                <button key={k} onClick={() => setForm((f) => ({ ...f, features: { ...f.features, [k]: !on } }))}
-                  style={{ ...chip, cursor: "pointer", padding: "7px 12px", border: "1px solid " + (on ? C.ok : C.line), background: on ? "rgba(30,158,87,.10)" : "#fff", color: on ? C.ok : C.muted }}>
-                  {on ? "✓ " : ""}{FEATURE_LABELS[k]}
-                </button>
+                <div key={i} className="adm-staff">
+                  <div className="top">
+                    {s.custom
+                      ? <input className="adm-inp" style={{ flex: "1 1 0", minWidth: 0 }} aria-label={`Title for staff member ${i + 1}`} placeholder="Title (e.g. Goalkeeper coach)" value={s.role}
+                          onChange={(e) => set({ role: e.target.value })} />
+                      : <span className="w110">{s.role}</span>}
+                    <input className="adm-inp" style={{ flex: "1.4 1 0", minWidth: 0 }} aria-label={`${who} name`} placeholder="Name" value={s.name}
+                      onChange={(e) => set({ name: e.target.value })} />
+                    {s.custom && (
+                      <button type="button" className="adm-iconbtn" aria-label="Remove staff member"
+                        onClick={() => setForm((f) => ({ ...f, staff: f.staff.filter((_, k) => k !== i) }))}><X size={16} aria-hidden="true" /></button>
+                    )}
+                  </div>
+                  <div className="more">
+                    <input className="adm-inp adm-mono" aria-label={`${who} mobile`} placeholder="Mobile" inputMode="tel" value={s.mobile}
+                      onChange={(e) => set({ mobile: e.target.value })} />
+                    <input type="email" className="adm-inp" aria-label={`${who} email`} placeholder="Email" inputMode="email" autoComplete="off" value={s.email}
+                      onChange={(e) => set({ email: e.target.value })} />
+                  </div>
+                </div>
               );
             })}
-          </div>
-
-          <span style={fieldLb}>{editSlug ? "Parents can see" : "10 · Parents can see"} — what parents see of match day</span>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-            {Object.keys(DEFAULT_PARENTS_SEE).map((k) => {
-              const on = !!form.parentsSee[k];
-              return (
-                <button key={k} onClick={() => setForm((f) => ({ ...f, parentsSee: { ...f.parentsSee, [k]: !on } }))}
-                  style={{ ...chip, cursor: "pointer", padding: "7px 12px", border: "1px solid " + (on ? C.ok : C.line), background: on ? "rgba(30,158,87,.10)" : "#fff", color: on ? C.ok : C.muted }}>
-                  {on ? "✓ " : ""}{PARENTS_SEE_LABELS[k]}
-                </button>
-              );
-            })}
-          </div>
-          <div style={hint}>You can change this any time in Settings.</div>
-
-          <span style={fieldLb}>{editSlug ? "Team identity" : "11 · Team identity"} — logo, staff & coach PIN (all optional)</span>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            {form.logo
-              ? <img src={form.logo} alt="" style={{ width: 44, height: 44, objectFit: "contain", borderRadius: 10, background: C.soft }} />
-              : form.hasLogo
-              ? <span style={{ ...chip, background: "rgba(30,158,87,.10)", color: C.ok }}>logo set ✓</span>
-              : null}
-            <label style={{ ...ghost, display: "inline-block", cursor: "pointer" }}>
-              {form.logo || form.hasLogo ? "Replace logo…" : "Upload logo…"}
-              <input type="file" accept="image/*" style={{ display: "none" }} onChange={onLogoFile} />
-            </label>
-            <span style={{ fontSize: 11.5, color: C.muted }}>shown on the header, login and calendar</span>
-          </div>
-          <div style={{ ...hint, marginTop: 8 }}>
-            Staff with an email get coach-level login, with their title shown in the app. Add anyone else on the
-            bench with their own title.
-          </div>
-          {form.staff.map((s, i) => {
-            const set = (patch) => setForm((f) => ({ ...f, staff: f.staff.map((r, k) => (k === i ? { ...r, ...patch } : r)) }));
-            return (
-              <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
-                {s.custom
-                  ? <input style={{ ...inp, flex: "1 1 110px" }} placeholder="Title (e.g. Goalkeeper coach)" value={s.role}
-                      onChange={(e) => set({ role: e.target.value })} />
-                  : <span style={{ width: 110, fontSize: 12, fontWeight: 700, color: C.muted }}>{s.role}</span>}
-                <input style={{ ...inp, flex: "2 1 140px" }} placeholder="Name" value={s.name}
-                  onChange={(e) => set({ name: e.target.value })} />
-                <input style={{ ...inp, flex: "1 1 120px" }} placeholder="Mobile (optional)" inputMode="tel" value={s.mobile}
-                  onChange={(e) => set({ mobile: e.target.value })} />
-                <input type="email" style={{ ...inp, flex: "2 1 180px" }} placeholder="Email (gives coach-level login)" inputMode="email" autoComplete="off" value={s.email}
-                  onChange={(e) => set({ email: e.target.value })} />
-                {s.custom && (
-                  <button aria-label="Remove staff member" style={{ background: "none", border: "none", color: C.red, fontWeight: 700, cursor: "pointer" }}
-                    onClick={() => setForm((f) => ({ ...f, staff: f.staff.filter((_, k) => k !== i) }))}>✕</button>
-                )}
-              </div>
-            );
-          })}
-          <button style={{ ...ghost, marginTop: 8, padding: "6px 11px", fontSize: 12 }}
-            onClick={() => setForm((f) => ({ ...f, staff: [...f.staff, { role: "", name: "", mobile: "", email: "", custom: true }] }))}>
-            Add staff member
-          </button>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-            <span style={{ width: 110, fontSize: 12, fontWeight: 700, color: C.muted }}>Coach PIN</span>
-            <input style={{ ...inp, width: 120 }} inputMode="numeric" placeholder="e.g. 2468" value={form.coachPin}
-              onChange={(e) => setForm((f) => ({ ...f, coachPin: e.target.value }))} />
-            <span style={{ fontSize: 11.5, color: C.muted }}>in team-code mode, hides the edit controls behind this PIN</span>
-          </div>
-
-          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-            <button disabled={busy || !form.name.trim() || form.password.trim().length < 4} style={btn} onClick={submit}>
-              {busy ? "…" : editSlug ? "Save changes" : "Create team"}
+            <button type="button" className="adm-btn soft sm" style={{ marginTop: 8 }}
+              onClick={() => setForm((f) => ({ ...f, staff: [...f.staff, { role: "", name: "", mobile: "", email: "", custom: true }] }))}>
+              <Plus size={14} aria-hidden="true" />Add staff member
             </button>
-            <button style={ghost} onClick={() => { setForm(null); setEditSlug(null); }}>Cancel</button>
+            <div className="adm-line">
+              <span className="w110">Coach PIN</span>
+              <input className="adm-inp adm-mono" style={{ width: 120 }} aria-label="Coach PIN" inputMode="numeric" placeholder="e.g. 2468" value={form.coachPin}
+                onChange={(e) => setForm((f) => ({ ...f, coachPin: e.target.value }))} />
+              <span className="adm-note">In team-code mode, hides the edit controls behind this PIN.</span>
+            </div>
+          </Step>
+
+          <div className="adm-actions">
+            <button disabled={busy || !form.name.trim() || form.password.trim().length < 4} className="adm-btn" onClick={submit}>
+              {busy ? "Saving…" : editSlug ? "Save changes" : "Create team"}
+            </button>
+            <button type="button" className="adm-btn soft" onClick={() => { setForm(null); setEditSlug(null); }}>Cancel</button>
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }

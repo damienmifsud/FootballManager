@@ -1,6 +1,6 @@
 ---
 name: olympic-fc-team-hub-design
-description: Design system for the Olympic FC team hub (footballmgr.au) — tokens, type, copy rules, component patterns and motion for the parent/coach dashboard in components/Dashboard.jsx. Use when building or restyling any dashboard screen, card, sheet, nav or crest.
+description: Design system for the Olympic FC team hub (footballmgr.au) — tokens, type, copy rules, component patterns and motion for the parent/coach dashboard in components/Dashboard.jsx, the sign-in pages and the club admin screens. Use when building or restyling any dashboard, sign-in or admin screen, card, sheet, nav or crest.
 ---
 
 # Olympic FC team hub — design skill
@@ -15,6 +15,15 @@ values into classes in the CSS block. Icons are `lucide-react`.
 > Current build target: `design/handoff-2026-09-direction-c/` (Direction C, Sep 2026).
 > Read its `CLAUDE-CODE-BRIEF.md` first, then its `README.md`. They override "The
 > refresh" and the dark-chrome rules in this skill's README wherever they differ.
+
+Where the styles live (one design, three stylesheets, same token values):
+- `components/Dashboard.jsx` — the dashboard: `const CSS`, tokens on `:root`.
+- `components/AuthShell.jsx` — sign-in, the Viewing-as picker page and the splash pages: `auth-` classes.
+- `components/AdminShell.jsx` — club admin (`/admin`: access manager, team wizard, role table) and the
+  league page (`/league`): `adm-` classes, the dashboard's sub-header and cards.
+
+`components/MatchDayPlanner.jsx` is the one screen outside Direction C: a full-screen pitch-side
+tool with its own palette, not covered by the handoff.
 
 Files here:
 - `README.md` — voice and copy rules, position tags, result colours, MatchRow, crests, motion.

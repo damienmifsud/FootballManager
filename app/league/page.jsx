@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { ExternalLink } from "lucide-react";
+import { AdminPage } from "@/components/AdminShell";
 
 // FQ Metro Region organisation key (from footballqueensland.com.au's own embeds).
 const FQ_METRO_ORG = "b0e92958-980b-4da0-9ec9-a9c2597b06f0";
@@ -41,26 +42,9 @@ function buildUrl(c) {
   return "https://registration.squadi.com/liveScoreSeasonFixture?" + p.toString();
 }
 
-const S = {
-  page: { minHeight: "100vh", background: "#F4F4F3", fontFamily: "system-ui,sans-serif" },
-  bar: { background: "linear-gradient(160deg,#C8102E,#7A0A1B)", color: "#fff", padding: "14px 18px", display: "flex", alignItems: "center", gap: 12 },
-  back: { color: "#fff", textDecoration: "none", fontWeight: 700, fontSize: 13, background: "rgba(255,255,255,.15)", padding: "7px 12px", borderRadius: 999 },
-  h: { fontSize: 17, fontWeight: 800, margin: 0 },
-  gear: { marginLeft: "auto", background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 999, padding: "7px 12px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
-  panel: { background: "#fff", borderBottom: "1px solid #e7e3e3", padding: 16 },
-  lab: { display: "block", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "#6b5a5d", margin: "10px 0 4px" },
-  inp: { width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 10, border: "1px solid #e7e3e3", fontSize: 14, background: "#faf9f9" },
-  row: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
-  btn: { marginTop: 14, width: "100%", padding: 12, borderRadius: 10, border: "none", background: "#C8102E", color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer" },
-  note: { fontSize: 12, color: "#6b5a5d", lineHeight: 1.55, marginTop: 10 },
-  seg: { display: "flex", gap: 6, marginTop: 10 },
-  segBtn: (on) => ({ flex: 1, padding: 9, borderRadius: 10, border: "1px solid " + (on ? "#C8102E" : "#e7e3e3"), background: on ? "#C8102E" : "#faf9f9", color: on ? "#fff" : "#6b5a5d", fontWeight: 700, fontSize: 13, cursor: "pointer" }),
-  frameWrap: { padding: 14 },
-  err: { fontSize: 13, color: "#a11226", background: "#fdeaec", border: "1px solid #f3c2c9", borderRadius: 10, padding: "10px 12px", marginTop: 10, lineHeight: 1.5 },
-  teamName: { fontSize: 12.5, fontWeight: 600, opacity: 0.85 },
-  frame: { width: "100%", height: "calc(100vh - 120px)", border: "1px solid #e7e3e3", borderRadius: 14, background: "#fff" },
-  empty: { textAlign: "center", padding: "60px 24px", color: "#6b5a5d", fontSize: 14, lineHeight: 1.6 }
-};
+// Direction C: the page uses the AdminShell (the dashboard's sub-header, the
+// 560 px column and hairline cards); the embedded Squadi draw sits below at a
+// wider measure because the widget needs the room.
 
 // The server's error text from a failed JSON response, or a fallback.
 async function errorText(res, fallback) {
@@ -159,71 +143,73 @@ export default function LeaguePage() {
   const src = buildUrl(cfg);
 
   return (
-    <div style={S.page}>
-      <div style={S.bar}>
-        <Link href="/" style={S.back}>← Dashboard</Link>
-        <div>
-          <h1 style={S.h}>League fixtures & ladder (Squadi)</h1>
-          {me?.teamName && <div style={S.teamName}>{me.teamName}</div>}
-        </div>
-        {canManage && (
-          <button style={S.gear} onClick={() => setOpen((o) => !o)}>{open ? "Close" : "Set up"}</button>
-        )}
-      </div>
-
-      {loadError && (
-        <div style={S.panel}>
-          <div style={S.err}>{loadError}</div>
-        </div>
+    <AdminPage
+      title="League fixtures and ladder"
+      kicker={me?.teamName ? `${me.teamName} · Squadi` : "Squadi"}
+      right={canManage && (
+        <button className="adm-hpill" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? "Close" : "Set up"}</button>
       )}
+      after={src ? (
+        <>
+          <div className="adm-frame-bar">
+            <a href={src} target="_blank" rel="noopener noreferrer" className="adm-link">
+              Open full page<ExternalLink size={13} aria-hidden="true" />
+            </a>
+          </div>
+          <iframe src={src} className="adm-frame" title="Squadi fixtures" />
+        </>
+      ) : null}
+    >
+      {loadError && <div className="adm-msg err" role="alert">{loadError}</div>}
 
       {canManage && open && (
-        <div style={S.panel}>
-          <div style={S.seg}>
-            <button style={S.segBtn(cfg.mode === "builder")} onClick={() => setCfg({ ...cfg, mode: "builder" })}>Build from filters</button>
-            <button style={S.segBtn(cfg.mode === "url")} onClick={() => setCfg({ ...cfg, mode: "url" })}>Paste full URL</button>
+        <section className="adm-card" aria-labelledby="league-setup">
+          <h2 className="adm-label" id="league-setup" style={{ marginBottom: 12 }}>Set up</h2>
+          <div className="adm-seg">
+            <button className={cfg.mode === "builder" ? "on" : ""} aria-pressed={cfg.mode === "builder"} onClick={() => setCfg({ ...cfg, mode: "builder" })}>Build from filters</button>
+            <button className={cfg.mode === "url" ? "on" : ""} aria-pressed={cfg.mode === "url"} onClick={() => setCfg({ ...cfg, mode: "url" })}>Paste full URL</button>
           </div>
 
           {cfg.mode === "url" ? (
-            <>
-              <label style={S.lab}>Squadi embed URL</label>
-              <input style={S.inp} value={cfg.url} placeholder="https://registration.squadi.com/liveScoreSeasonFixture?…"
+            <div style={{ marginTop: 14 }}>
+              <label className="adm-fl" htmlFor="lg-url">Squadi embed URL</label>
+              <input id="lg-url" className="adm-inp" value={cfg.url} placeholder="https://registration.squadi.com/liveScoreSeasonFixture?…"
                 onChange={(e) => setCfg({ ...cfg, url: e.target.value })} />
-              <div style={S.note}>
-                On the FQ competitions page, set the filters you want, then right-click the widget → <b>Inspect</b> →
+              <div className="adm-note" style={{ marginTop: 10 }}>
+                On the FQ competitions page, set the filters you want, then right-click the widget, choose <b>Inspect</b> and
                 copy the iframe's <b>src</b> (or grab the request URL from the Network tab) and paste it here.
               </div>
-            </>
+            </div>
           ) : (
-            <>
-              <div style={S.row}>
+            <div style={{ marginTop: 14 }}>
+              <div className="adm-grid2 stack">
                 <div>
-                  <label style={S.lab}>Year</label>
-                  <select style={S.inp} value={cfg.yearId} onChange={(e) => setCfg({ ...cfg, yearId: e.target.value })}>
+                  <label className="adm-fl" htmlFor="lg-year">Year</label>
+                  <select id="lg-year" className="adm-inp" value={cfg.yearId} onChange={(e) => setCfg({ ...cfg, yearId: e.target.value })}>
                     {YEARS.map((y) => <option key={y.id} value={y.id}>{y.label}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label style={S.lab}>Division ID (age group)</label>
-                  <input style={S.inp} value={cfg.divisionId} placeholder='e.g. 6872, or "All"'
+                  <label className="adm-fl" htmlFor="lg-division">Division ID (age group)</label>
+                  <input id="lg-division" className="adm-inp adm-mono" value={cfg.divisionId} placeholder='e.g. 6872, or "All"'
                     onChange={(e) => setCfg({ ...cfg, divisionId: e.target.value })} />
                 </div>
               </div>
-              <label style={S.lab}>Competition key</label>
-              <input style={S.inp} value={cfg.comp} placeholder={`2025 Metro MiniRoos: ${MINIROOS_2025}`}
+              <label className="adm-fl" htmlFor="lg-comp" style={{ marginTop: 12 }}>Competition key</label>
+              <input id="lg-comp" className="adm-inp adm-mono" value={cfg.comp} placeholder={`2025 Metro MiniRoos: ${MINIROOS_2025}`}
                 onChange={(e) => setCfg({ ...cfg, comp: e.target.value })} />
-              <div style={S.row}>
+              <div className="adm-grid2 stack" style={{ marginTop: 12 }}>
                 <div>
-                  <label style={S.lab}>Organisation key</label>
-                  <input style={S.inp} value={cfg.org} onChange={(e) => setCfg({ ...cfg, org: e.target.value })} />
+                  <label className="adm-fl" htmlFor="lg-org">Organisation key</label>
+                  <input id="lg-org" className="adm-inp adm-mono" value={cfg.org} onChange={(e) => setCfg({ ...cfg, org: e.target.value })} />
                 </div>
                 <div>
-                  <label style={S.lab}>Team ID (optional — pins one team)</label>
-                  <input style={S.inp} value={cfg.teamId} onChange={(e) => setCfg({ ...cfg, teamId: e.target.value })} />
+                  <label className="adm-fl" htmlFor="lg-team">Team ID (optional, pins one team)</label>
+                  <input id="lg-team" className="adm-inp adm-mono" value={cfg.teamId} onChange={(e) => setCfg({ ...cfg, teamId: e.target.value })} />
                 </div>
               </div>
-              <div style={S.note}>
-                <b>One-time setup for Olympic FC U8 Kangaroos White:</b> use <b>Open full page</b> (top right of the
+              <div className="adm-note" style={{ marginTop: 10 }}>
+                <b>One-time setup for Olympic FC U8 Kangaroos White:</b> use <b>Open full page</b> (above the
                 widget below), then set the filters exactly as on the FQ site:
                 {TEAM_PRESET.map(([k, v]) => <span key={k}><br />• {k}: <b>{v}</b></span>)}
                 <br />As you pick each filter, the page's <b>address bar URL updates</b> with the real IDs
@@ -231,35 +217,23 @@ export default function LeaguePage() {
                 paste, and <b>Save for everyone</b>. Until the 2026 MiniRoos &amp; U12 comp is selectable, the widget
                 below shows the 2025 MiniRoos season as a placeholder.
               </div>
-            </>
+            </div>
           )}
-          <button style={S.btn} onClick={save} disabled={saving}>{saving ? "Saving…" : "Save for everyone"}</button>
-          {saveError && <div style={S.err}>{saveError}</div>}
-          <button style={{ ...S.btn, background: "#1d2440", marginTop: 8 }} onClick={syncNow}>Sync fixtures from Squadi now</button>
-          {syncMsg && <div style={S.note}>{syncMsg}</div>}
-        </div>
+          <button className="adm-btn block" style={{ marginTop: 14 }} onClick={save} disabled={saving}>{saving ? "Saving…" : "Save for everyone"}</button>
+          {saveError && <div className="adm-msg err" role="alert" style={{ marginTop: 10 }}>{saveError}</div>}
+          <button className="adm-btn soft block" style={{ marginTop: 8 }} onClick={syncNow}>Sync fixtures from Squadi now</button>
+          {syncMsg && <div className="adm-note" role="status" style={{ marginTop: 10 }}>{syncMsg}</div>}
+        </section>
       )}
 
-      <div style={S.frameWrap}>
-        {src ? (
-          <>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-              <a href={src} target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 12.5, fontWeight: 700, color: "#C8102E", textDecoration: "none", background: "#fdeaec", padding: "7px 12px", borderRadius: 999 }}>
-                Open full page ↗ (filter there, then copy the URL)
-              </a>
-            </div>
-            <iframe src={src} style={S.frame} title="Squadi fixtures" />
-          </>
-        ) : (
-          <div style={S.empty}>
-            <b>Not configured yet.</b><br />
-            {canManage
-              ? <>Hit <b>Set up</b> and either build the link from filters or paste the embed URL from the FQ website.</>
-              : <>The coach has not linked the Squadi fixtures for this team yet.</>}
-          </div>
-        )}
-      </div>
-    </div>
+      {!src && (
+        <div className="adm-card quiet">
+          <b style={{ color: "var(--ink)" }}>Not configured yet.</b><br />
+          {canManage
+            ? <>Tap <b>Set up</b> and either build the link from filters or paste the embed URL from the FQ website.</>
+            : <>The coach has not linked the Squadi fixtures for this team yet.</>}
+        </div>
+      )}
+    </AdminPage>
   );
 }
