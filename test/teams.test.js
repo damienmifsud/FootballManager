@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { getTeams, teamByPassword, teamByCalendarKey, teamBySlug, teamFromCookieHeader, clearTeamsCache } from "@/lib/teams";
+import { getTeams, teamByPassword, teamByCalendarKey, teamBySlug, teamFromCookieHeader, clearTeamsCache, squadiFeeds } from "@/lib/teams";
 
 // The registry merges env-defined teams (TEAMS / legacy single-team vars)
 // with wizard-created teams from the store; results are briefly cached, so
@@ -174,5 +174,27 @@ describe("teamFromCookieHeader", () => {
     expect(await teamFromCookieHeader("")).toBeNull();
     expect(await teamFromCookieHeader(null)).toBeNull();
     expect(await teamFromCookieHeader("other=1")).toBeNull();
+  });
+});
+
+describe("squadiFeeds", () => {
+  const A = { competitionId: "1844", divisionId: "12962", teamId: 133944 };
+  const B = { competitionId: "1844", divisionId: "12960", teamId: 133943 };
+  it("is empty for a team with no Squadi config", () => {
+    expect(squadiFeeds({})).toEqual([]);
+    expect(squadiFeeds(null)).toEqual([]);
+    expect(squadiFeeds({ squadi: {} })).toEqual([]);
+    expect(squadiFeeds({ squadi: [] })).toEqual([]);
+  });
+  it("returns today's object as one feed with no label", () => {
+    expect(squadiFeeds({ squadi: { ...A, teamId: "133944" } })).toEqual([A]);
+    expect(squadiFeeds({ squadi: { label: "McKay", ...A } })).toEqual([A]);
+  });
+  it("returns an array of two as two labelled feeds, in order, labels trimmed", () => {
+    expect(squadiFeeds({ squadi: [{ label: " McKay ", ...A }, { label: "McKain", ...B }] }))
+      .toEqual([{ label: "McKay", ...A }, { label: "McKain", ...B }]);
+  });
+  it("an array with one filled row is a single unlabelled feed", () => {
+    expect(squadiFeeds({ squadi: [{ label: "McKay", ...A }, { label: "McKain" }] })).toEqual([A]);
   });
 });

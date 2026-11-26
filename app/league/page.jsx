@@ -83,8 +83,9 @@ export default function LeaguePage() {
       if (!res.ok || !j.ok) { setSyncMsg("Sync failed: " + (j.error || res.status)); return; }
       // Nothing to pull: no draw has its Squadi ids yet (they go in club admin).
       if (j.skipped === "no squadi config") { setSyncMsg("No Squadi draw is set up for this team yet."); return; }
-      // A team can have several draws (its season and other competitions). One
-      // that could not be fetched is named; the others were still applied.
+      // A team can have several draws (its season, which is two feeds on a
+      // two-team squad, and other competitions). One that could not be fetched
+      // is named (the competition, or the side); the others were still applied.
       const failed = Array.isArray(j.failed) && j.failed.length
         ? " Could not sync " + j.failed.map((f) => `${f.name} (${f.error})`).join("; ") + "."
         : "";

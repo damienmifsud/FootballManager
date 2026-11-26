@@ -2,11 +2,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 
-// The /admin page (Direction C restyle). Behaviour is what it always was:
-// super admins manage club admins, per-team overrides and view-as through
-// /api/access; club admins get the wizard, the role table and the league
-// link only. The markup is the AdminShell's (sub-header, hairline cards,
-// tinted pills, lucide icons).
+// The /admin page. A super admin gets three sections: Teams (the wizard and
+// the league link), People (the directory, tested in its own file) and Access
+// (view-as, club admins, per-team overrides and the role table, all through
+// /api/access). A club admin gets the wizard, the role table and the league
+// link on one page. The markup is the AdminShell's (sub-header, hairline
+// cards, tinted pills, lucide icons).
 const { signOut } = vi.hoisted(() => ({ signOut: vi.fn() }));
 vi.mock("next-auth/react", () => ({ signOut }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }) => <a href={href} {...rest}>{children}</a> }));
@@ -14,6 +15,12 @@ vi.mock("next/link", () => ({ default: ({ href, children, ...rest }) => <a href=
 // page hands it.
 vi.mock("@/components/TeamWizard", () => ({
   default: ({ onTeamsChanged }) => <button data-testid="wizard" data-hook={onTeamsChanged ? "yes" : "no"} onClick={() => onTeamsChanged?.()}>wizard stub</button>
+}));
+
+// The people directory has its own test file too; here it shows that it is
+// mounted and can tell the page that something changed.
+vi.mock("@/components/PeopleDirectory", () => ({
+  default: ({ onChanged }) => <button data-testid="people" onClick={() => onChanged?.()}>people stub</button>
 }));
 
 import AccessManager from "@/components/AccessManager";
@@ -50,10 +57,21 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  window.history.replaceState(null, "", "/admin");
 });
 
+const sectionButton = (name) => within(screen.getByRole("group", { name: "Club admin sections" })).getByRole("button", { name });
+const goTo = (name) => fireEvent.click(sectionButton(name));
+// What the page column shows right now, top to bottom (a section that is switched off is skipped).
+const column = () => [...document.querySelectorAll("main .adm-col > *")]
+  .filter((el) => !el.classList.contains("off"))
+  .map((el) => (el.classList.contains("adm-seg") ? "sections"
+    : el.querySelector("[data-testid]")?.getAttribute("data-testid") || el.getAttribute("data-testid")
+    || el.querySelector("h2")?.textContent || el.querySelector(".adm-lc-title")?.textContent));
+// Most of this file is about the Access section, so that is where a super admin's render lands.
 const renderSuper = async () => {
   render(<AccessManager adminEmail="boss@club.com" scope="super" />);
+  goTo("Access");
   await screen.findByRole("heading", { name: "Club admins" });
 };
 const card = (heading) => screen.getByRole("heading", { name: heading }).closest("section");
@@ -84,12 +102,62 @@ describe("AccessManager — the shell", () => {
     for (const token of ["--pitch:#C8102E", "--ink:#1A1012", "--paper:#F4F4F3", "--line:#E7E3E3", "'DM Sans'"]) expect(ADMIN_CSS).toContain(token);
   });
 
-  it("puts Teams first, then the access cards, the role table and the league link", async () => {
-    await renderSuper();
-    const order = [...document.querySelectorAll("main .adm-col > *")].map((el) =>
-      el.getAttribute("data-testid") || el.querySelector("h2")?.textContent || el.querySelector(".adm-lc-title")?.textContent);
-    expect(order).toEqual(["wizard", "View as a user", "Club admins", "Per-team role overrides", "Who can do what", "League page"]);
+  it("a super admin gets three sections and lands on Teams: the wizard and the league link", async () => {
+    render(<AccessManager adminEmail="boss@club.com" scope="super" />);
+    expect(["Teams", "People", "Access"].map((n) => sectionButton(n).getAttribute("aria-pressed"))).toEqual(["true", "false", "false"]);
+    expect(column()).toEqual(["sections", "wizard", "League page"]);
     expect(screen.getByRole("link", { name: /League page/ }).getAttribute("href")).toBe("/league");
+    // The access cards are a section away, not further down the page.
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    expect(screen.queryByRole("heading", { name: "Club admins" })).toBeNull();
+  });
+
+  it("Access holds view-as, club admins, the overrides and the role table", async () => {
+    await renderSuper();
+    expect(sectionButton("Access").getAttribute("aria-pressed")).toBe("true");
+    expect(column()).toEqual(["sections", "View as a user", "Club admins", "Per-team role overrides", "Who can do what"]);
+    expect(screen.queryByRole("link", { name: /League page/ })).toBeNull();
+  });
+
+  it("People shows the directory, and a change made there refreshes the access settings", async () => {
+    render(<AccessManager adminEmail="boss@club.com" scope="super" />);
+    goTo("People");
+    expect(column()).toEqual(["sections", "people"]);
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    doc.clubAdmins = [...doc.clubAdmins, "new@club.com"]; // what the directory just saved
+    fireEvent.click(screen.getByTestId("people"));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+    goTo("Access");
+    expect(await within(card("Club admins")).findByText("new@club.com")).toBeTruthy();
+  });
+
+  it("the wizard stays mounted while another section shows, so a team being set up is not lost", async () => {
+    render(<AccessManager adminEmail="boss@club.com" scope="super" />);
+    const wizard = screen.getByTestId("wizard");
+    goTo("People");
+    expect(screen.getByTestId("wizard")).toBe(wizard); // the same element, only switched off
+    expect(wizard.closest(".adm-sect").classList.contains("off")).toBe(true);
+    goTo("Teams");
+    expect(screen.getByTestId("wizard")).toBe(wizard);
+    expect(wizard.closest(".adm-sect").classList.contains("off")).toBe(false);
+  });
+
+  it("the section showing is kept in the address, and a reload comes back to it", async () => {
+    render(<AccessManager adminEmail="boss@club.com" scope="super" />);
+    goTo("People");
+    expect(window.location.search).toBe("?section=people");
+    goTo("Teams");
+    expect(window.location.search).toBe("");
+    cleanup();
+    window.history.replaceState(null, "", "/admin?section=access");
+    render(<AccessManager adminEmail="boss@club.com" scope="super" />);
+    expect(await screen.findByRole("heading", { name: "Club admins" })).toBeTruthy();
+    expect(sectionButton("Access").getAttribute("aria-pressed")).toBe("true");
+    cleanup();
+    // Anything else in the address is ignored.
+    window.history.replaceState(null, "", "/admin?section=nonsense");
+    render(<AccessManager adminEmail="boss@club.com" scope="super" />);
+    expect(sectionButton("Teams").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("the role table is folded away until asked for", async () => {
@@ -222,10 +290,23 @@ describe("AccessManager — club admin scope", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Club teams" })).toBeTruthy();
     expect(screen.getByText("Club admin · td@club.com")).toBeTruthy();
     expect(screen.getByTestId("wizard").getAttribute("data-hook")).toBe("no");
-    expect(screen.getByText("Who can do what")).toBeTruthy();
+    // One page, nothing to choose between, and no people directory.
+    expect(screen.queryByRole("group", { name: "Club admin sections" })).toBeNull();
+    expect(column()).toEqual(["wizard", "Who can do what", "League page"]);
+    expect(screen.queryByTestId("people")).toBeNull();
     expect(screen.getByRole("link", { name: /League page/ })).toBeTruthy();
     for (const h of ["Club admins", "View as a user", "Per-team role overrides"]) expect(screen.queryByRole("heading", { name: h })).toBeNull();
     expect(screen.queryByText("Loading access settings…")).toBeNull();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("AccessManager — club admin scope and the address", () => {
+  it("a club admin's address cannot open the other sections", async () => {
+    window.history.replaceState(null, "", "/admin?section=people");
+    render(<AccessManager adminEmail="td@club.com" scope="club" />);
+    expect(column()).toEqual(["wizard", "Who can do what", "League page"]);
+    expect(screen.queryByTestId("people")).toBeNull();
     expect(global.fetch).not.toHaveBeenCalled();
   });
 });
@@ -235,8 +316,10 @@ describe("AccessManager — loading and failure", () => {
     let release;
     global.fetch = vi.fn(() => new Promise((res) => { release = () => res({ ok: true, json: async () => doc }); }));
     render(<AccessManager adminEmail="boss@club.com" scope="super" />);
-    expect(screen.getByText("Loading access settings…")).toBeTruthy();
     expect(screen.getByTestId("wizard")).toBeTruthy(); // teams are usable straight away
+    expect(screen.queryByText("Loading access settings…")).toBeNull(); // and say nothing about access
+    goTo("Access");
+    expect(screen.getByText("Loading access settings…")).toBeTruthy();
     release();
     expect(await screen.findByRole("heading", { name: "Club admins" })).toBeTruthy();
     expect(screen.queryByText("Loading access settings…")).toBeNull();
