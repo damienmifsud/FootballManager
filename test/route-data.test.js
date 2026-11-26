@@ -150,6 +150,21 @@ describe("account mode (AUTH_SECRET set)", () => {
       expect(body.fixtures[0].availability).toEqual({}); // the request body is not mutated
     });
 
+    it("keeps a league set-up saved through /api/league after the coach's dashboard loaded", async () => {
+      signedIn({ email: "coach@a.com", role: "coach" });
+      // What is stored now: the league page saved its set-up through its own route.
+      const squadi = { mode: "url", url: "https://registration.squadi.com/liveScoreSeasonFixture?x=1", org: "o", yearId: "8", comp: "c", divisionId: "1", teamId: "2" };
+      getData.mockResolvedValue({ team: { name: "A" }, fixtures: [{ id: "f1", round: 1 }], squadi });
+      setData.mockResolvedValue();
+      const { POST } = await loadRoute({ authOn: true });
+      // What the dashboard tab posts: the copy it loaded before that, with a score typed in.
+      const body = { team: { name: "A" }, fixtures: [{ id: "f1", round: 1, us: 2, them: 0 }] };
+      const res = await POST(fakeRequest({ body }));
+      expect(res.status).toBe(200);
+      expect(setData.mock.calls[0][1]).toEqual({ ...body, squadi });
+      expect("squadi" in body).toBe(false); // the request body is not mutated
+    });
+
     it("403s a coach-parent acting as the parent (the worn hat decides)", async () => {
       coachParentSignedIn();
       getData.mockResolvedValue(null);

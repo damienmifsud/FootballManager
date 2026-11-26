@@ -127,8 +127,16 @@ The switch is one env var and is reversible — until `AUTH_SECRET` is set nothi
 ## League fixtures (Squadi embed)
 
 `/league` embeds the same Squadi widget the FQ website uses, pre-filtered via URL
-parameters — the page has a **Set up** panel (saved for everyone) where you either build
-the link from filters or paste the full embed URL.
+parameters — the page has a **Set up** panel (saved for everyone on that team) where you
+either build the link from filters or paste the full embed URL.
+
+Each team has its own setup. A team that has not saved one shows "Not configured yet."
+rather than any draw; only the original team (the legacy owner, `legacyOwnerSlug` in
+`lib/store.js`) falls back to the U8 Kangaroos White draw it has always shown. The setup
+is read and saved through its own narrow route (`/api/league`): coaches only, it writes
+just that one key on the team document, and it accepts a pasted link only if it is an
+`https://` link on `squadi.com`. The quickest way to get the link is the panel's **Open
+the Squadi fixtures page**: choose the filters there and copy the address bar URL.
 
 Parameters Squadi accepts: `organisationKey` (FQ Metro is prefilled), `yearId`
 (**2025 = 7, 2026 = 8**), `competitionUniqueKey` (changes each season), `divisionId`

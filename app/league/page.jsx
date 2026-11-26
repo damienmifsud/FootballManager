@@ -7,27 +7,15 @@ import { AdminPage } from "@/components/AdminShell";
 const FQ_METRO_ORG = "b0e92958-980b-4da0-9ec9-a9c2597b06f0";
 // Known season ids on FQ's site: 2025 -> 7, 2026 -> 8.
 const YEARS = [{ label: "2026", id: "8" }, { label: "2025", id: "7" }];
-// FQ's 2025 Metro Coles MiniRoos competition key (working default until the 2026 one is published).
-const MINIROOS_2025 = "b63aa285-57d7-4ac7-b10c-7c443fc0d80c";
+const SQUADI_FIXTURES = "https://registration.squadi.com/liveScoreSeasonFixture?";
 
-const DEFAULT_CFG = {
-  mode: "builder", // builder | url
-  url: "",
-  org: FQ_METRO_ORG,
-  yearId: "8",
-  comp: "58ec2bda-ceed-48f2-a33e-5b9d13cc30e8", // Metro | Coles MiniRoos & U12 (2026)
-  divisionId: "10661", // Under 8 Kangaroos K1 Central Hub (2026)
-  teamId: "110013" // Olympic FC U8 Kangaroos White (2026)
-};
-
-// The filters for this team, as shown in the Squadi widget:
-const TEAM_PRESET = [
-  ["Year", "2026"],
-  ["Organisation", "Metro Region"],
-  ["Competition", "Metro | Coles MiniRoos & U12"],
-  ["Age Group", "Under 8 Kangaroos K1 Central Hub"],
-  ["Team", "Olympic FC U8 Kangaroos White"]
-];
+// What the set-up form starts from when a team has nothing saved: the region
+// and the year, and nothing that names a competition, an age group or a team.
+// With no competition key there is no link, so no draw is embedded until a
+// coach saves one. The page holds no team's ids: the one team that predates
+// the set-up panel gets its old default from the server (/api/league, the
+// legacy owner only).
+const EMPTY_CFG = { mode: "builder", url: "", org: FQ_METRO_ORG, yearId: "8", comp: "", divisionId: "", teamId: "" };
 
 function buildUrl(c) {
   if (c.mode === "url" && c.url) return c.url;
@@ -39,7 +27,14 @@ function buildUrl(c) {
     divisionId: c.divisionId || "All"
   });
   if (c.teamId) p.set("teamId", c.teamId);
-  return "https://registration.squadi.com/liveScoreSeasonFixture?" + p.toString();
+  return SQUADI_FIXTURES + p.toString();
+}
+
+// Squadi's own fixtures page for the organisation and year in the form, with
+// no competition chosen: where a coach starts when nothing is set up yet.
+// (Once a draw is showing, "Open full page" above it does the same job.)
+function startUrl(c) {
+  return SQUADI_FIXTURES + new URLSearchParams({ organisationKey: c.org || FQ_METRO_ORG, yearId: c.yearId || "8" }).toString();
 }
 
 // Direction C: the page uses the AdminShell (the dashboard's sub-header, the
@@ -56,9 +51,10 @@ async function errorText(res, fallback) {
 }
 
 export default function LeaguePage() {
-  const [data, setData] = useState(null);
   const [me, setMe] = useState(null); // /api/me: { mode, role, teamName, ... }
-  const [cfg, setCfg] = useState(DEFAULT_CFG);
+  const [cfg, setCfg] = useState(EMPTY_CFG);
+  const [loaded, setLoaded] = useState(false); // this team's set-up has arrived from /api/league
+  const [saved, setSaved] = useState(false); // the team has a set-up of its own
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
@@ -68,7 +64,9 @@ export default function LeaguePage() {
   // Set-up, "Save for everyone" and "Sync now" are coach tools. Legacy
   // team-code sites have no roles (anyone with the code is trusted); in
   // account mode the WORN hat decides. The server enforces this regardless.
-  const canManage = !!me && (me.mode === "code" || me.role === "coach");
+  // Nothing is offered until the team's own set-up has loaded: the form must
+  // never open on, and save over, a set-up it has not read.
+  const canManage = loaded && !!me && (me.mode === "code" || me.role === "coach");
 
   const syncNow = async () => {
     setSyncMsg("Syncing…");
@@ -84,13 +82,15 @@ export default function LeaguePage() {
 
   useEffect(() => {
     let cancelled = false;
-    // Who am I (mode, worn hat, team name) alongside the team document.
+    // Who am I (mode, worn hat, team name) alongside the team's league set-up.
     fetch("/api/me", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((m) => { if (!cancelled && m) setMe(m); })
       .catch(() => {});
 
-    fetch("/api/data", { cache: "no-store" })
+    // Only this team's set-up, through its own narrow route — never the whole
+    // team document. squadi is null for a team that has saved nothing.
+    fetch("/api/league", { cache: "no-store" })
       .then(async (r) => {
         if (cancelled) return;
         if (r.status === 401) {
@@ -101,37 +101,40 @@ export default function LeaguePage() {
         }
         if (r.status === 409) { location.href = "/"; return; } // several teams, none chosen: the picker
         if (!r.ok) { setLoadError(await errorText(r, "Could not load the team.")); return; }
-        const d = await r.json();
-        if (!d) return;
-        setData(d);
-        if (d.squadi) setCfg({ ...DEFAULT_CFG, ...d.squadi });
+        const j = await r.json();
+        if (cancelled) return;
+        setCfg({ ...EMPTY_CFG, ...(j?.squadi || {}) });
+        setSaved(!!j?.saved);
+        setLoaded(true);
       })
       .catch(() => { if (!cancelled) setLoadError("Could not load the team."); });
     return () => { cancelled = true; };
   }, []);
 
-  // Not configured yet and allowed to configure — show the panel.
+  // Nothing saved yet and allowed to configure — show the panel.
   useEffect(() => {
-    if (data && !data.squadi && canManage) setOpen(true);
-  }, [data, canManage]);
+    if (!saved && canManage) setOpen(true);
+  }, [saved, canManage]);
 
+  // Writes only this team's league set-up (/api/league), then shows exactly
+  // what the server stored.
   const save = async () => {
-    if (!data) return;
     setSaving(true);
     setSaveError("");
     try {
-      const next = { ...data, squadi: cfg };
-      const res = await fetch("/api/data", {
+      const res = await fetch("/api/league", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next)
+        body: JSON.stringify({ squadi: cfg })
       });
       if (res.status === 409) { location.href = "/"; return; }
       if (!res.ok) {
         setSaveError(await errorText(res, `Save failed (${res.status}).`));
         return;
       }
-      setData(next);
+      const j = await res.json().catch(() => null);
+      if (j?.squadi) setCfg({ ...EMPTY_CFG, ...j.squadi });
+      setSaved(true);
       setOpen(false);
     } catch (e) {
       setSaveError("Save failed: " + (e?.message || "network error"));
@@ -140,7 +143,11 @@ export default function LeaguePage() {
     }
   };
 
+  // The form starts empty and only the team's own set-up fills it, so there is
+  // no link (and no draw) on the first paint, after a failed load, or for a
+  // team that has saved nothing.
   const src = buildUrl(cfg);
+  const teamLabel = me?.teamName || "this team";
 
   return (
     <AdminPage
@@ -196,7 +203,7 @@ export default function LeaguePage() {
                 </div>
               </div>
               <label className="adm-fl" htmlFor="lg-comp" style={{ marginTop: 12 }}>Competition key</label>
-              <input id="lg-comp" className="adm-inp adm-mono" value={cfg.comp} placeholder={`2025 Metro MiniRoos: ${MINIROOS_2025}`}
+              <input id="lg-comp" className="adm-inp adm-mono" value={cfg.comp} placeholder="competitionUniqueKey from the Squadi link"
                 onChange={(e) => setCfg({ ...cfg, comp: e.target.value })} />
               <div className="adm-grid2 stack" style={{ marginTop: 12 }}>
                 <div>
@@ -209,14 +216,14 @@ export default function LeaguePage() {
                 </div>
               </div>
               <div className="adm-note" style={{ marginTop: 10 }}>
-                <b>One-time setup for Olympic FC U8 Kangaroos White:</b> use <b>Open full page</b> (above the
-                widget below), then set the filters exactly as on the FQ site:
-                {TEAM_PRESET.map(([k, v]) => <span key={k}><br />• {k}: <b>{v}</b></span>)}
-                <br />As you pick each filter, the page's <b>address bar URL updates</b> with the real IDs
-                (competitionUniqueKey, divisionId, teamId). Copy that URL, switch to <b>Paste full URL</b> here,
-                paste, and <b>Save for everyone</b>. Until the 2026 MiniRoos &amp; U12 comp is selectable, the widget
-                below shows the 2025 MiniRoos season as a placeholder.
+                <b>One-time setup for {teamLabel}:</b> open the Squadi fixtures page (the link below) and choose
+                the year, organisation, competition, age group and team. As you pick each filter, the page's{" "}
+                <b>address bar URL updates</b> with the real IDs (competitionUniqueKey, divisionId, teamId).
+                Copy that URL, switch to <b>Paste full URL</b> here, paste it and <b>Save for everyone</b>.
               </div>
+              <a href={startUrl(cfg)} target="_blank" rel="noopener noreferrer" className="adm-link" style={{ marginTop: 6 }}>
+                Open the Squadi fixtures page<ExternalLink size={13} aria-hidden="true" />
+              </a>
             </div>
           )}
           <button className="adm-btn block" style={{ marginTop: 14 }} onClick={save} disabled={saving}>{saving ? "Saving…" : "Save for everyone"}</button>
@@ -226,7 +233,7 @@ export default function LeaguePage() {
         </section>
       )}
 
-      {!src && (
+      {loaded && !src && (
         <div className="adm-card quiet">
           <b style={{ color: "var(--ink)" }}>Not configured yet.</b><br />
           {canManage

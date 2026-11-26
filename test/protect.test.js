@@ -178,3 +178,51 @@ describe("preserveNarrowFields", () => {
     expect(out.extra).toBe(1);
   });
 });
+
+// squadi (the league page's set-up) is written through /api/league. A
+// dashboard tab opened before the coach saved it holds the old one, or none,
+// and posts that back with its next whole-document save.
+describe("preserveNarrowFields — the league set-up (squadi)", () => {
+  const SETUP = { mode: "url", url: "https://registration.squadi.com/liveScoreSeasonFixture?x=1", org: "o", yearId: "8", comp: "c", divisionId: "1", teamId: "2" };
+  const OLD = { ...SETUP, url: "https://registration.squadi.com/liveScoreSeasonFixture?old=1" };
+
+  it("keeps the stored set-up when a stale copy that never had one saves a score", () => {
+    const out = preserveNarrowFields({ ...stored(), squadi: SETUP }, stale());
+    expect(out.squadi).toEqual(SETUP);
+    expect(out.fixtures.find((f) => f.id === "f1")).toMatchObject({ us: 2, them: 1 });
+  });
+
+  it("keeps the stored set-up over an older one in the stale copy", () => {
+    const out = preserveNarrowFields({ ...stored(), squadi: SETUP }, { ...stale(), squadi: OLD });
+    expect(out.squadi).toEqual(SETUP);
+  });
+
+  it("keeps the stored set-up through the dashboard's Clear everything", () => {
+    const cleared = { team: { name: "Your Team Name" }, players: [], fixtures: [], sessions: [], isSample: false };
+    const out = preserveNarrowFields({ ...stored(), squadi: SETUP }, cleared);
+    expect(out).toEqual({ ...cleared, squadi: SETUP });
+  });
+
+  it("a stored set-up that was saved empty still wins (empty is how a coach clears the draw)", () => {
+    const empty = { mode: "url", url: "", org: "", yearId: "", comp: "", divisionId: "", teamId: "" };
+    const out = preserveNarrowFields({ ...stored(), squadi: empty }, { ...stale(), squadi: OLD });
+    expect(out.squadi).toEqual(empty);
+  });
+
+  it("a document with no set-up yet takes the one that is sent, and gains none when none is sent", () => {
+    // The route never removes the key, so there is no cleared state to honour.
+    expect(preserveNarrowFields(stored(), { ...stale(), squadi: OLD }).squadi).toEqual(OLD);
+    expect("squadi" in preserveNarrowFields(stored(), stale())).toBe(false);
+  });
+
+  it("does not mutate either input, and the first save of a new document is still kept as sent", () => {
+    const s = { ...stored(), squadi: SETUP };
+    const i = { ...stale(), squadi: OLD };
+    const sBefore = JSON.stringify(s);
+    const iBefore = JSON.stringify(i);
+    preserveNarrowFields(s, i);
+    expect(JSON.stringify(s)).toBe(sBefore);
+    expect(JSON.stringify(i)).toBe(iBefore);
+    expect(preserveNarrowFields(null, i)).toBe(i);
+  });
+});
