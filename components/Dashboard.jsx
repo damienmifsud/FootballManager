@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon, Star, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, Download,
   Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt, GripVertical,
-  Eye, User, LogOut, Navigation, Video, MessageCircle, Medal
+  Eye, User, LogOut, Navigation, Video, MessageCircle, Medal, Upload
 } from "lucide-react";
 // Pure data/display helpers live in lib/dashboardData.js so they can be unit
 // tested; everything below (ICS export, components) uses them from here.
@@ -14,10 +14,11 @@ import {
   isoLocal, addDays, computeStats, nextFixture, isPastGame, fmtDate,
   countdown, ytId, videoKind, mapsUrl, activeOn, intlPhone, recentChanges,
   initials, secToClock, clockToSec, occurrences, monthItems, upcomingItems,
-  nextBirthdays, isCarnival, carnivalOf, isCarnivalGame, carnivalGameRows, carnivalMeta, carnivalDescription, pitchLabel
+  nextBirthdays, isCarnival, carnivalOf, isCarnivalGame, carnivalGameRows, carnivalMeta, carnivalDescription, pitchLabel,
+  playerFullName
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
-import { parsePlayerImport } from "@/lib/majestri";
+import { parsePlayerImport, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths } from "@/lib/teamSetup";
 import { seasonICS } from "@/lib/ics";
 import {
@@ -618,6 +619,11 @@ const CSS = `
 .btn{background:var(--pitch);color:#fff;border:none;border-radius:13px;padding:14px;font-weight:700;
   font-size:15px;width:100%;cursor:pointer;font-family:inherit;margin-top:6px;}
 .btn.ghost{background:var(--soft);color:var(--ink);}
+/* a label that opens a file picker: the input is hidden from sight, still reachable by keyboard */
+.filebtn{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:var(--soft);color:var(--ink);
+  border-radius:13px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;min-height:44px;margin-bottom:10px;}
+.filebtn input{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0 0 0 0);}
+.filebtn:focus-within{outline:2px solid var(--pitch);outline-offset:2px;}
 .btn.danger{background:#fdecec;color:var(--red);}
 .iconbtn{background:var(--soft);border:none;width:32px;height:32px;border-radius:9px;display:flex;
   align-items:center;justify-content:center;cursor:pointer;color:var(--muted);}
@@ -1226,7 +1232,7 @@ export default function App() {
         ? `Carnival · ${whosIn.session.s.title} · ${fmtDate(whosIn.session.occ)}`
         : `${whosIn.session.s.title} · ${fmtDate(whosIn.session.occ)}${whosIn.session.s.time ? " " + whosIn.session.s.time : ""}`)
       : `${roundOf(whosIn.game) ? roundOf(whosIn.game) + " " : ""}vs ${whosIn.game.opponent} · ${fmtDate(whosIn.game.dateISO)}${whosIn.game.time ? " " + whosIn.game.time : ""}`]
-    : screen === "player" ? [screenPlayer?.name || "Player", screenPlayer ? [screenPlayer.number ? `#${screenPlayer.number}` : "", screenPlayer.position || ""].filter(Boolean).join(" · ") : ""]
+    : screen === "player" ? [playerFullName(screenPlayer) || "Player", screenPlayer ? [screenPlayer.number ? `#${screenPlayer.number}` : "", screenPlayer.position || ""].filter(Boolean).join(" · ") : ""]
     : screen === "duties" ? [SUB_TITLES.duties[0], dutiesKicker(data.team)]
     : screen === "stats" ? [SUB_TITLES.stats[0], `Season ${seasonLabel(season)}`]
     : (SUB_TITLES[screen] || [screen, ""]);
@@ -2142,7 +2148,7 @@ function SquadTab({ data, stats, next, isCoach, viewer, me, setModal, openPlayer
               <div className={"pr-num" + (p.guest ? " guest" : "")}>{p.number || ""}</div>
               <div className="pr-body">
                 <div className="pr-name">
-                  <b>{p.name}</b>
+                  <b>{playerFullName(p)}</b>
                   {p.position && <span className={"pos-pill pos-" + p.position}>{p.position}</span>}
                   {p.guest && <span className={"guesttag" + (ended ? " ended" : "")}>{ended ? "Guest · ended" : "Guest"}</span>}
                 </div>
@@ -2163,7 +2169,7 @@ function SquadTab({ data, stats, next, isCoach, viewer, me, setModal, openPlayer
         {isCoach && (
           <div className="pr-foot">
             <button className="ghostlink" onClick={() => setModal({ type: "player", payload: null })}>Add player</button>
-            <button className="ghostlink" onClick={() => setModal({ type: "playersImport" })}>Paste player list</button>
+            <button className="ghostlink" onClick={() => setModal({ type: "playersImport" })}>Import player list</button>
           </div>
         )}
       </div>
@@ -3838,8 +3844,10 @@ function PlayerSheet({ data, persist, payload, me, close }) {
     if (!p.name) return;
     const guardians = (p.guardians || []).filter(g => g.name || g.mobile || g.email);
     // Keep legacy fields in sync for reminders, login resolution, contact display.
+    const { surname: typedSurname, ...rest } = p;
+    const surname = String(typedSurname || "").trim();
     const np = {
-      ...p, number: +p.number || 0, guardians,
+      ...rest, ...(surname ? { surname } : {}), number: +p.number || 0, guardians,
       parentName: guardians[0]?.name || "",
       parentContact: guardians[0]?.mobile || "",
       parentEmails: [...new Set(guardians.map(g => (g.email || "").trim().toLowerCase()).filter(Boolean))]
@@ -3853,7 +3861,11 @@ function PlayerSheet({ data, persist, payload, me, close }) {
   const remove = () => { persist({ ...data, players: data.players.filter(x => x.id !== p.id), isSample: false }); close(); };
   return (<>
     <SheetHead title={payload ? "Edit player" : "Add player"} close={close} />
-    <div className="field"><label>Name</label><input className="inp" value={p.name} autoFocus onChange={e => setP({ ...p, name: e.target.value })} /></div>
+    <div className="row2">
+      <div className="field"><label htmlFor="pl-name">Name</label><input id="pl-name" className="inp" value={p.name} autoFocus onChange={e => setP({ ...p, name: e.target.value })} /></div>
+      <div className="field"><label htmlFor="pl-surname">Last name</label><input id="pl-surname" className="inp" value={p.surname || ""} onChange={e => setP({ ...p, surname: e.target.value })} /></div>
+    </div>
+    <div className="note" style={{ marginTop: -6, marginBottom: 12 }}>The squad list and the player's page show both. Tight spots such as replies and duties show just the name, for example Levi H.</div>
     <div className="row2">
       <div className="field"><label>Jersey number</label><input className="inp" type="number" value={p.number} onChange={e => setP({ ...p, number: e.target.value })} /></div>
       <div className="field"><label>Birthday</label><input className="inp" type="date" value={p.dob || ""} onChange={e => setP({ ...p, dob: e.target.value })} /></div>
@@ -4035,7 +4047,7 @@ function PlayerScreen({ data, p, next, persist, patchLocal, isCoach, viewer, me,
       {p.photo
         ? <div className="ph-photo"><img src={p.photo} alt="" />{p.number ? <span className="numbadge">{p.number}</span> : null}</div>
         : <div className="ph-num">{p.number || ""}</div>}
-      <div className="ph-name">{p.name}</div>
+      <div className="ph-name">{playerFullName(p)}</div>
       {(p.position || bday || p.guest) && (
         <div className="ph-row">
           {p.position && <span className={"pos-pill lg pos-" + p.position}>{p.position}</span>}
@@ -4120,35 +4132,68 @@ function ImportSheet({ data, persist, close }) {
 
 function PlayersImportSheet({ data, persist, close }) {
   const [txt, setTxt] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [fileErr, setFileErr] = useState("");
   // Parsing (Majestri CSV / Excel copy / simple list) lives in lib/majestri.js,
   // shared with the /admin team wizard's import step.
   const { isMajestri, players: parsed } = useMemo(() => parsePlayerImport(txt), [txt]);
+  // Anyone already in the squad is updated (blank last name, birthday, family
+  // details), never added twice — so the same list can be imported again.
+  const merged = useMemo(() => mergeImportedPlayers(data.players, parsed), [data.players, parsed]);
+  const nAdd = merged.added.length, nUpd = merged.updated.length;
+  const plural = (n) => `${n} player${n === 1 ? "" : "s"}`;
 
-  const save = () => {
-    if (!parsed.length) return;
-    persist({ ...data, players: [...data.players, ...parsed], isSample: false });
-    close();
+  // Upload: the chosen file's text goes into the same box a paste does, so one
+  // parser and one preview serve both.
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // so the same file can be chosen again
+    if (!file) return;
+    setFileErr("");
+    const reader = new FileReader();
+    reader.onload = () => { setTxt(String(reader.result || "")); setFileName(file.name); };
+    reader.onerror = () => { setFileName(""); setFileErr("Couldn't read that file. Try again, or paste the list instead."); };
+    reader.readAsText(file);
   };
 
+  const save = () => {
+    if (!nAdd && !nUpd) return;
+    persist({ ...data, players: merged.players, isSample: false });
+    close();
+  };
+  const action = nAdd && nUpd ? `Add ${nAdd} and update ${nUpd}`
+    : nUpd ? `Update ${plural(nUpd)}`
+    : nAdd ? `Add ${plural(nAdd)}`
+    : parsed.length ? "Nothing to change" : "Add players";
+
   return (<>
-    <SheetHead title="Paste player list" close={close} />
+    <SheetHead title="Import player list" close={close} />
+    <label className="filebtn">
+      <Upload size={16} aria-hidden="true" />{fileName ? "Choose a different file" : "Upload CSV"}
+      <input type="file" accept={PLAYER_FILE_ACCEPT} onChange={onFile} />
+    </label>
+    {fileName && <div className="note" style={{ marginBottom: 10 }}>Loaded <b>{fileName}</b></div>}
+    {fileErr && <div className="note" role="alert" style={{ color: "var(--red)", marginBottom: 10 }}>{fileErr}</div>}
     <div className="note" style={{ marginBottom: 12 }}>
-      <b>Majestri:</b> copy the export and paste it here — from the CSV file directly, or straight out of <b>Excel</b> (with or without the header row); it's detected automatically. Players only: coach rows, emails and medical fields are skipped; mobiles get their leading 0 restored.<br /><br />
-      <b>Or a simple list</b>, one player per line: <b>Name, number, position, parent, parent mobile, birthday</b> (position GK/DEF/MID/FWD; birthday dd/mm/yyyy; only the name is required).
+      <b>Majestri:</b> upload the team contact list CSV, or paste it below (from the file, or straight out of <b>Excel</b>, with or without the header row). It's detected automatically. Players only: coach rows and medical fields are skipped; parents' names, emails and mobiles come across, and mobiles get their leading 0 restored.<br /><br />
+      <b>Or a simple list</b>, one player per line: <b>Name, number, position, parent, parent mobile, birthday</b> (position GK/DEF/MID/FWD; birthday dd/mm/yyyy; only the name is required).<br /><br />
+      Players already in the squad are updated, not added twice.
     </div>
     <div className="field">
-      <textarea className="inp" rows={8} value={txt} onChange={e => setTxt(e.target.value)}
-        placeholder={"Paste the Majestri CSV export here, or:\nSpencer, 6, MID, Damien, 0400 000 000, 12/03/2018"} />
+      <textarea className="inp" rows={8} aria-label="Player list" value={txt} onChange={e => setTxt(e.target.value)}
+        placeholder={"Or paste the list here:\nSpencer, 6, MID, Damien, 0400 000 000, 12/03/2018"} />
     </div>
     {txt.trim() && (
-      <div className="note" style={{ marginBottom: 10 }}>
-        {isMajestri && <span><b>Majestri export detected.</b> </span>}
-        {parsed.length > 0
-          ? <>Ready to add <b>{parsed.length}</b> player{parsed.length > 1 ? "s" : ""}: {parsed.map(p => p.name).join(", ")}</>
-          : "Nothing parseable yet — check the format."}
+      <div className="note" role="status" style={{ marginBottom: 10 }}>
+        {isMajestri && <div><b>Majestri export detected.</b></div>}
+        {parsed.length === 0 ? <div>Nothing readable yet. Check the format.</div> : (<>
+          {nAdd > 0 && <div>Ready to add <b>{nAdd}</b>: {merged.added.join(", ")}</div>}
+          {nUpd > 0 && <div>Filling in missing details for <b>{nUpd}</b> already in the squad: {merged.updated.join(", ")}</div>}
+          {merged.unchanged > 0 && <div>{merged.unchanged} already up to date.</div>}
+        </>)}
       </div>
     )}
-    <button className="btn" onClick={save} disabled={!parsed.length}>Add {parsed.length || ""} players</button>
+    <button className="btn" onClick={save} disabled={!nAdd && !nUpd}>{action}</button>
   </>);
 }
 

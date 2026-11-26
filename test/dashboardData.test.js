@@ -458,3 +458,42 @@ describe("nextBirthdays", () => {
     expect(nextBirthdays(guests, "2026-06-18", 2)).toEqual([]);
   });
 });
+
+// The full name a coach or the player's own family sees: the display name
+// with its initial swapped for the stored last name.
+describe("playerFullName", () => {
+  it("swaps the trailing initial for the last name", async () => {
+    const { playerFullName } = await import("@/lib/dashboardData");
+    expect(playerFullName({ name: "Levi H.", surname: "Harris" })).toBe("Levi Harris");
+    expect(playerFullName({ name: "Levi H", surname: "Harris" })).toBe("Levi Harris");
+    expect(playerFullName({ name: "Mary Jane O.", surname: "O'Brien" })).toBe("Mary Jane O'Brien");
+    expect(playerFullName({ name: "Ana v.", surname: "van Dyk" })).toBe("Ana van Dyk");
+    expect(playerFullName({ name: "  Levi   H.  ", surname: "  Harris " })).toBe("Levi Harris");
+  });
+
+  it("with no last name it is just the display name", async () => {
+    const { playerFullName } = await import("@/lib/dashboardData");
+    expect(playerFullName({ name: "Levi H." })).toBe("Levi H.");
+    expect(playerFullName({ name: "Levi", surname: "" })).toBe("Levi");
+    expect(playerFullName({ name: "Levi", surname: "   " })).toBe("Levi");
+    expect(playerFullName(null)).toBe("");
+    expect(playerFullName({})).toBe("");
+  });
+
+  it("adds the last name to a bare first name, and never says it twice", async () => {
+    const { playerFullName } = await import("@/lib/dashboardData");
+    expect(playerFullName({ name: "Levi", surname: "Harris" })).toBe("Levi Harris");
+    expect(playerFullName({ name: "Levi Harris", surname: "Harris" })).toBe("Levi Harris");
+    expect(playerFullName({ name: "levi harris", surname: "Harris" })).toBe("levi harris");
+    expect(playerFullName({ name: "", surname: "Harris" })).toBe("Harris");
+  });
+
+  it("an initial that is not this last name's is part of the name and stays", async () => {
+    const { playerFullName } = await import("@/lib/dashboardData");
+    // "Levi J." with last name Harris: J is a middle initial, not the surname's.
+    expect(playerFullName({ name: "Levi J.", surname: "Harris" })).toBe("Levi J. Harris");
+    // A one-word name that happens to be a single letter is not an initial.
+    expect(playerFullName({ name: "H.", surname: "Harris" })).toBe("H. Harris");
+  });
+});
+
