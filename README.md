@@ -127,8 +127,21 @@ The switch is one env var and is reversible — until `AUTH_SECRET` is set nothi
 ## League fixtures (Squadi embed)
 
 `/league` embeds the same Squadi widget the FQ website uses, pre-filtered via URL
-parameters — the page has a **Set up** panel (saved for everyone) where you either build
-the link from filters or paste the full embed URL.
+parameters — the page has a **Set up** panel (saved for everyone on that team) where you
+either build the link from filters or paste the full embed URL.
+
+Each team has its own setup. A team that has not saved one shows "Not configured yet."
+rather than any draw. Only the original team falls back to the U8 Kangaroos White draw it
+has always shown: the legacy owner (`legacyOwnerSlug` in `lib/store.js`), or the team
+whose own Squadi sync IDs are that team's. If another team saved that default under the
+old page, those ids are ignored when its setup is read.
+
+The setup is read and saved only through its own narrow route (`/api/league`): coaches
+only, it writes just that one key on the team document, it accepts a pasted link only if
+it is an `https://` link on `squadi.com`, and it refuses a save from a page that was
+opened for a different team. Whole-document saves never change it. The quickest way to
+get the link is the panel's **Open the Squadi fixtures page**: choose the filters there
+and copy the address bar URL.
 
 Parameters Squadi accepts: `organisationKey` (FQ Metro is prefilled), `yearId`
 (**2025 = 7, 2026 = 8**), `competitionUniqueKey` (changes each season), `divisionId`
@@ -388,6 +401,24 @@ deliberately not emailed.
 
 Caveat: this is an undocumented endpoint — it may change shape without notice. The sync
 fails closed (no writes, error logged) rather than guessing.
+
+### More than one competition
+
+A team often plays something alongside its season: a winter tournament with part of the
+squad, an invitational league on other days. In the `/admin` wizard the **Competitions**
+step holds the season's Squadi IDs and a row for each other competition: a name and its
+three IDs. A row can be saved with just its name while its draw is not published yet;
+the sync leaves it alone until the IDs are added with Edit.
+
+Every sync pulls each draw that has its IDs. A game from another competition is labelled
+with that competition's name wherever its round shows (Results, the match screen, Home,
+Duties, the calendar feed), keeps its own round numbers, and does not count toward the
+season record or the stats, the same as a carnival game. If one draw cannot be fetched
+the others are still applied, and the Sync button names the one that failed.
+
+For a team defined in `TEAMS`, the same list goes on the team entry:
+`"competitions":[{"id":"winterfest","name":"Winterfest","squadi":{"competitionId":"…","divisionId":"…","teamId":0}}]`.
+`id` is permanent (a game is tagged with it) and `name` can change.
 
 ---
 
