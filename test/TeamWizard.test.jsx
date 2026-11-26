@@ -517,8 +517,9 @@ describe("TeamWizard — two Squadi teams on one squad", () => {
     expect(screen.getByLabelText("Squadi team label").maxLength).toBe(12);
     // The season's rows sit under Competitions, ahead of any other competition.
     const inputs = [...step("Competitions").getAllByRole("textbox")].map((i) => i.getAttribute("aria-label"));
-    expect(inputs.slice(0, 4)).toEqual(["Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID"]);
-    expect(inputs.slice(4, 8)).toEqual(["Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID"]);
+    // Each row leads with its fixtures link, then the label and the three ids the link fills in.
+    expect(inputs.slice(0, 5)).toEqual(["Squadi fixtures link", "Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID"]);
+    expect(inputs.slice(5, 10)).toEqual(["Second Squadi fixtures link", "Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID"]);
     expect(step("Competitions").getAllByRole("textbox").every((i) => i.className.includes("adm-inp"))).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Remove the second team" }));
     expect(screen.queryByLabelText("Second Squadi team label")).toBeNull();
@@ -598,15 +599,15 @@ describe("TeamWizard — two season feeds and another competition together", () 
     expect(s.getByText("Season", { selector: ".adm-fl" })).toBeTruthy();
     const labels = s.getAllByRole("textbox").map((i) => i.getAttribute("aria-label"));
     expect(labels).toEqual([
-      "Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID",
-      "Competition 1 name", "Winterfest competition ID", "Winterfest division ID", "Winterfest team ID",
-      "Competition 2 name", "Premier Invitational competition ID", "Premier Invitational division ID", "Premier Invitational team ID"
+      "Squadi fixtures link", "Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID",
+      "Competition 1 name", "Winterfest fixtures link", "Winterfest competition ID", "Winterfest division ID", "Winterfest team ID",
+      "Competition 2 name", "Premier Invitational fixtures link", "Premier Invitational competition ID", "Premier Invitational division ID", "Premier Invitational team ID"
     ]);
     // The second team's row goes between the season's first row and the competitions.
     fireEvent.click(s.getByRole("button", { name: "Add a second team" }));
     const after = s.getAllByRole("textbox").map((i) => i.getAttribute("aria-label"));
-    expect(after.slice(4, 8)).toEqual(["Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID"]);
-    expect(after[8]).toBe("Competition 1 name");
+    expect(after.slice(5, 10)).toEqual(["Second Squadi fixtures link", "Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID"]);
+    expect(after[10]).toBe("Competition 1 name");
   });
 
   it("creating a team sends the two labelled feeds and the competitions in one request", async () => {

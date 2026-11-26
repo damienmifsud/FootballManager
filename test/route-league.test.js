@@ -134,7 +134,7 @@ describe("GET /api/league — account mode", () => {
       signIn();
       const res = await GET(fakeRequest());
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ teamSlug: "a", squadi: null, saved: false });
+      expect(await res.json()).toEqual({ teamSlug: "a", squadi: null, saved: false, draws: [] });
     }
   });
 
@@ -146,9 +146,9 @@ describe("GET /api/league — account mode", () => {
       const res = await GET(fakeRequest());
       expect(res.status).toBe(200);
       const json = await res.json();
-      expect(json).toEqual({ teamSlug: "a", squadi: SAVED, saved: true });
+      expect(json).toEqual({ teamSlug: "a", squadi: SAVED, saved: true, draws: [] });
       // Not the team document: no players, fixtures, ratings or PIN ride along.
-      expect(Object.keys(json).sort()).toEqual(["saved", "squadi", "teamSlug"]);
+      expect(Object.keys(json).sort()).toEqual(["draws", "saved", "squadi", "teamSlug"]);
       expect(JSON.stringify(json)).not.toMatch(/Sam|Left footed|4321|availability/);
     }
     expect(getData).toHaveBeenCalledWith("a");
@@ -160,19 +160,19 @@ describe("GET /api/league — account mode", () => {
     const { GET } = await loadRoute({ authOn: true });
     // Team a is the first env-defined team, the legacy owner: its page keeps the draw it always showed.
     let res = await GET(fakeRequest({ cookies: { team_slug: "a" } }));
-    expect(await res.json()).toEqual({ teamSlug: "a", squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false });
+    expect(await res.json()).toEqual({ teamSlug: "a", squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false, draws: [] });
     expect(getData).toHaveBeenLastCalledWith("a");
     // Team b (say, an over-35s side made in the wizard) has saved nothing:
     // the same login, on the same site, must not be handed team a's draw.
     res = await GET(fakeRequest({ cookies: { team_slug: "b" } }));
-    expect(await res.json()).toEqual({ teamSlug: "b", squadi: null, saved: false });
+    expect(await res.json()).toEqual({ teamSlug: "b", squadi: null, saved: false, draws: [] });
     expect(getData).toHaveBeenLastCalledWith("b");
   });
 
   it("a club with no legacy owner (wizard-only) has no default for anyone", async () => {
     coachSession();
     const { GET } = await loadRoute({ authOn: true });
-    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: null, saved: false });
+    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: null, saved: false, draws: [] });
   });
 
   it("the original team is also known by its own Squadi sync ids, under any slug; no other team's sync ids qualify", async () => {
@@ -184,9 +184,9 @@ describe("GET /api/league — account mode", () => {
       : { slug, squadi: { competitionId: "1251", divisionId: "9000", teamId: 120000 } }));
     const { GET } = await loadRoute({ authOn: true });
     let res = await GET(fakeRequest({ cookies: { team_slug: "a" } }));
-    expect(await res.json()).toEqual({ teamSlug: "a", squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false });
+    expect(await res.json()).toEqual({ teamSlug: "a", squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false, draws: [] });
     res = await GET(fakeRequest({ cookies: { team_slug: "b" } }));
-    expect(await res.json()).toEqual({ teamSlug: "b", squadi: null, saved: false });
+    expect(await res.json()).toEqual({ teamSlug: "b", squadi: null, saved: false, draws: [] });
   });
 
   it("the original team's own saved set-up wins over the default", async () => {
@@ -194,7 +194,7 @@ describe("GET /api/league — account mode", () => {
     getData.mockResolvedValue(DATA({ squadi: SAVED }));
     coachSession();
     const { GET } = await loadRoute({ authOn: true });
-    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: SAVED, saved: true });
+    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: SAVED, saved: true, draws: [] });
   });
 
   it("another team that saved the old default under the old page is not shown the original team's draw", async () => {
@@ -203,11 +203,11 @@ describe("GET /api/league — account mode", () => {
     const { GET } = await loadRoute({ authOn: true });
     // Saved unchanged: treated as never set up.
     getData.mockResolvedValue(DATA({ squadi: { ...LEGACY_LEAGUE_SETUP } }));
-    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: null, saved: false });
+    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: null, saved: false, draws: [] });
     // Saved with the coach's own link pasted: the link stays, the original team's ids beside it go.
     getData.mockResolvedValue(DATA({ squadi: { ...LEGACY_LEAGUE_SETUP, mode: "url", url: LINK } }));
     expect(await (await GET(fakeRequest())).json()).toEqual({
-      teamSlug: "a", saved: true,
+      teamSlug: "a", saved: true, draws: [],
       squadi: { ...LEGACY_LEAGUE_SETUP, mode: "url", url: LINK, comp: "", divisionId: "", teamId: "" }
     });
     // Reading never rewrites the document.
@@ -215,16 +215,16 @@ describe("GET /api/league — account mode", () => {
     // The original team's own copy of those ids is its own: served as saved.
     envTeams("a");
     getData.mockResolvedValue(DATA({ squadi: { ...LEGACY_LEAGUE_SETUP } }));
-    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: { ...LEGACY_LEAGUE_SETUP }, saved: true });
+    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: { ...LEGACY_LEAGUE_SETUP }, saved: true, draws: [] });
   });
 
   it("a team with no document yet reads as nothing saved (the legacy owner still gets its default)", async () => {
     getData.mockResolvedValue(null);
     coachSession();
     const { GET } = await loadRoute({ authOn: true });
-    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: null, saved: false });
+    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: null, saved: false, draws: [] });
     envTeams("a");
-    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false });
+    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false, draws: [] });
   });
 
   it("a super admin viewing as someone reads as that person (reads are allowed)", async () => {
@@ -237,7 +237,7 @@ describe("GET /api/league — account mode", () => {
     const res = await GET(fakeRequest());
     expect(res.status).toBe(200);
     expect(membershipsForEmail).toHaveBeenCalledWith("mum@a.com");
-    expect(await res.json()).toEqual({ teamSlug: "a", squadi: SAVED, saved: true });
+    expect(await res.json()).toEqual({ teamSlug: "a", squadi: SAVED, saved: true, draws: [] });
   });
 
   it("never writes", async () => {
@@ -258,16 +258,16 @@ describe("GET /api/league — legacy team-code mode", () => {
     expect(res.status).toBe(200);
     expect(auth).not.toHaveBeenCalled();
     expect(teamFromCookieHeader).toHaveBeenCalledWith("site_auth=code");
-    expect(await res.json()).toEqual({ teamSlug: "a", squadi: SAVED, saved: true });
+    expect(await res.json()).toEqual({ teamSlug: "a", squadi: SAVED, saved: true, draws: [] });
   });
 
   it("single-team mode: 'default' is the legacy owner and keeps its draw; another code's team does not get it", async () => {
     process.env.SITE_PASSWORD = "the-code";
     const { GET } = await loadRoute({ authOn: false });
     teamFromCookieHeader.mockReturnValue({ slug: "default" });
-    expect(await (await GET(fakeRequest({ headers: { cookie: "site_auth=code" } }))).json()).toEqual({ teamSlug: "default", squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false });
+    expect(await (await GET(fakeRequest({ headers: { cookie: "site_auth=code" } }))).json()).toEqual({ teamSlug: "default", squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false, draws: [] });
     teamFromCookieHeader.mockReturnValue({ slug: "over-35s" });
-    expect(await (await GET(fakeRequest({ headers: { cookie: "site_auth=other" } }))).json()).toEqual({ teamSlug: "over-35s", squadi: null, saved: false });
+    expect(await (await GET(fakeRequest({ headers: { cookie: "site_auth=other" } }))).json()).toEqual({ teamSlug: "over-35s", squadi: null, saved: false, draws: [] });
   });
 
   it("401s when the cookie matches no team", async () => {
@@ -559,7 +559,7 @@ describe("POST /api/league — narrow write", () => {
     // Nothing of the old default is written into the document.
     expect(stored.squadi).toEqual({ ...BLANK, mode: "url", url: LINK_2 });
     getData.mockResolvedValue(stored);
-    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: { ...BLANK, mode: "url", url: LINK_2 }, saved: true });
+    expect(await (await GET(fakeRequest())).json()).toEqual({ teamSlug: "a", squadi: { ...BLANK, mode: "url", url: LINK_2 }, saved: true, draws: [] });
   });
 
   it("a team cleaned up on read is stored clean by its next save", async () => {
@@ -587,5 +587,44 @@ describe("POST /api/league — narrow write", () => {
     await post(POST, save({ mode: "url", url: LINK_2 }));
     expect(JSON.stringify(doc)).toBe(before);
     expect(setData.mock.calls[0][1]).not.toBe(doc);
+  });
+});
+
+describe("GET /api/league — the draws the club's set-up has a link for", () => {
+  const KEY = "11111111-2222-4333-8444-555555555555";
+  const SQ = `https://registration.squadi.com/liveScoreSeasonFixture?competitionUniqueKey=${KEY}&divisionId=20001&teamId=300001`;
+  const DR = "https://winterleague.dribl.com/fixtures?season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468";
+  const REGISTRY = {
+    slug: "a", name: "U8 Blues", password: "secret-team-code", calendarKey: "secret-calendar-key", coachEmails: ["coach@a.com"],
+    squadi: { competitionId: "777", divisionId: "20001", teamId: 300001, link: SQ },
+    competitions: [
+      { id: "cdribl001", name: "Winter League", dribl: { link: DR, site: "winterleague", season: "AbCdEf1234", competition: "1pQrStUv90", league: "ZyXwVu5678", club: "MnOpQr2468" } },
+      { id: "cnolink01", name: "Cup", squadi: { competitionId: "888", divisionId: "30001", teamId: 400001 } }
+    ]
+  };
+
+  it("lists the season's and each competition's, to any member, as links and names only", async () => {
+    const { GET } = await loadRoute({ authOn: true });
+    for (const signIn of [coachSession, parentSession, viewerSession]) {
+      signIn();
+      teamBySlug.mockImplementation(() => REGISTRY);
+      const json = await (await GET(fakeRequest())).json();
+      expect(json.draws).toEqual([
+        { name: "Season", provider: "squadi", link: SQ, season: true },
+        { name: "Winter League", provider: "dribl", link: DR }
+      ]);
+      // The team's code, its calendar key, its coaches and its sync ids stay on the server.
+      expect(JSON.stringify(json)).not.toMatch(/secret-team-code|secret-calendar-key|coach@a\.com|competitionId|"777"|cdribl001/);
+    }
+  });
+
+  it("does not change what the team's own set-up says: the page decides what to show", async () => {
+    getData.mockResolvedValue(DATA({ squadi: SAVED }));
+    const { GET } = await loadRoute({ authOn: true });
+    coachSession();
+    teamBySlug.mockImplementation(() => REGISTRY);
+    const json = await (await GET(fakeRequest())).json();
+    expect(json).toMatchObject({ teamSlug: "a", squadi: SAVED, saved: true });
+    expect(json.draws).toHaveLength(2);
   });
 });

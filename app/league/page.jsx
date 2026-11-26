@@ -62,6 +62,7 @@ export default function LeaguePage() {
   const [loaded, setLoaded] = useState(false); // this team's set-up has arrived from /api/league
   const [teamSlug, setTeamSlug] = useState(""); // the team that set-up was loaded for
   const [hadSetup, setHadSetup] = useState(false); // the team had a set-up of its own when the page loaded
+  const [draws, setDraws] = useState([]); // every draw the club's set-up has a fixtures link for: { name, provider, link, season? }
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
@@ -122,17 +123,24 @@ export default function LeaguePage() {
         setCfg({ ...EMPTY_CFG, ...(j?.squadi || {}) });
         setTeamSlug(typeof j?.teamSlug === "string" ? j.teamSlug : "");
         setHadSetup(!!j?.saved);
+        setDraws(Array.isArray(j?.draws) ? j.draws.filter((d) => d && typeof d.link === "string" && /^https:\/\//.test(d.link)) : []);
         setLoaded(true);
       })
       .catch(() => { if (!cancelled) setLoadError("Could not load the team."); });
     return () => { cancelled = true; };
   }, []);
 
-  // Nothing saved yet and allowed to configure — show the panel. (Once, when
-  // both answers are in: neither value changes again while the page is open.)
+  // The season's own draw, when the club's set-up has its Squadi fixtures link
+  // (pasted in the team wizard). It is what the page shows for a team with no
+  // set-up of its own.
+  const seasonDraw = draws.find((d) => d.season && d.provider === "squadi") || null;
+
+  // Nothing saved yet, nothing to show from the club's set-up either, and
+  // allowed to configure — show the panel. (Once, when both answers are in:
+  // neither value changes again while the page is open.)
   useEffect(() => {
-    if (!hadSetup && canManage) setOpen(true);
-  }, [hadSetup, canManage]);
+    if (!hadSetup && !seasonDraw && canManage) setOpen(true);
+  }, [hadSetup, seasonDraw, canManage]);
 
   // Writes only this team's league set-up (/api/league), then shows exactly
   // what the server stored. The save names the team the page loaded: the
@@ -165,7 +173,10 @@ export default function LeaguePage() {
   // The form starts empty and only the team's own set-up fills it, so there is
   // no link (and no draw) on the first paint, after a failed load, or for a
   // team that has saved nothing.
-  const src = buildUrl(cfg);
+  const src = buildUrl(cfg) || seasonDraw?.link || "";
+  // The draws to offer as links: all of them, unless the only one is the one
+  // already showing below (which has "Open full page" above it).
+  const listed = draws.length > 1 || (draws.length === 1 && draws[0].link !== src) ? draws : [];
   const teamLabel = me?.teamName || "this team";
 
   return (
@@ -252,7 +263,21 @@ export default function LeaguePage() {
         </section>
       )}
 
-      {loaded && meReady && !src && (
+      {listed.length > 0 && (
+        <section className="adm-card" aria-labelledby="league-draws">
+          <h2 className="adm-label" id="league-draws" style={{ marginBottom: 4 }}>Draws</h2>
+          {listed.map((d) => (
+            <div className="adm-row" key={d.name + d.link}>
+              <div className="adm-row-main">{d.name}<div className="adm-row-sub">{d.provider === "dribl" ? "On Dribl" : "On Squadi"}</div></div>
+              <a href={d.link} target="_blank" rel="noopener noreferrer" className="adm-link">
+                Open the draw<ExternalLink size={13} aria-hidden="true" />
+              </a>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {loaded && meReady && !src && listed.length === 0 && (
         <div className="adm-card quiet">
           <b style={{ color: "var(--ink)" }}>Not configured yet.</b><br />
           {canManage

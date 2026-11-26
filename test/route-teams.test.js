@@ -759,3 +759,57 @@ describe("two Squadi feeds and other competitions on one team", () => {
     expect(setStoredTeams).not.toHaveBeenCalled();
   });
 });
+
+describe("fixtures links — a draw keeps the link it was set up from", () => {
+  const KEY = "11111111-2222-4333-8444-555555555555";
+  const SQ = `https://registration.squadi.com/liveScoreSeasonFixture?competitionUniqueKey=${KEY}&divisionId=20001&teamId=300001`;
+  const DR = "https://winterleague.dribl.com/fixtures?season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468";
+  const IDS = { competitionId: "777", divisionId: "20001", teamId: 300001 };
+  const DRIBL = { link: DR, site: "winterleague", season: "AbCdEf1234", competition: "1pQrStUv90", league: "ZyXwVu5678", club: "MnOpQr2468" };
+
+  it("POST stores the season's link beside its ids and a Dribl competition as its link, and nothing that is not one of the two sites'", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: {
+      name: "U8 Blues", password: "blues-code-1", squadi: { ...IDS, teamId: "300001", link: ` ${SQ} ` },
+      competitions: [
+        { name: "Winter League", dribl: { link: DR, site: "not-what-the-link-says" } },
+        { name: "Cup", squadi: { competitionId: "888", divisionId: "30001", teamId: "400001", link: "https://example.com/elsewhere" } },
+        { name: "Odd", dribl: { link: "javascript:alert(1)" } }
+      ]
+    } }));
+    expect(res.status).toBe(200);
+    const stored = setStoredTeams.mock.calls[0][0][0];
+    expect(stored.squadi).toEqual({ ...IDS, link: SQ });
+    expect(stored.competitions.map(({ id, ...rest }) => rest)).toEqual([
+      { name: "Winter League", dribl: DRIBL },
+      { name: "Cup", squadi: { competitionId: "888", divisionId: "30001", teamId: 400001 } },
+      { name: "Odd" }
+    ]);
+    // Links are registry-only, like the ids: nothing of them goes into the team's document.
+    expect(JSON.stringify(setData.mock.calls[0][1])).not.toMatch(/squadi\.com|dribl/);
+  });
+
+  it("GET gives them back for the wizard to show", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "u8", name: "U8 Blues", password: "blues-code-1", squadi: { ...IDS, link: SQ }, competitions: [{ id: "cdribl01", name: "Winter League", dribl: DRIBL }] }]);
+    const { GET } = await asAdmin();
+    const team = (await (await GET()).json()).teams.find((t) => t.slug === "u8");
+    expect(team.squadi).toEqual({ ...IDS, link: SQ });
+    expect(team.competitions).toEqual([{ id: "cdribl01", name: "Winter League", dribl: DRIBL }]);
+  });
+
+  it("PATCH changes a link, takes one away, and turns a Dribl row into a Squadi one", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "u8", name: "U8 Blues", password: "blues-code-1", squadi: { ...IDS, link: SQ }, competitions: [{ id: "cdribl01", name: "Winter League", dribl: DRIBL }] }]);
+    const { PATCH } = await asAdmin();
+    await PATCH(fakeRequest({ body: { slug: "u8", squadi: IDS, competitions: [{ id: "cdribl01", name: "Winter League", squadi: { competitionId: "888", divisionId: "30001", teamId: 400001, link: SQ } }] } }));
+    const next = setStoredTeams.mock.calls[0][0][0];
+    expect(next.squadi).toEqual(IDS); // sent without its link: the link is gone
+    expect(next.competitions).toEqual([{ id: "cdribl01", name: "Winter League", squadi: { competitionId: "888", divisionId: "30001", teamId: 400001, link: SQ } }]);
+  });
+
+  it("two feeds each keep their own link", async () => {
+    const { POST } = await asAdmin();
+    const SQ2 = SQ.replace("20001", "20002").replace("300001", "300002");
+    await POST(fakeRequest({ body: { name: "U9 Squad", password: "squad-code-1", squadi: [{ label: "Red", ...IDS, link: SQ }, { label: "White", competitionId: "777", divisionId: "20002", teamId: 300002, link: SQ2 }] } }));
+    expect(setStoredTeams.mock.calls[0][0][0].squadi).toEqual([{ label: "Red", ...IDS, link: SQ }, { label: "White", competitionId: "777", divisionId: "20002", teamId: 300002, link: SQ2 }]);
+  });
+});

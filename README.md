@@ -130,8 +130,12 @@ The switch is one env var and is reversible — until `AUTH_SECRET` is set nothi
 parameters — the page has a **Set up** panel (saved for everyone on that team) where you
 either build the link from filters or paste the full embed URL.
 
-Each team has its own setup. A team that has not saved one shows "Not configured yet."
-rather than any draw. Only the original team falls back to the U8 Kangaroos White draw it
+Each team has its own setup. A team that has not saved one shows the season's draw from
+the club's set-up when the team wizard has its Squadi fixtures link (see "Setting a draw
+up from its link" below), and "Not configured yet." when there is neither, rather than
+anybody else's draw. Above the draw, **Draws** lists every draw the club's set-up has a
+link for (the season's, and each other competition's on Squadi or Dribl), each with
+**Open the draw**. Only the original team falls back to the U8 Kangaroos White draw it
 has always shown: the legacy owner (`legacyOwnerSlug` in `lib/store.js`), or the team
 whose own Squadi sync IDs are that team's. If another team saved that default under the
 old page, those ids are ignored when its setup is read.
@@ -496,13 +500,39 @@ deliberately not emailed.
 Caveat: this is an undocumented endpoint — it may change shape without notice. The sync
 fails closed (no writes, error logged) rather than guessing.
 
+### Setting a draw up from its link
+
+In the `/admin` wizard's **Competitions** step a draw is set up by pasting the address of
+the team's own fixtures page, on a phone or a computer, with no IDs to hunt for.
+
+- **Squadi.** Open the Squadi fixtures page, choose the competition, the division and
+  your team, and copy the address (it carries `competitionUniqueKey`, `divisionId` and
+  `teamId`). Paste it into the row, or type it and press **Read link**. The site looks
+  the competition up on Squadi, fills in the three IDs the sync uses, and reads back
+  what it found: the team as Squadi names it, the division, the competition and how many
+  games are published. If that is not your team, the link was for another one. Save,
+  and the games sync by themselves as described above.
+- **Dribl.** A competition run on Dribl takes its Dribl fixtures link the same way, in
+  a competition row of its own. Dribl has no public feed and refuses automated readers,
+  so **nothing is synced from it**: the link is kept with the competition and what it
+  names (season, competition, league, club) is recorded. Its draw is then one tap away
+  on the league page.
+
+A link is only kept if it is an `https://` address on `squadi.com` or `dribl.com`. The
+server never requests a pasted address: it asks Squadi's own service, using the key and
+IDs read from the link once they have been checked. The three ID boxes are still there
+for typing IDs in by hand; a link is saved beside them only while it still names the
+same division and team. Reading a link is for the people who set teams up (super admins
+and club admins), through its own route, `/api/feed-link`, which stores nothing.
+
 ### More than one competition
 
 A team often plays something alongside its season: a winter tournament with part of the
 squad, an invitational league on other days. In the `/admin` wizard the **Competitions**
-step holds the season's Squadi IDs (one team, or two: see below) and a row for each
-other competition: a name and its three IDs. A row can be saved with just its name while its draw is not published yet;
-the sync leaves it alone until the IDs are added with Edit.
+step holds the season's draw (one team, or two: see below) and a row for each other
+competition: a name and its fixtures link (or its three Squadi IDs). A row can be saved
+with just its name while its draw is not published yet; the sync leaves it alone until
+the link is added with Edit.
 
 Every sync pulls each draw that has its IDs. A game from another competition is labelled
 with that competition's name wherever its round shows (Results, the match screen, Home,
@@ -512,7 +542,9 @@ the others are still applied, and the Sync button names the one that failed.
 
 For a team defined in `TEAMS`, the same list goes on the team entry:
 `"competitions":[{"id":"winterfest","name":"Winterfest","squadi":{"competitionId":"…","divisionId":"…","teamId":0}}]`.
-`id` is permanent (a game is tagged with it) and `name` can change.
+`id` is permanent (a game is tagged with it) and `name` can change. A draw's fixtures
+link can sit beside its IDs as `"link":"https://registration.squadi.com/…"`, and a
+competition on Dribl is `{"id":"…","name":"…","dribl":{"link":"https://….dribl.com/fixtures?…"}}`.
 
 #### A squad for a competition
 
@@ -582,6 +614,10 @@ and the Ask tab's answers are plain text, so they name the opposition without a 
 
 - **Squadi** still has no public API — keep transcribing scores. Server-side scraping of
   their private endpoints is brittle and against their terms; not built in.
+- **Dribl** has no public feed or calendar export, and its site refuses automated
+  readers. Getting round that would mean pretending to be a person's browser, which is
+  not something this site does. A Dribl competition's link is kept and shown; its games
+  are not synced.
 - **Veo** still can't be embedded anywhere (their setting). Veo links open in a new tab;
   YouTube links embed.
 

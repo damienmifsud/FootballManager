@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getData, setData, legacyOwnerSlug } from "@/lib/store";
 import { resolveViewer, viewerError } from "@/lib/viewer";
 import { sanitizeLeagueSetup, leagueSetupFor, isOriginalTeam } from "@/lib/leagueSetup";
+import { drawLinks } from "@/lib/competitions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +18,14 @@ export const dynamic = "force-dynamic";
 // whole-document save from ever writing or undoing it.
 //
 // GET: any member of the team (or anyone with the team code in legacy mode).
-// Response: { teamSlug, squadi, saved }. `saved` is whether the team has a
-// setup of its own; `squadi` is that setup, or null when it has none, in
-// which case the page shows "Not configured yet." rather than anybody's draw.
+// Response: { teamSlug, squadi, saved, draws }. `saved` is whether the team
+// has a setup of its own; `squadi` is that setup, or null when it has none.
+// `draws` is every draw the club's set-up holds a fixtures link for (the
+// wizard's Competitions step; lib/competitions.js drawLinks): the season's,
+// then each other competition's, as { name, provider, link, season?, side? }.
+// The page lists them to be opened, and shows the season's own draw in place
+// when the team has no setup of its own. With neither, it says "Not configured
+// yet." rather than showing anybody's draw. Links only: no ids are sent.
 // Only the original team (lib/leagueSetup.js isOriginalTeam: the legacy owner,
 // as for the pre-multi-team document, or the team whose own Squadi sync ids
 // are the original team's) falls back to the pre-multi-team default; on any
@@ -46,7 +52,7 @@ export async function GET(req) {
   if (v.error) return viewerError(v);
   const doc = await getData(v.team.slug);
   const setup = leagueSetupFor(doc, { originalTeam: isOriginalTeam(v.team, legacyOwnerSlug()) });
-  return NextResponse.json({ teamSlug: v.team.slug, ...setup });
+  return NextResponse.json({ teamSlug: v.team.slug, ...setup, draws: drawLinks(v.team) });
 }
 
 export async function POST(req) {
