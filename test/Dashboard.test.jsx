@@ -4904,3 +4904,140 @@ describe("Bulk import of training and games", () => {
     } finally { vi.stubGlobal("FileReader", RealReader); }
   });
 });
+
+describe("Two-team squad — paired rounds (S1) and missing numbers (S0)", () => {
+  const meFetch = (me, rsvpOk = true) => {
+    fetch.mockImplementation((url) => {
+      if (String(url).includes("/api/me")) return Promise.resolve({ ok: true, json: async () => me });
+      if (String(url).includes("/api/rsvp")) return Promise.resolve({ ok: rsvpOk, json: async () => ({ ok: rsvpOk }) });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+  };
+  const parent = () => {
+    const hat = { role: "parent", playerIds: ["p1"], playerNames: ["Sam Smith"] };
+    return { mode: "account", email: "x@a.com", admin: false, clubAdmin: false, teamSlug: "a", teamName: "U9 Academy", role: "parent", playerIds: ["p1"], playerNames: ["Sam Smith"],
+      hats: [hat], teams: [{ teamSlug: "a", teamName: "U9 Academy", hats: [hat] }], canSwitch: false, memberships: [] };
+  };
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); const utils = render(<App />); return waitForLoaded().then(() => utils); };
+  const sheet = () => within(document.querySelector(".sheet"));
+  const rsvpBodies = () => fetch.mock.calls.filter((c) => String(c[0]).includes("/api/rsvp")).map((c) => JSON.parse(c[1].body));
+  const g = (id, side, over = {}) => ({ id, round: 7, ...(side ? { side } : {}), status: "upcoming", dateISO: daysFromNow(5), time: "09:00", opponent: "Oxley United", homeAway: "H", venue: "Perry Park – Field 4C", availability: {}, ...over });
+  // Stored McKain first: the Home card must still follow team.sides (McKay first).
+  const paired = (over = {}) => makeData({
+    team: { name: "U9 Academy", division: "FQA 1", ageGroup: "U9", coachPin: "", sides: ["McKay", "McKain"] },
+    fixtures: [g("fb", "McKain", { time: "10:30", venue: "Perry Park – Field 4A" }), g("fa", "McKay"), g("f8", "McKay", { round: 8, dateISO: daysFromNow(12) })],
+    ...over
+  });
+  const tags = (root = document) => [...root.querySelectorAll(".sidetag")].map((t) => t.textContent);
+
+  it("Home next-game card: one line per side in team.sides order, kick-off and field, tapping a line opens that game", async () => {
+    await load(paired());
+    const lines = [...document.querySelectorAll(".nextgame .ng-side")];
+    expect(lines.map((l) => [l.querySelector(".sidetag").textContent, l.querySelector(".t").textContent, l.querySelector(".f").textContent]))
+      .toEqual([["McKay", "09:00", "Field 4C"], ["McKain", "10:30", "Field 4A"]]);
+    expect(document.querySelector(".nextgame .ng-shared").textContent).toBe("Perry Park");
+    expect(within(document.querySelector(".nextgame")).queryByText("Details")).toBeNull();
+    fireEvent.click(lines[1]);
+    await waitFor(() => expect(headerTitle()).toBe("Round 7"));
+    expect(headerKicker()).toBe(`McKain · vs Oxley United · ${fmtDate(daysFromNow(5))}`);
+    expect(document.querySelector(".mh-label").textContent).toBe(`Round 7 · McKain · Home · ${fmtDate(daysFromNow(5))}`);
+  });
+
+  it("different grounds: each line carries its whole venue", async () => {
+    await load(paired({ fixtures: [g("fa", "McKay"), g("fb", "McKain", { venue: "Dorrington Park" })] }));
+    expect(document.querySelector(".ng-shared")).toBeNull();
+    expect([...document.querySelectorAll(".ng-side .f")].map((f) => f.textContent)).toEqual(["Perry Park – Field 4C", "Dorrington Park"]);
+  });
+
+  it("week rows, results rows and the duties cards carry the side tag on a paired round only", async () => {
+    const { container } = await load(paired());
+    const week = [...container.querySelectorAll(".week .wk-row")];
+    expect(week.map((r) => r.querySelector(".sidetag")?.textContent)).toEqual(["McKay", "McKain"]);
+    expect(tags(container.querySelector(".week")).length).toBe(2);
+    // Home shows a duties card per side of the next round.
+    expect([...container.querySelectorAll(".dutycard")].map((c) => c.querySelector(".sidetag")?.textContent)).toEqual(["McKay", "McKain"]);
+    fireEvent.click(screen.getByText("Results"));
+    await waitFor(() => expect(container.querySelectorAll(".mrow").length).toBe(3));
+    const rows = [...container.querySelectorAll(".mrow")].map((r) => [r.querySelector(".mr-round .r").textContent, r.querySelector(".sidetag")?.textContent]);
+    expect(rows).toContainEqual(["7", "McKay"]);
+    expect(rows).toContainEqual(["7", "McKain"]);
+    expect(rows).toContainEqual(["8", undefined]); // McKain's bye: an ordinary single game
+  });
+
+  it("the Duties screen names the side beside the opponent", async () => {
+    const { container } = await load(paired());
+    fireEvent.click(container.querySelector(".dutycard"));
+    await waitFor(() => expect(headerTitle()).toBe("Duties"));
+    expect([...container.querySelectorAll(".ducard .du-head")].map((h) => h.querySelector(".sidetag")?.textContent).sort()).toEqual(["McKain", "McKay", undefined]);
+  });
+
+  it("the side tag is never red", async () => {
+    await load(paired());
+    const css = [...document.querySelectorAll("style")].map((s) => s.textContent).join("");
+    const rule = css.match(/\.sidetag\{[^}]*\}/)[0];
+    expect(rule).toContain("background:var(--soft)");
+    expect(rule).toContain("color:var(--muted)");
+    expect(rule).toContain("font-size:9px;font-weight:800");
+    expect(rule).toContain("border-radius:6px");
+    expect(rule).toContain("letter-spacing:.06em");
+  });
+
+  it("one reply covers both games: the sheet says so, one write goes out, and both games show the reply", async () => {
+    meFetch(parent());
+    await load(paired({ fixtures: [g("fa", "McKay"), g("fb", "McKain", { time: "10:30" })] }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reply" }));
+    expect(await sheet().findByText("Your reply covers both games this round.")).toBeTruthy();
+    fireEvent.click(sheet().getByRole("button", { name: "In" }));
+    await waitFor(() => expect(rsvpBodies()).toEqual([{ kind: "game", id: "fa", playerId: "p1", status: "in" }]));
+    // The week rows are one per game: both now read "Sam's in".
+    await waitFor(() => expect([...document.querySelectorAll(".week .wk-row .wk-pill")].map((p) => p.textContent)).toEqual(["Sam's in", "Sam's in"]));
+    // Clearing clears both.
+    fireEvent.click(document.querySelector(".nextgame .replyrow button"));
+    fireEvent.click(await sheet().findByRole("button", { name: "In" }));
+    await waitFor(() => expect(rsvpBodies()[1]).toEqual({ kind: "game", id: "fa", playerId: "p1", status: null }));
+    await waitFor(() => expect([...document.querySelectorAll(".week .wk-row .wk-pill")].map((p) => p.textContent)).toEqual(["No reply", "No reply"]));
+  });
+
+  it("a refused write puts both games back", async () => {
+    meFetch(parent(), false);
+    await load(paired({ fixtures: [g("fa", "McKay"), g("fb", "McKain", { availability: { p1: { status: "out", reason: "Away" } } })] }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reply" }));
+    fireEvent.click(await sheet().findByRole("button", { name: "In" }));
+    expect(await screen.findByText("Couldn't save Sam's reply — try again.")).toBeTruthy();
+    await waitFor(() => expect([...document.querySelectorAll(".week .wk-row .wk-pill")].map((p) => p.textContent)).toEqual(["No reply", "Sam's out"]));
+  });
+
+  it("the WhatsApp share and the calendar event name our side", async () => {
+    await load(paired());
+    fireEvent.click(document.querySelectorAll(".nextgame .ng-side")[0]);
+    await waitFor(() => expect(headerTitle()).toBe("Round 7"));
+    const wa = decodeURIComponent(document.querySelector("a.washare").getAttribute("href"));
+    expect(wa).toContain("⚽ U9 Academy McKay — Round 7 vs Oxley United");
+    const cal = [...document.querySelectorAll("a")].map((a) => decodeURIComponent((a.getAttribute("href") || "").replace(/\+/g, " "))).filter((h) => h.includes("calendar"));
+    expect(cal.some((h) => h.includes("U9 Academy McKay v Oxley United"))).toBe(true);
+  });
+
+  it("a single-feed team shows no tags, no side lines and no both-games line", async () => {
+    meFetch(parent());
+    await load(makeData({ fixtures: [g("f1", null, { venue: "Perry Park" })] }));
+    expect(tags()).toEqual([]);
+    expect(document.querySelector(".ng-side")).toBeNull();
+    expect(screen.getByText("Details")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Reply" }));
+    await sheet().findByRole("button", { name: "In" });
+    expect(sheet().queryByText("Your reply covers both games this round.")).toBeNull();
+  });
+
+  it("S0: the goals editor drops the number and the full stop for a player without one", async () => {
+    await load(makeData({
+      players: [{ id: "p1", name: "Sam Smith", number: 0 }, { id: "p2", name: "Alex Smith", number: 8 }],
+      fixtures: [{ id: "f1", round: 7, status: "played", us: 1, them: 0, goals: [], assists: [], dateISO: daysFromNow(-3), time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park", availability: {} }]
+    }));
+    await enterCoachMode();
+    fireEvent.click(screen.getByText("Results"));
+    fireEvent.click(await waitFor(() => { const r = document.querySelector(".mrow"); expect(r).toBeTruthy(); return r; }));
+    fireEvent.click(await screen.findByText("Edit"));
+    await waitFor(() => expect(document.querySelectorAll(".sheet .gnm").length).toBe(2));
+    expect([...document.querySelectorAll(".sheet .gnm")].map((n) => n.textContent)).toEqual(["Sam Smith", "8. Alex Smith"]);
+  });
+});

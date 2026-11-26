@@ -94,10 +94,14 @@ label.adm-btn:focus-within{outline:2px solid var(--pitch);outline-offset:2px;}
 .adm-pill.bad{background:var(--red-tint);color:var(--red-strong);}
 .adm-pill.info{background:var(--blue-tint);color:var(--blue-strong);}
 .adm-pill.lg{font-size:11px;padding:5px 10px;}
+.adm-pill.wrap{white-space:normal;border-radius:12px;line-height:1.3;text-align:left;}
 .adm-chips{display:flex;gap:6px;flex-wrap:wrap;}
 .adm-chip{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:999px;padding:7px 12px;font:inherit;font-size:12px;font-weight:700;
   cursor:pointer;min-height:34px;}
 .adm-chip.on{background:var(--pitch);color:#fff;border-color:var(--pitch);}
+/* a section that keeps its place in the column, and its state, while another one shows */
+.adm-sect{display:contents;}
+.adm-sect.off{display:none;}
 .adm-seg{display:flex;background:var(--line);border-radius:13px;padding:3px;gap:3px;}
 .adm-seg button{flex:1;border:none;border-radius:11px;padding:10px;font:inherit;font-size:13px;font-weight:800;cursor:pointer;min-height:40px;
   background:transparent;color:var(--muted);}
@@ -168,6 +172,34 @@ label.adm-btn:focus-within{outline:2px solid var(--pitch);outline-offset:2px;}
 .adm-actions{display:flex;gap:8px;margin-top:20px;}
 .adm-actions .adm-btn{flex:1;}
 .adm-foot{font-size:12px;color:var(--muted);text-align:center;padding-top:4px;}
+/* people: one card per person; the head is the button that opens it */
+.adm-people-count{margin:-4px 2px;}
+.adm-people-foot{margin:0 2px;}
+.adm-person{padding:0;}
+.adm-person-head{width:100%;background:none;border:none;font:inherit;color:inherit;text-align:left;cursor:pointer;display:flex;align-items:center;gap:12px;
+  padding:14px 16px 10px;min-height:60px;border-radius:var(--r-card);}
+.adm-person-head .disc{width:40px;height:40px;border-radius:50%;background:var(--soft);color:var(--muted);display:inline-flex;align-items:center;
+  justify-content:center;font-size:13px;font-weight:800;flex-shrink:0;}
+.adm-person-head .who{flex:1;min-width:0;}
+.adm-person-head .who b{display:block;font-size:15px;font-weight:800;line-height:1.25;overflow-wrap:anywhere;}
+.adm-person-head .who span{display:block;font-size:12px;color:var(--muted);overflow-wrap:anywhere;}
+.adm-person-head .chev{color:#9AA3A6;flex-shrink:0;transition:transform .18s cubic-bezier(.2,.8,.2,1);}
+.adm-person.open .adm-person-head .chev{transform:rotate(90deg);}
+.adm-person-head:focus-visible{outline:2px solid var(--pitch);outline-offset:-2px;}
+.adm-person-pills{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 14px;}
+.adm-person-body{border-top:1px solid var(--line);padding:4px 16px 16px;}
+.adm-person-body > .adm-note{margin-top:12px;}
+.adm-person-team{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line);}
+.adm-person-team .t{flex:1 1 150px;min-width:0;}
+.adm-person-team .t b{display:block;font-size:14px;font-weight:800;overflow-wrap:anywhere;}
+.adm-person-team .t span{display:block;font-size:12px;color:var(--muted);margin-top:1px;}
+.adm-person-team .adm-inp{min-height:40px;padding:8px 10px;font-size:14px;}
+/* add to a team: the team on its own line, then the role beside the button */
+.adm-person-add{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:12px;}
+.adm-person-add .team{grid-column:1 / -1;}
+.adm-person-add .adm-inp{min-height:40px;padding:8px 10px;font-size:14px;}
+.adm-person-add .adm-btn{min-height:40px;}
+.adm-person-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
 /* a card that is one link: icon square, title, sub line, chevron */
 .adm-linkcard{padding:12px 16px;display:flex;align-items:center;gap:12px;text-decoration:none;color:var(--ink);}
 .adm-lc-ic{width:36px;height:36px;border-radius:11px;background:var(--red-tint);color:var(--pitch);display:inline-flex;align-items:center;

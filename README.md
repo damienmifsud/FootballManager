@@ -257,6 +257,7 @@ mode, where there are no accounts.
 | **Club** | | | | | |
 | Open `/admin` | Yes | Yes (wizard and this table) | No | No | Not available |
 | Create and edit teams (the wizard) | Yes | Yes | No | No | Not available |
+| People: every login and what it is attached to | Yes | No | No | No | Not available |
 | Add or remove club admins | Yes | No | No | No | Not available |
 | Per-person per-team overrides | Yes | No | No | No | Not available |
 | View as any user (read only) | Yes | No | No | No | Not available |
@@ -295,6 +296,22 @@ as**: the person's roles on this team (tap one to switch), **Team settings** for
 **Switch team** back to My teams, **Club admin** for the people who run the club, and
 **Sign out**. Nobody is asked to choose a role up front: a team opens in the strongest
 role held there.
+
+**Club admin** (`/admin`) has three sections for a super admin:
+
+- **Teams**: the team wizard (create, edit, open any team) and the league page link.
+- **People**: everyone with a login and everything each is attached to, one card per
+  person with their roles as pills ("Assistant coach · U9 Reds", "Parent of Leo · U9
+  Reds", "Club admin"). Search by name, email, role or team. Open a card to set that
+  person's role on a team (Coach, Parent only, View only, No access, or **As listed**
+  to go back to the team's own lists), add them to another team, make them a club
+  admin, or view the site as them. Roles themselves come from each team's staff list
+  and the emails on its players' records; nothing on a roster is edited from this
+  page. It holds every family's email address, so club admins do not get it.
+- **Access**: view as a user, the club admins list, every per-team override in one
+  place, and the who-can-do-what table.
+
+A club admin sees the team wizard, the role table and the league link on one page.
 
 The choice is stored in the `team_slug` and `act_as` cookies and re-validated on every
 request: a cookie can only narrow what the person is entitled to, never widen it. The
@@ -406,8 +423,8 @@ fails closed (no writes, error logged) rather than guessing.
 
 A team often plays something alongside its season: a winter tournament with part of the
 squad, an invitational league on other days. In the `/admin` wizard the **Competitions**
-step holds the season's Squadi IDs and a row for each other competition: a name and its
-three IDs. A row can be saved with just its name while its draw is not published yet;
+step holds the season's Squadi IDs (one team, or two: see below) and a row for each
+other competition: a name and its three IDs. A row can be saved with just its name while its draw is not published yet;
 the sync leaves it alone until the IDs are added with Edit.
 
 Every sync pulls each draw that has its IDs. A game from another competition is labelled
@@ -419,6 +436,23 @@ the others are still applied, and the Sync button names the one that failed.
 For a team defined in `TEAMS`, the same list goes on the team entry:
 `"competitions":[{"id":"winterfest","name":"Winterfest","squadi":{"competitionId":"…","divisionId":"…","teamId":0}}]`.
 `id` is permanent (a game is tagged with it) and `name` can change.
+
+### One squad that plays as two teams
+
+Some squads enter the season as two teams and play two games each round. In the
+**Competitions** step, under Season, **Add a second team** gives the season a second
+row; each row then needs a short label (at most 12 characters, and different from the
+other), which names that side on every one of its games.
+
+Each sync applies both feeds onto the same squad. A round with a game on each side is a
+paired round: both games show with their side's label, one reply covers both, and the
+calendar feed has one event per game with the side in the team's name. If one feed
+cannot be fetched the other is still applied, and the Sync button names the side that
+failed. A team with one feed has no sides, and nothing changes for it. Other
+competitions keep a single feed each.
+
+For a team defined in `TEAMS`, `squadi` is then an array of the two labelled feeds:
+`"squadi":[{"label":"Reds","competitionId":"…","divisionId":"…","teamId":0},{"label":"Blues","competitionId":"…","divisionId":"…","teamId":0}]`.
 
 ---
 

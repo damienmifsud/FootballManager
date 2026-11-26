@@ -34,10 +34,17 @@ const BLANK_SEASON = { startISO: "", endISO: "" };
 const seasonForEdit = (season) => ({ startISO: season?.startISO || "", endISO: season?.endISO || "" });
 const thisYear = new Date().getFullYear();
 const SEASON_YEARS = [thisYear - 1, thisYear, thisYear + 1, thisYear + 2];
+// The season's Squadi rows: one feed, or two for one squad that plays as two
+// teams each round (each row then needs a label, which names that side on
+// every game).
+const squadiRow = (s = {}) => ({ label: s.label || "", competitionId: s.competitionId || "", divisionId: s.divisionId || "", teamId: s.teamId || "" });
+const seasonFeedsForEdit = (squadi) => (Array.isArray(squadi) && squadi.length ? squadi.slice(0, 2).map(squadiRow) : [squadiRow(squadi || {})]);
+const rowFilled = (r) => !!(String(r.competitionId).trim() || String(r.divisionId).trim() || String(r.teamId).trim());
+const SIDE_LABEL_MAX = 12;
 const BLANK = {
   name: "", ageGroup: "U8", password: "", coachEmails: "",
   division: "", whatsapp: "", season: { ...BLANK_SEASON },
-  squadi: { competitionId: "", divisionId: "", teamId: "" },
+  squadi: [{ label: "", competitionId: "", divisionId: "", teamId: "" }], // the season: one row, or two for a two-team squad
   competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId } }
   importText: "",
   training: [], // { weekday, time, endTime, location }
@@ -47,7 +54,8 @@ const BLANK = {
   staff: STAFF_ROLES.map((role) => ({ role, name: "", mobile: "", email: "", custom: false }))
 };
 
-// The three Squadi ids as the form holds them (strings, blank when not set).
+// The three Squadi ids of another competition as the form holds them (strings,
+// blank when not set).
 const squadiForEdit = (s) => ({ competitionId: s?.competitionId || "", divisionId: s?.divisionId || "", teamId: s?.teamId || "" });
 const hasSquadiIds = (s) => !!(s.competitionId || s.divisionId || s.teamId);
 
@@ -105,14 +113,14 @@ export default function TeamWizard({ onTeamsChanged }) {
   };
   const feedUrl = (t) => `${window.location.origin}/api/calendar?key=${t.calendarKey}`;
 
-  const openCreate = () => { setCreated(null); setEditSlug(null); setForm({ ...BLANK, season: { ...BLANK_SEASON }, features: { ...DEFAULT_FEATURES }, parentsSee: { ...DEFAULT_PARENTS_SEE }, training: [], competitions: [], password: friendlyCode() }); };
+  const openCreate = () => { setCreated(null); setEditSlug(null); setForm({ ...BLANK, squadi: [squadiRow()], season: { ...BLANK_SEASON }, features: { ...DEFAULT_FEATURES }, parentsSee: { ...DEFAULT_PARENTS_SEE }, training: [], competitions: [], password: friendlyCode() }); };
   const openEdit = (t) => {
     setCreated(null); setEditSlug(t.slug);
     setForm({
       name: t.name, ageGroup: t.ageGroup || "U8", password: t.password,
       coachEmails: (t.coachEmails || []).join(", "),
       division: t.division || "", whatsapp: t.whatsapp || "", season: seasonForEdit(t.season),
-      squadi: squadiForEdit(t.squadi),
+      squadi: seasonFeedsForEdit(t.squadi),
       competitions: (t.competitions || []).map((c) => ({ id: c.id, name: c.name || "", squadi: squadiForEdit(c.squadi) })),
       importText: "", training: [],
       features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
@@ -169,8 +177,19 @@ export default function TeamWizard({ onTeamsChanged }) {
   };
 
   const submit = async () => {
+    // One filled row is sent as the single feed it always was; two filled
+    // rows as the labelled pair. A label on a lone row is not sent.
+    const rows = form.squadi.filter(rowFilled);
+    if (rows.length === 2) {
+      const labels = rows.map((r) => r.label.trim());
+      const bad = labels.some((l) => !l) ? "Give each Squadi team a label, like McKay and McKain."
+        : labels[0].toLowerCase() === labels[1].toLowerCase() ? "The two Squadi team labels must be different."
+        : "";
+      if (bad) { setErr(bad); return; }
+    }
     setBusy(true); setErr("");
-    const squadi = hasSquadiIds(form.squadi) ? form.squadi : null;
+    const idsOf = ({ competitionId, divisionId, teamId }) => ({ competitionId, divisionId, teamId });
+    const squadi = rows.length === 2 ? rows.map((r) => ({ label: r.label.trim(), ...idsOf(r) })) : rows.length === 1 ? idsOf(rows[0]) : null;
     // A row nobody filled in is not sent. A named row with no ids is: the
     // competition is kept and synced once its ids are added.
     const competitions = form.competitions
@@ -347,14 +366,26 @@ export default function TeamWizard({ onTeamsChanged }) {
 
           <Step n={++stepNo} title="Competitions" optional lead="Where this team's games come from. Fill in each draw when it is published and leave the rest until then.">
             <div className="adm-fl">Season</div>
-            <div className="adm-line" style={{ marginTop: 0 }}>
-              <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label="Squadi competition ID" placeholder="competitionId" value={form.squadi.competitionId}
-                onChange={(e) => setForm((f) => ({ ...f, squadi: { ...f.squadi, competitionId: e.target.value } }))} />
-              <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label="Squadi division ID" placeholder="divisionId" value={form.squadi.divisionId}
-                onChange={(e) => setForm((f) => ({ ...f, squadi: { ...f.squadi, divisionId: e.target.value } }))} />
-              <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label="Squadi team ID" placeholder="teamId" value={form.squadi.teamId}
-                onChange={(e) => setForm((f) => ({ ...f, squadi: { ...f.squadi, teamId: e.target.value } }))} />
-            </div>
+            {form.squadi.map((row, i) => {
+              const two = form.squadi.length === 2;
+              const who = i === 0 ? "Squadi" : "Second Squadi";
+              const set = (key) => (e) => setForm((f) => ({ ...f, squadi: f.squadi.map((r, k) => (k === i ? { ...r, [key]: e.target.value } : r)) }));
+              return (
+                <div key={i} className="adm-line" style={i === 0 ? { marginTop: 0 } : undefined}>
+                  <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} team label`} placeholder={two ? "Label (e.g. McKay)" : "Label (for two teams)"}
+                    maxLength={SIDE_LABEL_MAX} required={two} aria-required={two} value={row.label} onChange={set("label")} />
+                  <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} competition ID`} placeholder="competitionId" value={row.competitionId} onChange={set("competitionId")} />
+                  <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} division ID`} placeholder="divisionId" value={row.divisionId} onChange={set("divisionId")} />
+                  <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} team ID`} placeholder="teamId" value={row.teamId} onChange={set("teamId")} />
+                  {i === 1 && (
+                    <button type="button" className="adm-link" onClick={() => setForm((f) => ({ ...f, squadi: f.squadi.slice(0, 1) }))}>Remove the second team</button>
+                  )}
+                </div>
+              );
+            })}
+            {form.squadi.length === 1
+              ? <button type="button" className="adm-link" style={{ marginTop: 6 }} onClick={() => setForm((f) => ({ ...f, squadi: [...f.squadi, squadiRow()] }))}>Add a second team</button>
+              : <div className="adm-note">Two rows make one squad that plays as two teams each round, like McKay and McKain.</div>}
             {form.competitions.map((c, i) => {
               const set = (patch) => setForm((f) => ({ ...f, competitions: f.competitions.map((r, k) => (k === i ? { ...r, ...patch } : r)) }));
               const setId = (key, value) => set({ squadi: { ...c.squadi, [key]: value } });
