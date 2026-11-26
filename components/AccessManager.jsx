@@ -4,21 +4,19 @@
 // wizard. Club admins ("club" scope) get the role table, the team wizard and
 // the league link only. Talks to /api/access; lib/directory.js applies
 // whatever is saved here on every request.
+//
+// Direction C: the dashboard's sub-header and cards via AdminShell (paper
+// page, hairline cards, tinted pills, lucide icons, no gradients, no emoji).
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { signOut } from "next-auth/react";
+import { ChevronRight, Eye, Trophy } from "lucide-react";
 import TeamWizard from "@/components/TeamWizard";
 import RoleMatrix from "@/components/RoleMatrix";
-
-const C = { red: "#C8102E", ink: "#1d1417", muted: "#7a6f72", line: "#eee", soft: "#f6f2f3" };
-const card = { background: "#fff", borderRadius: 16, padding: 18, marginBottom: 16, boxShadow: "0 10px 26px rgba(40,0,8,.18)", color: C.ink };
-const label = { fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: C.muted, marginBottom: 10 };
-const inp = { padding: "9px 12px", borderRadius: 10, border: "2px solid " + C.line, fontSize: 14, boxSizing: "border-box" };
-const btn = { padding: "9px 14px", borderRadius: 10, border: "none", background: C.red, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" };
-const chip = { display: "inline-block", padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700 };
+import { AdminPage } from "@/components/AdminShell";
+import { SignOutButton } from "@/components/AuthShell";
 
 const ROLE_LABELS = { coach: "Coach", parent: "Parent", viewer: "View only", blocked: "Blocked" };
-const ROLE_COLORS = { coach: "#1E9E57", parent: "#2563a8", viewer: "#b3760a", blocked: "#C8102E" };
+const ROLE_TONES = { coach: " ok", parent: " info", viewer: " warn", blocked: " bad" };
 
 export default function AccessManager({ adminEmail, scope = "super" }) {
   const superAdmin = scope === "super";
@@ -47,8 +45,8 @@ export default function AccessManager({ adminEmail, scope = "super" }) {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "load failed");
       const j = await r.json();
       setState(j);
-      if (!j.teams.length) setErr("No teams configured.");
-      setOvTeam((t) => t || j.teams[0]?.slug || "");
+      // Keep the chosen team if it still exists; otherwise fall to the first.
+      setOvTeam((t) => (j.teams.some((x) => x.slug === t) ? t : j.teams[0]?.slug || ""));
     } catch (e) { setErr(String(e.message || e)); }
   }, []);
   useEffect(() => { if (superAdmin) load(); }, [load, superAdmin]);
@@ -70,121 +68,120 @@ export default function AccessManager({ adminEmail, scope = "super" }) {
     : [];
 
   return (
-    <div style={{ minHeight: "100vh", padding: 24, fontFamily: "system-ui,sans-serif", background: "linear-gradient(160deg,#C8102E,#7A0A1B)" }}>
-      <div style={{ maxWidth: 640, margin: "0 auto" }}>
-        <div style={{ color: "#fff", marginBottom: 18 }}>
-          <div style={{ fontSize: 24, fontWeight: 800 }}>{superAdmin ? "Club access control" : "Club teams"}</div>
-          <div style={{ fontSize: 13, opacity: .85, marginTop: 3 }}>
-            Signed in as {adminEmail} ({superAdmin ? "super admin" : "club admin"}) · <Link href="/" style={{ color: "#fff" }}>back to the dashboard</Link> ·{" "}
-            <button onClick={() => signOut({ callbackUrl: "/login" })} style={{ background: "none", border: "none", color: "#fff", textDecoration: "underline", cursor: "pointer", fontSize: 13, padding: 0 }}>sign out</button>
+    <AdminPage
+      title={superAdmin ? "Club admin" : "Club teams"}
+      kicker={`${superAdmin ? "Super admin" : "Club admin"} · ${adminEmail}`}
+      right={<SignOutButton className="adm-hpill" />}
+    >
+      {err && <div className="adm-msg err" role="alert">{err}</div>}
+
+      {/* Teams first: it is what both kinds of admin open this page for. The
+          wizard also needs to know when the team list changes so the override
+          form's team menu stays current. */}
+      <TeamWizard onTeamsChanged={superAdmin ? load : undefined} />
+
+      {superAdmin && !state && !err && <div className="adm-card quiet">Loading access settings…</div>}
+
+      {superAdmin && state && (<>
+        <section className="adm-card" aria-labelledby="adm-viewas">
+          <h2 className="adm-label" id="adm-viewas">View as a user</h2>
+          <div className="adm-body">
+            See the site exactly as a parent, coach or club admin sees it. It is strictly read only:
+            every save is refused while you are viewing. An orange banner shows while it is active,
+            and Exit brings you back to yourself.
           </div>
-        </div>
-
-        {err && <div style={{ ...card, background: "#fff4f4", color: C.red, fontWeight: 700, fontSize: 14 }}>{err}</div>}
-
-        <details style={{ ...card, padding: 0, overflow: "hidden" }}>
-          <summary style={{ ...label, cursor: "pointer", padding: 18, marginBottom: 0, listStyle: "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>Who can do what</span>
-            <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>every role, every feature</span>
-          </summary>
-          <div style={{ padding: "0 18px 18px" }}><RoleMatrix /></div>
-        </details>
-
-        {superAdmin && !state ? (
-          <div style={{ ...card, textAlign: "center", color: C.muted }}>Loading…</div>
-        ) : (
-          <>
-            {superAdmin && state && (<>
-            <div style={card}>
-              <div style={label}>Club admins — view-only access to every team</div>
-              {state.envClubAdmins.map((e) => (
-                <div key={e} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "1px solid " + C.line, fontSize: 14 }}>
-                  <span style={{ flex: 1, fontWeight: 600 }}>{e}</span>
-                  <span style={{ ...chip, background: C.soft, color: C.muted }}>from env</span>
-                </div>
-              ))}
-              {state.clubAdmins.map((e) => (
-                <div key={e} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "1px solid " + C.line, fontSize: 14 }}>
-                  <span style={{ flex: 1, fontWeight: 600 }}>{e}</span>
-                  <button disabled={busy} style={{ ...btn, background: "#fff", color: C.red, border: "1px solid " + C.red, padding: "5px 10px" }}
-                    onClick={() => post({ action: "removeClubAdmin", email: e })}>Remove</button>
-                </div>
-              ))}
-              {state.envClubAdmins.length + state.clubAdmins.length === 0 && (
-                <div style={{ fontSize: 13, color: C.muted, marginBottom: 6 }}>None yet — e.g. the club technical director.</div>
-              )}
-              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <input style={{ ...inp, flex: 1 }} type="email" placeholder="td@club.com" value={caEmail} onChange={(e) => setCaEmail(e.target.value)} />
-                <button disabled={busy || !caEmail.includes("@")} style={btn} onClick={() => { post({ action: "addClubAdmin", email: caEmail }); setCaEmail(""); }}>Add</button>
-              </div>
+          {state.viewingAs ? (
+            <div className="adm-form">
+              <span className="adm-pill warn lg"><Eye size={12} aria-hidden="true" />Viewing as {state.viewingAs}</span>
+              <Link href="/" className="adm-btn sm">Open their view</Link>
+              <button disabled={busy} className="adm-btn soft sm" onClick={() => post({ action: "clearViewAs" })}>Exit view-as</button>
             </div>
-
-            <div style={card}>
-              <div style={label}>View as a user</div>
-              <div style={{ fontSize: 13, color: C.muted, marginBottom: 10 }}>
-                See the site exactly as a parent, coach or club admin sees it — strictly read only
-                (every save is refused while viewing). An orange banner shows while active; Exit
-                brings you back to yourself.
-              </div>
-              {state.viewingAs ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ ...chip, background: "rgba(224,123,31,.15)", color: "#E07B1F" }}>👁 viewing as {state.viewingAs}</span>
-                  <Link href="/" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>Open their view ▸</Link>
-                  <button disabled={busy} style={{ ...btn, background: "#fff", color: C.red, border: "1px solid " + C.red }}
-                    onClick={() => post({ action: "clearViewAs" })}>Exit view-as</button>
-                </div>
-              ) : (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <input style={{ ...inp, flex: "1 1 200px" }} type="email" placeholder="parent@example.com" value={vaEmail}
-                    onChange={(e) => setVaEmail(e.target.value)} />
-                  <button disabled={busy || !vaEmail.includes("@")} style={btn} onClick={startViewAs}>👁 View as</button>
-                </div>
-              )}
+          ) : (
+            <div className="adm-form">
+              <input className="adm-inp grow" type="email" aria-label="Email to view as" placeholder="parent@example.com" value={vaEmail}
+                onChange={(e) => setVaEmail(e.target.value)} />
+              <button disabled={busy || !vaEmail.includes("@")} className="adm-btn" onClick={startViewAs}><Eye size={15} aria-hidden="true" />View as</button>
             </div>
+          )}
+        </section>
 
-            <div style={card}>
-              <div style={label}>Per-team role overrides</div>
-              <div style={{ fontSize: 13, color: C.muted, marginBottom: 10 }}>
-                Wins over the defaults for one person on one team — e.g. keep a Team A coach to parent-only on Team B, or block access entirely. The super admin can't be overridden.
+        <section className="adm-card" aria-labelledby="adm-clubadmins">
+          <h2 className="adm-label" id="adm-clubadmins">Club admins</h2>
+          <div className="adm-body">View-only access to every team, for example the club technical director.</div>
+          <div className="adm-rows">
+            {state.envClubAdmins.map((e) => (
+              <div key={e} className="adm-row">
+                <span className="adm-row-main">{e}</span>
+                <span className="adm-pill">Set in the environment</span>
               </div>
-              {overrideRows.length === 0 && <div style={{ fontSize: 13, color: C.muted }}>No overrides set.</div>}
-              {overrideRows.map(({ email, slug, role }) => (
-                <div key={email + slug} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "1px solid " + C.line, fontSize: 14, flexWrap: "wrap" }}>
-                  <span style={{ flex: 1, minWidth: 160, fontWeight: 600 }}>{email}</span>
-                  <span style={{ color: C.muted, fontSize: 13 }}>{teamName(slug)}</span>
-                  <span style={{ ...chip, background: ROLE_COLORS[role] + "22", color: ROLE_COLORS[role] }}>{ROLE_LABELS[role] || role}</span>
-                  <button disabled={busy} style={{ ...btn, background: "#fff", color: C.red, border: "1px solid " + C.red, padding: "5px 10px" }}
-                    onClick={() => post({ action: "setOverride", email, teamSlug: slug, role: null })}>Clear</button>
-                </div>
-              ))}
-              <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                <input style={{ ...inp, flex: "1 1 180px" }} type="email" placeholder="parent@example.com" value={ovEmail} onChange={(e) => setOvEmail(e.target.value)} />
-                <select style={inp} value={ovTeam} onChange={(e) => setOvTeam(e.target.value)}>
-                  {state.teams.map((t) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
-                </select>
-                <select style={inp} value={ovRole} onChange={(e) => setOvRole(e.target.value)}>
-                  {state.roles.map((r) => <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>)}
-                </select>
-                <button disabled={busy || !ovEmail.includes("@") || !ovTeam} style={btn}
-                  onClick={() => { post({ action: "setOverride", email: ovEmail, teamSlug: ovTeam, role: ovRole }); setOvEmail(""); }}>Set</button>
+            ))}
+            {state.clubAdmins.map((e) => (
+              <div key={e} className="adm-row">
+                <span className="adm-row-main">{e}</span>
+                <button disabled={busy} className="adm-btn danger sm" aria-label={`Remove ${e}`}
+                  onClick={() => post({ action: "removeClubAdmin", email: e })}>Remove</button>
               </div>
+            ))}
+            {state.envClubAdmins.length + state.clubAdmins.length === 0 && <div className="adm-empty">No club admins yet.</div>}
+          </div>
+          <div className="adm-form">
+            <input className="adm-inp grow" type="email" aria-label="Club admin email" placeholder="td@club.com" value={caEmail} onChange={(e) => setCaEmail(e.target.value)} />
+            <button disabled={busy || !caEmail.includes("@")} className="adm-btn" onClick={() => { post({ action: "addClubAdmin", email: caEmail }); setCaEmail(""); }}>Add</button>
+          </div>
+        </section>
+
+        <section className="adm-card" aria-labelledby="adm-overrides">
+          <h2 className="adm-label" id="adm-overrides">Per-team role overrides</h2>
+          <div className="adm-body">
+            Wins over the defaults for one person on one team: keep a Team A coach to parent-only on Team B,
+            or block access entirely. The super admin can't be overridden.
+          </div>
+          <div className="adm-rows">
+            {overrideRows.length === 0 && <div className="adm-empty">No overrides set.</div>}
+            {overrideRows.map(({ email, slug, role }) => (
+              <div key={email + slug} className="adm-row">
+                <span className="adm-row-main">{email}<span className="adm-row-sub" style={{ display: "block", fontWeight: 400 }}>{teamName(slug)}</span></span>
+                <span className={"adm-pill lg" + (ROLE_TONES[role] || "")}>{ROLE_LABELS[role] || role}</span>
+                <button disabled={busy} className="adm-btn soft sm" aria-label={`Clear the override for ${email} on ${teamName(slug)}`}
+                  onClick={() => post({ action: "setOverride", email, teamSlug: slug, role: null })}>Clear</button>
+              </div>
+            ))}
+          </div>
+          {state.teams.length === 0 ? (
+            <div className="adm-note" style={{ marginTop: 10 }}>Add a team first, then set overrides for it here.</div>
+          ) : (
+            <div className="adm-form">
+              <input className="adm-inp" style={{ flex: "1 1 100%" }} type="email" aria-label="Email for the override" placeholder="parent@example.com" value={ovEmail} onChange={(e) => setOvEmail(e.target.value)} />
+              <select className="adm-inp grow" aria-label="Team" value={ovTeam} onChange={(e) => setOvTeam(e.target.value)}>
+                {state.teams.map((t) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
+              </select>
+              <select className="adm-inp auto" aria-label="Role" value={ovRole} onChange={(e) => setOvRole(e.target.value)}>
+                {state.roles.map((r) => <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>)}
+              </select>
+              <button disabled={busy || !ovEmail.includes("@") || !ovTeam} className="adm-btn"
+                onClick={() => { post({ action: "setOverride", email: ovEmail, teamSlug: ovTeam, role: ovRole }); setOvEmail(""); }}>Set</button>
             </div>
-            </>)}
+          )}
+        </section>
+      </>)}
 
-            <TeamWizard />
+      <details className="adm-card adm-fold">
+        <summary>
+          <h2 className="adm-label">Who can do what</h2>
+          <span className="hint">Every role, every feature</span>
+          <ChevronRight className="chev" size={18} aria-hidden="true" />
+        </summary>
+        <div className="adm-fold-body"><RoleMatrix /></div>
+      </details>
 
-            <div style={card}>
-              <div style={label}>League — Squadi fixtures & sync</div>
-              <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>
-                The FQ/Squadi league widget, its filter setup (competition, division, team ids) and the
-                "Sync fixtures now" button live on the league page. It's no longer linked from the
-                parent-facing dashboard.
-              </div>
-              <Link href="/league" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>Open league page ▸</Link>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+      <Link href="/league" className="adm-card adm-linkcard">
+        <span className="adm-lc-ic" aria-hidden="true"><Trophy size={18} /></span>
+        <span className="adm-lc-body">
+          <span className="adm-lc-title">League page</span>
+          <span className="adm-lc-sub">The Squadi draw and ladder, its filter setup and fixture sync</span>
+        </span>
+        <ChevronRight className="chev" size={18} aria-hidden="true" />
+      </Link>
+    </AdminPage>
   );
 }

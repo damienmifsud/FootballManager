@@ -2,19 +2,22 @@ import { redirect } from "next/navigation";
 
 const AUTH_ON = !!process.env.AUTH_SECRET;
 
-const wrap = { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "system-ui,sans-serif", background: "linear-gradient(160deg,#C8102E,#7A0A1B)", color: "#fff", textAlign: "center" };
-
 // Club access control and the team wizard. Roles are identities (emails), so
-// this page only exists in account mode.
+// this page only exists in account mode. Its two dead ends use the sign-in
+// shell (crest, one card), like the other splashes in app/page.jsx.
 export default async function AdminPage() {
   if (!AUTH_ON) {
+    const { AuthPage, AuthHeader, AuthFooter } = await import("@/components/AuthShell");
     return (
-      <div style={wrap}>
-        <div style={{ maxWidth: 400 }}>
-          <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Access control needs account login</div>
-          <div style={{ fontSize: 14, opacity: .9 }}>The site is running in shared team-code mode. Set AUTH_SECRET (and a login provider) to use roles, then sign in as a super admin.</div>
+      <AuthPage>
+        <AuthHeader />
+        <div className="auth-card">
+          <div className="auth-card-title">Club admin needs account login</div>
+          <div className="auth-body">The site is running in shared team-code mode. Set AUTH_SECRET (and a login provider) to use roles, then sign in as a super admin.</div>
+          <div className="auth-links"><a href="/" className="auth-btn soft">Back to the team hub</a></div>
         </div>
-      </div>
+        <AuthFooter />
+      </AuthPage>
     );
   }
 
@@ -28,13 +31,20 @@ export default async function AdminPage() {
   const superAdmin = isAdminEmail(email);
   const clubAdmin = !superAdmin && (await isClubAdminEmail(email));
   if (!superAdmin && !clubAdmin) {
+    const { AuthPage, AuthHeader, AuthFooter, SignOutButton } = await import("@/components/AuthShell");
     return (
-      <div style={wrap}>
-        <div style={{ maxWidth: 400 }}>
-          <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Club admins and super admins only</div>
-          <div style={{ fontSize: 14, opacity: .9 }}>{email} isn't a super admin (ADMIN_EMAILS) or a club admin.</div>
+      <AuthPage>
+        <AuthHeader />
+        <div className="auth-card">
+          <div className="auth-card-title">Club admins and super admins only</div>
+          <div className="auth-body">{email} isn't a super admin (ADMIN_EMAILS) or a club admin.</div>
+          <div className="auth-links">
+            <a href="/" className="auth-btn">Back to the team hub</a>
+            <SignOutButton className="auth-btn soft" />
+          </div>
         </div>
-      </div>
+        <AuthFooter />
+      </AuthPage>
     );
   }
 
