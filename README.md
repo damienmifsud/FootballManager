@@ -301,6 +301,39 @@ home page and every API route resolve the team with the same rule (`resolveTeamS
   paste it. Importing a list again updates the players already in the squad instead of
   adding them twice, which is also how to fill in last names on a squad that was
   imported before they were kept.
+- **Importing training and games:** Calendar tab, **Import training**, or Results tab,
+  **Import games** (coaches only; both are also in Team settings under Import & data).
+  Upload a CSV or paste a list. The sheet reads it back before anything is saved: how
+  many, the dates they cover, how the first one was understood, and any rows it
+  skipped with the reason.
+  - *Training:* columns `Date, Start, Finish, Title, Venue, Notes`, in any order.
+    `Duration` (minutes) works in place of `Finish`. `Repeat` = weekly with an `Until`
+    date makes one weekly session instead of a row per week. With no header row: one
+    session per line as date, start, finish, venue, title, notes.
+  - *Games:* columns `Date, Time, Opponent, Home or away, Venue, Round, Notes`. A
+    `Score` column (3-1, ours first) marks a game as played. With no header row: one
+    game per line in that order, and "@ Rovers" means away.
+  - A `Type` column (Training, Game, Event, Carnival) lets one file carry both.
+  - An **XPS Network import file** works as it is: Practice rows become training,
+    Duration gives the finish time, "Arrive X min before" becomes a note, and the
+    Coach's Notes column is never read. If the file covers several teams the sheet
+    asks which to import.
+  - Dates are day first (12/01/2027, 12 Jan 2027) or 2027-01-12. Times can be 17:30,
+    5:30pm or 5.30 PM; a bare 1 to 6 o'clock is taken as the afternoon.
+  - Importing the same file again adds nothing. A session on the same day at the same
+    time with the same title, or a game on the same day against the same opponent, is
+    left as it is apart from filling in a blank finish time, venue, note or round. A
+    dated session that an existing weekly session already runs is not added on top.
+  - Dates outside the team's season would be saved but not shown, so the sheet offers
+    to extend the season to fit them.
+  - **Taking an import back:** the same sheet lists **Earlier imports**, each with a
+    Remove that takes out everything that import added (and the replies on it) in one
+    go. Sessions and games typed in by hand, other imports, and imported games that
+    have since been played are left alone.
+  - Imported games are marked as entered by hand, so the Squadi sync never changes
+    them. For a team whose fixtures come from Squadi, leave the league games to the
+    sync (importing them as well would list them twice) and import only what Squadi
+    does not carry.
 - **Env teams taken over by the wizard:** editing an env-defined team in `/admin`
   stores a copy in the data store; from then on the stored copy wins for that slug.
 
