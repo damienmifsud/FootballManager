@@ -45,7 +45,7 @@ const BLANK = {
   name: "", ageGroup: "U8", password: "", coachEmails: "",
   division: "", whatsapp: "", season: { ...BLANK_SEASON },
   squadi: [{ label: "", competitionId: "", divisionId: "", teamId: "" }], // the season: one row, or two for a two-team squad
-  competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId } }
+  competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId }, dribl: { url, team } }
   importText: "",
   training: [], // { weekday, time, endTime, location }
   features: { ...DEFAULT_FEATURES },
@@ -58,6 +58,9 @@ const BLANK = {
 // blank when not set).
 const squadiForEdit = (s) => ({ competitionId: s?.competitionId || "", divisionId: s?.divisionId || "", teamId: s?.teamId || "" });
 const hasSquadiIds = (s) => !!(s.competitionId || s.divisionId || s.teamId);
+// A competition whose draw is on Dribl instead: its fixtures request and our
+// team's name there, which says which side of each game is ours.
+const driblForEdit = (d) => ({ url: d?.url || "", team: d?.team || "" });
 
 // Staff rows: an email on a row gives that person a coach-level login, with the
 // row's title shown in the app. On edit we keep EVERY existing row (including
@@ -121,7 +124,7 @@ export default function TeamWizard({ onTeamsChanged }) {
       coachEmails: (t.coachEmails || []).join(", "),
       division: t.division || "", whatsapp: t.whatsapp || "", season: seasonForEdit(t.season),
       squadi: seasonFeedsForEdit(t.squadi),
-      competitions: (t.competitions || []).map((c) => ({ id: c.id, name: c.name || "", squadi: squadiForEdit(c.squadi) })),
+      competitions: (t.competitions || []).map((c) => ({ id: c.id, name: c.name || "", squadi: squadiForEdit(c.squadi), dribl: driblForEdit(c.dribl) })),
       importText: "", training: [],
       features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
       parentsSee: { ...DEFAULT_PARENTS_SEE, ...(t.parentsSee || {}) },
@@ -206,8 +209,12 @@ export default function TeamWizard({ onTeamsChanged }) {
     // A row nobody filled in is not sent. A named row with no ids is: the
     // competition is kept and synced once its ids are added.
     const competitions = form.competitions
-      .filter((c) => c.name.trim() || hasSquadiIds(c.squadi))
-      .map((c) => ({ ...(c.id ? { id: c.id } : {}), name: c.name.trim(), ...(hasSquadiIds(c.squadi) ? { squadi: c.squadi } : {}) }));
+      .filter((c) => c.name.trim() || hasSquadiIds(c.squadi) || c.dribl.url.trim())
+      .map((c) => ({
+        ...(c.id ? { id: c.id } : {}), name: c.name.trim(),
+        ...(hasSquadiIds(c.squadi) ? { squadi: c.squadi } : {}),
+        ...(c.dribl.url.trim() ? { dribl: { url: c.dribl.url.trim(), team: c.dribl.team.trim() } } : {})
+      }));
     const season = form.season.startISO || form.season.endISO ? { startISO: form.season.startISO, endISO: form.season.endISO } : null;
     const payload = {
       name: form.name, ageGroup: form.ageGroup, password: form.password.trim(),
@@ -419,12 +426,21 @@ export default function TeamWizard({ onTeamsChanged }) {
                     <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} team ID`} placeholder="teamId" value={c.squadi.teamId}
                       onChange={(e) => setId("teamId", e.target.value)} />
                   </div>
+                  <div className="adm-line">
+                    <input className="adm-inp" style={{ flex: "1 1 100%" }} aria-label={`${who} Dribl fixtures request`} inputMode="url" autoComplete="off" spellCheck={false}
+                      placeholder="Or, for a draw on Dribl, its fixtures request (https://mc-api.dribl.com/api/fixtures?…)" value={c.dribl.url}
+                      onChange={(e) => set({ dribl: { ...c.dribl, url: e.target.value } })} />
+                    {c.dribl.url.trim() && (
+                      <input className="adm-inp" style={{ flex: "1 1 100%" }} aria-label={`${who} team name on Dribl`} placeholder="Your team's name as Dribl shows it"
+                        value={c.dribl.team} onChange={(e) => set({ dribl: { ...c.dribl, team: e.target.value } })} />
+                    )}
+                  </div>
                 </div>
               );
             })}
             {form.competitions.length < MAX_COMPETITIONS && (
               <button type="button" className="adm-btn soft sm" style={{ marginTop: 8 }}
-                onClick={() => setForm((f) => ({ ...f, competitions: [...f.competitions, { name: "", squadi: squadiForEdit() }] }))}>
+                onClick={() => setForm((f) => ({ ...f, competitions: [...f.competitions, { name: "", squadi: squadiForEdit(), dribl: driblForEdit() }] }))}>
                 <Plus size={14} aria-hidden="true" />Add a competition
               </button>
             )}
@@ -432,6 +448,12 @@ export default function TeamWizard({ onTeamsChanged }) {
               Squadi IDs come from the FQ widget via DevTools (see the README). Add a competition for anything played alongside the
               season, such as a winter tournament. One with no IDs yet is kept, and synced once you add them with Edit. Its games
               are labelled with its name and kept out of the season record.
+            </div>
+            <div className="adm-note">
+              A competition on Dribl takes its fixtures request instead of Squadi IDs: on its Dribl fixtures page, open DevTools,
+              choose Network and copy the address of the request that starts with https://mc-api.dribl.com/api/fixtures. Add your
+              team's name as Dribl shows it, so the app knows which side of each game is yours. Its games are then kept in step
+              whenever a coach opens the team.
             </div>
           </Step>
 

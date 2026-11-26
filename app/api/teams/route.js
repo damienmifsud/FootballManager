@@ -7,7 +7,7 @@ import { isAdminEmail, isClubAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
 import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE, sanitizeSeason } from "@/lib/teamSetup";
-import { sanitizeCompetitions, squadiFeeds } from "@/lib/competitions";
+import { sanitizeCompetitions, competitionsError, squadiFeeds } from "@/lib/competitions";
 
 export const dynamic = "force-dynamic";
 
@@ -151,6 +151,10 @@ export async function POST(req) {
 
   const squadiBad = body?.squadi != null ? squadiError(body.squadi) : null;
   if (squadiBad) return NextResponse.json({ error: squadiBad }, { status: 400 });
+  // A competition's Dribl link must be a Dribl fixtures request, and a
+  // competition has one source: said plainly rather than dropped.
+  const compsBad = competitionsError(body?.competitions);
+  if (compsBad) return NextResponse.json({ error: compsBad }, { status: 400 });
 
   clearTeamsCache();
   if ((await getTeams()).some((t) => t.slug === slug)) return NextResponse.json({ error: `a team with slug "${slug}" already exists` }, { status: 409 });
@@ -223,6 +227,8 @@ export async function PATCH(req) {
   }
   const squadiBad = body.squadi != null ? squadiError(body.squadi) : null;
   if (squadiBad) return NextResponse.json({ error: squadiBad }, { status: 400 });
+  const compsBad = competitionsError(body.competitions);
+  if (compsBad) return NextResponse.json({ error: compsBad }, { status: 400 });
 
   const { stored: _s, legacy: _l, ...base } = current;
   const next = sanitizeTeam(body, { ...base, slug });
