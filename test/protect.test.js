@@ -179,12 +179,17 @@ describe("preserveNarrowFields", () => {
   });
 });
 
-// squadi (the league page's set-up) is written through /api/league. A
-// dashboard tab opened before the coach saved it holds the old one, or none,
-// and posts that back with its next whole-document save.
+// squadi (the league page's set-up) has one writer, /api/league, which is
+// also the only place a pasted link is checked. The whole-document save never
+// writes the key: the stored set-up wins, and a document without one stays
+// without one whatever is sent.
 describe("preserveNarrowFields — the league set-up (squadi)", () => {
   const SETUP = { mode: "url", url: "https://registration.squadi.com/liveScoreSeasonFixture?x=1", org: "o", yearId: "8", comp: "c", divisionId: "1", teamId: "2" };
   const OLD = { ...SETUP, url: "https://registration.squadi.com/liveScoreSeasonFixture?old=1" };
+  // What a league tab left open from before /api/league existed posts for a
+  // team that never saved a set-up: the whole document plus the old hard-coded
+  // default, another team's draw.
+  const OLD_DEFAULT = { mode: "builder", url: "", org: "b0e92958-980b-4da0-9ec9-a9c2597b06f0", yearId: "8", comp: "58ec2bda-ceed-48f2-a33e-5b9d13cc30e8", divisionId: "10661", teamId: "110013" };
 
   it("keeps the stored set-up when a stale copy that never had one saves a score", () => {
     const out = preserveNarrowFields({ ...stored(), squadi: SETUP }, stale());
@@ -192,9 +197,9 @@ describe("preserveNarrowFields — the league set-up (squadi)", () => {
     expect(out.fixtures.find((f) => f.id === "f1")).toMatchObject({ us: 2, them: 1 });
   });
 
-  it("keeps the stored set-up over an older one in the stale copy", () => {
-    const out = preserveNarrowFields({ ...stored(), squadi: SETUP }, { ...stale(), squadi: OLD });
-    expect(out.squadi).toEqual(SETUP);
+  it("keeps the stored set-up over a different one in the incoming copy", () => {
+    expect(preserveNarrowFields({ ...stored(), squadi: SETUP }, { ...stale(), squadi: OLD }).squadi).toEqual(SETUP);
+    expect(preserveNarrowFields({ ...stored(), squadi: SETUP }, { ...stale(), squadi: { mode: "url", url: "https://evil.example/x" } }).squadi).toEqual(SETUP);
   });
 
   it("keeps the stored set-up through the dashboard's Clear everything", () => {
@@ -209,20 +214,38 @@ describe("preserveNarrowFields — the league set-up (squadi)", () => {
     expect(out.squadi).toEqual(empty);
   });
 
-  it("a document with no set-up yet takes the one that is sent, and gains none when none is sent", () => {
-    // The route never removes the key, so there is no cleared state to honour.
-    expect(preserveNarrowFields(stored(), { ...stale(), squadi: OLD }).squadi).toEqual(OLD);
+  it("never takes a set-up from a whole-document save: a document without one stays without one", () => {
+    for (const sent of [OLD, OLD_DEFAULT, { mode: "url", url: "https://evil.example/phish" }, "junk", null]) {
+      const out = preserveNarrowFields(stored(), { ...stale(), squadi: sent });
+      expect("squadi" in out).toBe(false);
+      // The rest of the save still goes through.
+      expect(out.fixtures.find((f) => f.id === "f1")).toMatchObject({ us: 2, them: 1 });
+    }
     expect("squadi" in preserveNarrowFields(stored(), stale())).toBe(false);
   });
 
-  it("does not mutate either input, and the first save of a new document is still kept as sent", () => {
+  it("the first save of a new document drops it too, and is otherwise kept exactly as sent", () => {
+    const incoming = { ...stale(), squadi: OLD_DEFAULT };
+    for (const nothingStored of [null, undefined, "junk", []]) {
+      const out = preserveNarrowFields(nothingStored, incoming);
+      expect(out).toEqual(stale());
+      expect("squadi" in out).toBe(false);
+    }
+    // With nothing to drop, the very same object comes back.
+    const plain = stale();
+    expect(preserveNarrowFields(null, plain)).toBe(plain);
+    expect(preserveNarrowFields([], plain)).toBe(plain);
+  });
+
+  it("does not mutate either input", () => {
     const s = { ...stored(), squadi: SETUP };
     const i = { ...stale(), squadi: OLD };
     const sBefore = JSON.stringify(s);
     const iBefore = JSON.stringify(i);
     preserveNarrowFields(s, i);
+    preserveNarrowFields(stored(), i);
+    preserveNarrowFields(null, i);
     expect(JSON.stringify(s)).toBe(sBefore);
     expect(JSON.stringify(i)).toBe(iBefore);
-    expect(preserveNarrowFields(null, i)).toBe(i);
   });
 });

@@ -14,7 +14,7 @@ const SQUADI_FIXTURES = "https://registration.squadi.com/liveScoreSeasonFixture?
 // With no competition key there is no link, so no draw is embedded until a
 // coach saves one. The page holds no team's ids: the one team that predates
 // the set-up panel gets its old default from the server (/api/league, the
-// legacy owner only).
+// original team only).
 const EMPTY_CFG = { mode: "builder", url: "", org: FQ_METRO_ORG, yearId: "8", comp: "", divisionId: "", teamId: "" };
 
 function buildUrl(c) {
@@ -52,9 +52,11 @@ async function errorText(res, fallback) {
 
 export default function LeaguePage() {
   const [me, setMe] = useState(null); // /api/me: { mode, role, teamName, ... }
+  const [meReady, setMeReady] = useState(false); // /api/me has answered, whatever it said
   const [cfg, setCfg] = useState(EMPTY_CFG);
   const [loaded, setLoaded] = useState(false); // this team's set-up has arrived from /api/league
-  const [saved, setSaved] = useState(false); // the team has a set-up of its own
+  const [teamSlug, setTeamSlug] = useState(""); // the team that set-up was loaded for
+  const [hadSetup, setHadSetup] = useState(false); // the team had a set-up of its own when the page loaded
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
@@ -86,7 +88,8 @@ export default function LeaguePage() {
     fetch("/api/me", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((m) => { if (!cancelled && m) setMe(m); })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setMeReady(true); });
 
     // Only this team's set-up, through its own narrow route — never the whole
     // team document. squadi is null for a team that has saved nothing.
@@ -104,20 +107,24 @@ export default function LeaguePage() {
         const j = await r.json();
         if (cancelled) return;
         setCfg({ ...EMPTY_CFG, ...(j?.squadi || {}) });
-        setSaved(!!j?.saved);
+        setTeamSlug(typeof j?.teamSlug === "string" ? j.teamSlug : "");
+        setHadSetup(!!j?.saved);
         setLoaded(true);
       })
       .catch(() => { if (!cancelled) setLoadError("Could not load the team."); });
     return () => { cancelled = true; };
   }, []);
 
-  // Nothing saved yet and allowed to configure — show the panel.
+  // Nothing saved yet and allowed to configure — show the panel. (Once, when
+  // both answers are in: neither value changes again while the page is open.)
   useEffect(() => {
-    if (!saved && canManage) setOpen(true);
-  }, [saved, canManage]);
+    if (!hadSetup && canManage) setOpen(true);
+  }, [hadSetup, canManage]);
 
   // Writes only this team's league set-up (/api/league), then shows exactly
-  // what the server stored.
+  // what the server stored. The save names the team the page loaded: the
+  // server acts on the team in the cookies, which another tab may have
+  // changed since, and refuses a save meant for a different team.
   const save = async () => {
     setSaving(true);
     setSaveError("");
@@ -125,7 +132,7 @@ export default function LeaguePage() {
       const res = await fetch("/api/league", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ squadi: cfg })
+        body: JSON.stringify({ teamSlug, squadi: cfg })
       });
       if (res.status === 409) { location.href = "/"; return; }
       if (!res.ok) {
@@ -134,7 +141,6 @@ export default function LeaguePage() {
       }
       const j = await res.json().catch(() => null);
       if (j?.squadi) setCfg({ ...EMPTY_CFG, ...j.squadi });
-      setSaved(true);
       setOpen(false);
     } catch (e) {
       setSaveError("Save failed: " + (e?.message || "network error"));
@@ -233,7 +239,7 @@ export default function LeaguePage() {
         </section>
       )}
 
-      {loaded && !src && (
+      {loaded && meReady && !src && (
         <div className="adm-card quiet">
           <b style={{ color: "var(--ink)" }}>Not configured yet.</b><br />
           {canManage

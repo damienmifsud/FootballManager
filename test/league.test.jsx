@@ -22,21 +22,30 @@ const LEGACY = { mode: "builder", url: "", org: FQ_METRO, yearId: "8", comp: "58
 // team and age-group names, its division and team ids, its competition keys.
 const OTHER_TEAM = /Kangaroos|MiniRoos|Under 8|110013|10661|58ec2bda|b63aa285/;
 
-let me, league, leagueStatus, leagueGate, saveReply, syncReply, posts, calls;
+let me, meStatus, meGate, league, leagueStatus, leagueGate, saveReply, saveGate, syncReply, posts, calls, failing;
 const json = (ok, status, body) => ({ ok, status, json: async () => body });
+// A promise the test settles by hand, to hold one answer back.
+const gate = () => { let open; const p = new Promise((r) => { open = r; }); p.open = open; return p; };
 beforeEach(() => {
   me = { mode: "account", role: "coach", teamName: "Olympic FC U8 White" };
-  league = { squadi: SAVED, saved: true };
-  leagueStatus = 200; leagueGate = null; saveReply = null; syncReply = json(true, 200, { ok: true, changes: [] }); posts = []; calls = [];
+  league = { teamSlug: "u8-white", squadi: SAVED, saved: true };
+  meStatus = 200; meGate = null; leagueStatus = 200; leagueGate = null; saveReply = null; saveGate = null;
+  syncReply = json(true, 200, { ok: true, changes: [] }); posts = []; calls = []; failing = "";
   global.fetch = vi.fn(async (url, opts = {}) => {
     const u = String(url);
-    calls.push((opts.method || "GET") + " " + u);
-    if (u.includes("/api/me")) return json(true, 200, me);
+    const call = (opts.method || "GET") + " " + u;
+    calls.push(call);
+    if (failing && call === failing) throw new Error("boom");
+    if (u.includes("/api/me")) {
+      if (meGate) await meGate;
+      return meStatus === 200 ? json(true, 200, me) : json(false, meStatus, { error: "unauthorized" });
+    }
     if (u.includes("/api/sync")) return syncReply;
     if (u.includes("/api/league")) {
       if (opts.method === "POST") {
         const body = JSON.parse(opts.body);
         posts.push(body);
+        if (saveGate) await saveGate;
         // The real route echoes the sanitised set-up it stored.
         return saveReply || json(true, 200, { ok: true, squadi: body.squadi });
       }
@@ -96,7 +105,7 @@ describe("League page", () => {
 
   it("opens the set-up card by itself when nothing is saved yet, on an empty form", async () => {
     me = { mode: "account", role: "coach", teamName: "Olympic FC Over 35s" };
-    league = { squadi: null, saved: false };
+    league = { teamSlug: "over-35s", squadi: null, saved: false };
     render(<LeaguePage />);
     expect(await screen.findByRole("heading", { level: 2, name: "Set up" })).toBeTruthy();
     // Build from filters is the default; its fields are labelled.
@@ -121,7 +130,7 @@ describe("League page", () => {
 
   it("a team with nothing saved shows Not configured yet, never another team's draw", async () => {
     me = { mode: "account", role: "parent", teamName: "Olympic FC Over 35s" };
-    league = { squadi: null, saved: false };
+    league = { teamSlug: "over-35s", squadi: null, saved: false };
     render(<LeaguePage />);
     expect(await screen.findByText("Not configured yet.")).toBeTruthy();
     expect(screen.getByText("The coach has not linked the Squadi fixtures for this team yet.")).toBeTruthy();
@@ -138,8 +147,7 @@ describe("League page", () => {
   });
 
   it("embeds nothing, and claims nothing, until the team's own set-up has arrived", async () => {
-    let release;
-    leagueGate = new Promise((r) => { release = r; });
+    leagueGate = gate();
     render(<LeaguePage />);
     // /api/me has answered; /api/league has not.
     expect(await screen.findByText("Olympic FC U8 White · Squadi")).toBeTruthy();
@@ -147,14 +155,14 @@ describe("League page", () => {
     expect(notConfigured()).toBeNull();
     expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();
     expect(document.body.innerHTML).not.toMatch(OTHER_TEAM);
-    await act(async () => { release(); });
+    await act(async () => { leagueGate.open(); });
     await waitFor(() => expect(frame().getAttribute("src")).toBe(SAVED.url));
     expect(screen.getByRole("button", { name: "Set up" })).toBeTruthy();
   });
 
   it("the legacy owner's default comes from the server and is embedded like any set-up", async () => {
     me = { mode: "account", role: "parent", teamName: "Olympic FC U8 Kangaroos White" };
-    league = { squadi: LEGACY, saved: false };
+    league = { teamSlug: "kangaroos-white", squadi: LEGACY, saved: false };
     render(<LeaguePage />);
     const built = SQUADI + `organisationKey=${FQ_METRO}&yearId=8&competitionUniqueKey=${LEGACY.comp}&divisionId=10661&teamId=110013`;
     await waitFor(() => expect(frame().getAttribute("src")).toBe(built));
@@ -173,7 +181,7 @@ describe("League page", () => {
 
   it("the set-up note names the current team and no other, and links to Squadi's fixtures page", async () => {
     me = { mode: "account", role: "coach", teamName: "Olympic FC Over 35s" };
-    league = { squadi: null, saved: false };
+    league = { teamSlug: "over-35s", squadi: null, saved: false };
     render(<LeaguePage />);
     const note = await screen.findByText(/One-time setup for/);
     expect(note.textContent).toBe("One-time setup for Olympic FC Over 35s:");
@@ -195,7 +203,7 @@ describe("League page", () => {
 
   it("the set-up note says this team when the team has no name to show", async () => {
     me = { mode: "code", role: null, teamName: "" };
-    league = { squadi: null, saved: false };
+    league = { teamSlug: "default", squadi: null, saved: false };
     render(<LeaguePage />);
     expect((await screen.findByText(/One-time setup for/)).textContent).toBe("One-time setup for this team:");
   });
@@ -206,17 +214,18 @@ describe("League page", () => {
     fireEvent.change(screen.getByLabelText("Squadi embed URL"), { target: { value: SQUADI + "y=2" } });
     fireEvent.click(screen.getByRole("button", { name: "Save for everyone" }));
     await waitFor(() => expect(posts).toHaveLength(1));
-    // The set-up and nothing else: no team, players, fixtures or sessions ride along.
-    expect(posts[0]).toEqual({ squadi: { ...SAVED, url: SQUADI + "y=2" } });
+    // The set-up, and the team the page loaded it for. Nothing else: no team
+    // document, players, fixtures or sessions ride along.
+    expect(posts[0]).toEqual({ teamSlug: "u8-white", squadi: { ...SAVED, url: SQUADI + "y=2" } });
     expect(calls.filter((c) => c.startsWith("POST"))).toEqual(["POST /api/league"]);
     expect(calls.some((c) => c.includes("/api/data"))).toBe(false);
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Set up" })).toBeNull());
     expect(frame().getAttribute("src")).toBe(SQUADI + "y=2");
   });
 
-  it("after a save the page shows what the server stored, and the first save stops the card reopening", async () => {
+  it("after a save the page shows what the server stored, not what was typed", async () => {
     me = { mode: "account", role: "coach", teamName: "Olympic FC Over 35s" };
-    league = { squadi: null, saved: false };
+    league = { teamSlug: "over-35s", squadi: null, saved: false };
     const stored = { mode: "url", url: SQUADI + "z=3", org: FQ_METRO, yearId: "8", comp: "", divisionId: "", teamId: "" };
     saveReply = json(true, 200, { ok: true, squadi: stored });
     render(<LeaguePage />);
@@ -225,6 +234,7 @@ describe("League page", () => {
     fireEvent.change(screen.getByLabelText("Squadi embed URL"), { target: { value: "  " + SQUADI + "z=3  " } });
     fireEvent.click(screen.getByRole("button", { name: "Save for everyone" }));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Set up" })).toBeNull());
+    expect(posts[0].teamSlug).toBe("over-35s");
     expect(posts[0].squadi.url).toBe("  " + SQUADI + "z=3  "); // sent as typed; the server tidies it
     expect(frame().getAttribute("src")).toBe(SQUADI + "z=3");
     expect(notConfigured()).toBeNull();
@@ -240,6 +250,49 @@ describe("League page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save for everyone" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Only coaches can change the league setup.");
     expect(screen.getByRole("heading", { level: 2, name: "Set up" })).toBeTruthy();
+  });
+
+  it("a save meant for another team is refused out loud and the card stays open", async () => {
+    // The team was switched in another tab after this page loaded: the server
+    // acts on the cookies' team, sees the page's team is a different one, and refuses.
+    saveReply = json(false, 412, { error: "This page was opened for another team. Reload it, then save again." });
+    render(<LeaguePage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save for everyone" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("This page was opened for another team. Reload it, then save again.");
+    expect(posts[0].teamSlug).toBe("u8-white");
+    expect(screen.getByRole("heading", { level: 2, name: "Set up" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save for everyone" }).disabled).toBe(false);
+  });
+
+  it("while a save is in flight the button says so and cannot be pressed twice", async () => {
+    saveGate = gate();
+    render(<LeaguePage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save for everyone" }));
+    const busy = await screen.findByRole("button", { name: "Saving…" });
+    expect(busy.disabled).toBe(true);
+    fireEvent.click(busy);
+    expect(posts).toHaveLength(1);
+    await act(async () => { saveGate.open(); });
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Set up" })).toBeNull());
+    expect(posts).toHaveLength(1);
+  });
+
+  it("a save that cannot reach the server says so and can be tried again", async () => {
+    render(<LeaguePage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
+    failing = "POST /api/league";
+    fireEvent.click(screen.getByRole("button", { name: "Save for everyone" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Save failed: boom");
+    expect(screen.getByRole("heading", { level: 2, name: "Set up" })).toBeTruthy();
+    failing = "";
+    fireEvent.click(screen.getByRole("button", { name: "Save for everyone" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Set up" })).toBeNull());
+    // The old failure is gone for good: reopening the card does not bring it back.
+    fireEvent.click(screen.getByRole("button", { name: "Set up" }));
+    expect(screen.getByRole("heading", { level: 2, name: "Set up" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("Sync now reports what changed, or that nothing did", async () => {
@@ -274,8 +327,44 @@ describe("League page", () => {
     expect(notConfigured()).toBeNull();
   });
 
+  it("a load that cannot reach the server says so and shows no draw", async () => {
+    failing = "GET /api/league";
+    render(<LeaguePage />);
+    expect((await screen.findByRole("alert")).textContent).toBe("Could not load the team.");
+    expect(frame()).toBeNull();
+    expect(notConfigured()).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();
+  });
+
+  it("the empty card waits to know who is looking: a coach is never shown the parent wording first", async () => {
+    me = { mode: "account", role: "coach", teamName: "Olympic FC Over 35s" };
+    league = { teamSlug: "over-35s", squadi: null, saved: false };
+    meGate = gate();
+    render(<LeaguePage />);
+    // /api/league has answered (nothing saved); /api/me has not.
+    await waitFor(() => expect(calls).toContain("GET /api/league"));
+    await act(async () => {});
+    expect(notConfigured()).toBeNull();
+    expect(screen.queryByText(/The coach has not linked/)).toBeNull();
+    await act(async () => { meGate.open(); });
+    expect(await screen.findByText("Not configured yet.")).toBeTruthy();
+    expect(screen.getByText(/either build the link from filters or paste the embed URL/)).toBeTruthy();
+    expect(screen.queryByText(/The coach has not linked/)).toBeNull();
+    expect(screen.getByRole("heading", { level: 2, name: "Set up" })).toBeTruthy();
+  });
+
+  it("when /api/me cannot say who is looking, the page is read only", async () => {
+    meStatus = 401;
+    league = { teamSlug: "over-35s", squadi: null, saved: false };
+    render(<LeaguePage />);
+    expect(await screen.findByText("Not configured yet.")).toBeTruthy();
+    expect(screen.getByText("The coach has not linked the Squadi fixtures for this team yet.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();
+    expect(screen.getByText("Squadi")).toBeTruthy(); // kicker without a team name
+  });
+
   it("with no usable link there is a calm empty card instead of a frame", async () => {
-    league = { squadi: { ...SAVED, mode: "builder", comp: "" }, saved: true };
+    league = { teamSlug: "t", squadi: { ...SAVED, mode: "builder", comp: "" }, saved: true };
     me = { mode: "account", role: "parent", teamName: "T" };
     render(<LeaguePage />);
     expect(await screen.findByText("Not configured yet.")).toBeTruthy();

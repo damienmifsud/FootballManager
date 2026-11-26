@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeLeagueSetup, leagueSetupFor, LEGACY_LEAGUE_SETUP, NOT_A_SQUADI_LINK } from "@/lib/leagueSetup";
+import { sanitizeLeagueSetup, leagueSetupFor, isOriginalTeam, LEGACY_LEAGUE_SETUP, NOT_A_SQUADI_LINK } from "@/lib/leagueSetup";
 
 // lib/leagueSetup guards what /api/league stores as data.squadi (the Squadi
 // draw a team's league page embeds) and decides what a team's page works
-// from: its own saved set-up or nothing, with the old hard-coded default left
-// to the legacy owner alone.
+// from: its own saved set-up or nothing. The old hard-coded default, and the
+// ids in it, belong to the original team alone.
 
 const LINK = "https://registration.squadi.com/liveScoreSeasonFixture?organisationKey=o&yearId=8&competitionUniqueKey=c&divisionId=1&teamId=2";
 const KEYS = ["mode", "url", "org", "yearId", "comp", "divisionId", "teamId"];
@@ -66,17 +66,51 @@ describe("sanitizeLeagueSetup", () => {
       "https://evil.example/?next=https://registration.squadi.com/",
       "https://registration.squadi.com@evil.example/x", // squadi.com is the username here
       "https://user:pass@registration.squadi.com/x",
+      "https://user@registration.squadi.com/x", // a username alone
+      "https://:pass@registration.squadi.com/x", // a password alone
+      "https://registration.squadi.com:8443/x", // a port
+      "https://.squadi.com/x", // an empty label
+      "https://registration..squadi.com/x",
+      "https://registration.squadi.com./x", // a trailing dot is another name
+      "https://xn--squadi-evil.com/x",
+      "https://evil.example%2F@registration.squadi.com/x", // a username again, however it is spelt
+      "https://squadi.com.au/x",
+      "https://squadi.co/x",
       "javascript:alert(1)",
       "data:text/html,<script>alert(1)</script>",
       "//registration.squadi.com/x",
       "registration.squadi.com/liveScoreSeasonFixture?x=1", // no scheme
       "not a link",
-      "https://registration.squadi.com/" + "a".repeat(2000) // over the length cap
+      "https://registration.squadi.com/" + "a".repeat(2000), // over the length cap as pasted
+      "https://registration.squadi.com/" + "\t".repeat(2000) + "x", // over it as pasted, though the parser would drop the tabs
+      "https://registration.squadi.com/" + "é".repeat(400) // under it as pasted, over it once encoded
     ];
     for (const url of bad) {
       expect(sanitizeLeagueSetup({ mode: "url", url }), url).toEqual({ error: NOT_A_SQUADI_LINK });
     }
     expect(NOT_A_SQUADI_LINK).toBe("That is not a Squadi link. It should start with https://registration.squadi.com/");
+  });
+
+  it("whatever it keeps parses back to https on squadi.com, by the default port, at any spelling", () => {
+    const odd = [
+      "https://registration.squadi.com\\liveScoreSeasonFixture?x=1", // a backslash is a slash to the parser
+      "https://REGISTRATION.SQUADI.COM:443/liveScoreSeasonFixture", // the default port is no port
+      "https://registration.squadi.com/a b?c=d e#f g",
+      "\thttps://registration.squadi.com/x\n",
+      "https://registration.squadi.com/?next=https://evil.example/",
+      "https://registration.squadi.com/" + "é".repeat(100)
+    ];
+    for (const url of odd) {
+      const { squadi, error } = sanitizeLeagueSetup({ mode: "url", url });
+      expect(error, url).toBeUndefined();
+      const u = new URL(squadi.url);
+      expect(u.protocol).toBe("https:");
+      expect(u.hostname).toBe("registration.squadi.com");
+      expect(u.port + u.username + u.password).toBe("");
+      expect(squadi.url.length).toBeLessThanOrEqual(2000);
+      // Stored in its parsed form: reading it again changes nothing.
+      expect(u.href).toBe(squadi.url);
+    }
   });
 
   it("in builder mode a stray url is dropped instead of blocking the save", () => {
@@ -113,7 +147,7 @@ describe("leagueSetupFor", () => {
 
   it("a team with nothing saved gets nothing: no default, whatever else its document holds", () => {
     expect(leagueSetupFor({ team: { name: "Over 35s" }, players: [], fixtures: [] })).toEqual({ squadi: null, saved: false });
-    expect(leagueSetupFor({ team: { name: "Over 35s" } }, { legacyOwner: false })).toEqual({ squadi: null, saved: false });
+    expect(leagueSetupFor({ team: { name: "Over 35s" } }, { originalTeam: false })).toEqual({ squadi: null, saved: false });
     // No document at all yet.
     expect(leagueSetupFor(null)).toEqual({ squadi: null, saved: false });
     expect(leagueSetupFor(undefined)).toEqual({ squadi: null, saved: false });
@@ -125,16 +159,18 @@ describe("leagueSetupFor", () => {
     expect(leagueSetupFor({ squadi: { mode: "url", url: LINK } })).toEqual({ squadi: { mode: "url", url: LINK }, saved: true });
   });
 
-  it("only the legacy owner falls back to the pre-multi-team default", () => {
-    expect(leagueSetupFor({ team: { name: "Original" } }, { legacyOwner: true })).toEqual({ squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false });
-    expect(leagueSetupFor(null, { legacyOwner: true })).toEqual({ squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false });
-    expect(leagueSetupFor({ team: { name: "Original" } }, { legacyOwner: false }).squadi).toBeNull();
+  it("only the original team falls back to the pre-multi-team default", () => {
+    expect(leagueSetupFor({ team: { name: "Original" } }, { originalTeam: true })).toEqual({ squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false });
+    expect(leagueSetupFor(null, { originalTeam: true })).toEqual({ squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false });
+    expect(leagueSetupFor({ team: { name: "Original" } }, { originalTeam: false }).squadi).toBeNull();
   });
 
-  it("the legacy owner's own saved set-up wins, key by key, over the default (what the page always did)", () => {
-    expect(leagueSetupFor({ squadi: OWN }, { legacyOwner: true })).toEqual({ squadi: OWN, saved: true });
-    const partial = leagueSetupFor({ squadi: { mode: "url", url: LINK } }, { legacyOwner: true });
+  it("the original team's own saved set-up wins, key by key, over the default (what the page always did)", () => {
+    expect(leagueSetupFor({ squadi: OWN }, { originalTeam: true })).toEqual({ squadi: OWN, saved: true });
+    const partial = leagueSetupFor({ squadi: { mode: "url", url: LINK } }, { originalTeam: true });
     expect(partial).toEqual({ squadi: { ...LEGACY_LEAGUE_SETUP, mode: "url", url: LINK }, saved: true });
+    // Its own ids are its own: nothing is taken out of what it saved.
+    expect(leagueSetupFor({ squadi: { ...LEGACY_LEAGUE_SETUP } }, { originalTeam: true })).toEqual({ squadi: { ...LEGACY_LEAGUE_SETUP }, saved: true });
   });
 
   it("the default is the original team's 2026 draw, frozen", () => {
@@ -148,7 +184,7 @@ describe("leagueSetupFor", () => {
   it("a squadi that is not an object does not count as a set-up", () => {
     for (const squadi of ["https://registration.squadi.com/x", 7, true, [], [OWN], null]) {
       expect(leagueSetupFor({ squadi })).toEqual({ squadi: null, saved: false });
-      expect(leagueSetupFor({ squadi }, { legacyOwner: true })).toEqual({ squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false });
+      expect(leagueSetupFor({ squadi }, { originalTeam: true })).toEqual({ squadi: { ...LEGACY_LEAGUE_SETUP }, saved: false });
     }
   });
 
@@ -157,8 +193,76 @@ describe("leagueSetupFor", () => {
     const a = leagueSetupFor(doc);
     a.squadi.url = "changed";
     expect(doc.squadi.url).toBe(LINK);
-    const b = leagueSetupFor(null, { legacyOwner: true });
+    const b = leagueSetupFor(null, { originalTeam: true });
     b.squadi.teamId = "1";
     expect(LEGACY_LEAGUE_SETUP.teamId).toBe("110013");
+  });
+});
+
+// The old page's form started from the hard-coded default on every team and
+// saved the whole form, so a team that pressed save under it still holds the
+// original team's ids in its own stored set-up.
+describe("leagueSetupFor — the old default left in another team's saved set-up", () => {
+  const L = LEGACY_LEAGUE_SETUP;
+  const BLANK_IDS = { comp: "", divisionId: "", teamId: "" };
+
+  it("a team that saved the old default unchanged counts as not set up at all", () => {
+    expect(leagueSetupFor({ squadi: { ...L } })).toEqual({ squadi: null, saved: false });
+    // The same with the form flipped to Paste full URL and nothing pasted.
+    expect(leagueSetupFor({ squadi: { ...L, mode: "url" } })).toEqual({ squadi: null, saved: false });
+  });
+
+  it("a team that pasted its own link keeps it; the original team's ids beside it are taken out", () => {
+    const stored = { ...L, mode: "url", url: LINK };
+    expect(leagueSetupFor({ squadi: stored })).toEqual({ squadi: { ...stored, ...BLANK_IDS }, saved: true });
+    // The region and the year are nobody's: they stay.
+    expect(leagueSetupFor({ squadi: stored }).squadi).toMatchObject({ org: L.org, yearId: L.yearId, url: LINK, mode: "url" });
+  });
+
+  it("the pin on the original team goes even when the coach changed the competition or the division", () => {
+    const ownComp = { ...L, comp: "their-comp" };
+    expect(leagueSetupFor({ squadi: ownComp })).toEqual({ squadi: { ...ownComp, teamId: "" }, saved: true });
+    const ownDivision = { ...L, divisionId: "777" };
+    expect(leagueSetupFor({ squadi: ownDivision })).toEqual({ squadi: { ...ownDivision, teamId: "" }, saved: true });
+  });
+
+  it("a team in the same competition and division with its own team id is left exactly as saved", () => {
+    const sameHub = { ...L, teamId: "110012" };
+    expect(leagueSetupFor({ squadi: sameHub })).toEqual({ squadi: sameHub, saved: true });
+    const noPin = { ...L, teamId: "" };
+    expect(leagueSetupFor({ squadi: noPin })).toEqual({ squadi: noPin, saved: true });
+  });
+
+  it("reads the stored pin loosely (a number, stray spaces) and never changes the document", () => {
+    const doc = { squadi: { ...L, teamId: 110013, divisionId: " 10661 " } };
+    const before = JSON.stringify(doc);
+    expect(leagueSetupFor(doc)).toEqual({ squadi: null, saved: false });
+    expect(JSON.stringify(doc)).toBe(before);
+  });
+});
+
+describe("isOriginalTeam", () => {
+  it("the legacy owner is the original team", () => {
+    expect(isOriginalTeam({ slug: "kangaroos-white" }, "kangaroos-white")).toBe(true);
+    expect(isOriginalTeam({ slug: "default", squadi: { competitionId: "1439", divisionId: "10661", teamId: 110013 } }, "default")).toBe(true);
+    // Whatever its sync ids say (next season's, for one): the legacy owner stays the original team.
+    expect(isOriginalTeam({ slug: "kangaroos-white", squadi: { competitionId: "2000", divisionId: "20000", teamId: 220000 } }, "kangaroos-white")).toBe(true);
+  });
+
+  it("so is a team whose own Squadi sync ids are the original team's, under any slug", () => {
+    expect(isOriginalTeam({ slug: "u8-white", squadi: { competitionId: "1439", divisionId: "10661", teamId: 110013 } }, "something-else")).toBe(true);
+    expect(isOriginalTeam({ slug: "u8-white", squadi: { teamId: "110013" } }, null)).toBe(true);
+  });
+
+  it("no other team is", () => {
+    expect(isOriginalTeam({ slug: "over-35s" }, "kangaroos-white")).toBe(false);
+    expect(isOriginalTeam({ slug: "over-35s", squadi: { competitionId: "1251", divisionId: "9000", teamId: 120000 } }, "kangaroos-white")).toBe(false);
+    expect(isOriginalTeam({ slug: "u8-red", squadi: { competitionId: "1439", divisionId: "10661", teamId: 110012 } }, "kangaroos-white")).toBe(false);
+    // A wizard-only club has no legacy owner; a team with no slug or no sync ids is nobody.
+    expect(isOriginalTeam({ slug: "over-35s" }, null)).toBe(false);
+    expect(isOriginalTeam({ slug: "over-35s", squadi: { teamId: 0 } }, null)).toBe(false);
+    expect(isOriginalTeam({}, undefined)).toBe(false);
+    expect(isOriginalTeam({ slug: "" }, "")).toBe(false);
+    expect(isOriginalTeam(null, "kangaroos-white")).toBe(false);
   });
 });
