@@ -4,7 +4,7 @@ import { signOut } from "next-auth/react";
 import { OUR_CREST } from "@/lib/clubs";
 
 // The shell the three pre-dashboard pages share (S10, Direction C): the
-// sign-in page, the team / hat picker and the empty-club splash. Same tokens
+// sign-in page, My teams and the empty-club splash. Same tokens
 // as the dashboard's CSS block, same DM Sans, same card / input / button /
 // sheet-row values as the prototype (Team Hub App.dc.html 663–697, 785–800),
 // lifted into classes so the three pages never drift apart. Dashboard.jsx
@@ -16,6 +16,7 @@ export const AUTH_CSS = `
 .auth{
   --pitch:#C8102E; --pitch-d:#7A0A1B; --ink:#1A1012; --muted:#6B5A5D; --paper:#F4F4F3; --card:#ffffff;
   --soft:#F1EDEE; --line:#E7E3E3; --red:#E5484D; --red-tint:#FDEAEC;
+  --green-tint:#E6F6EC; --green-strong:#1F8A4C; --blue-tint:#E6F0FF; --blue-strong:#2563A8;
   --r-card:18px; --r-btn:13px; --r-input:11px; --hit-lg:48px;
   --shadow-card:0 1px 2px rgba(10,30,18,.04);
   --font-body:'DM Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
@@ -62,7 +63,7 @@ export const AUTH_CSS = `
 .auth-body{font-size:14px;line-height:1.5;color:var(--ink);}
 .auth-body a{color:var(--pitch);font-weight:700;}
 .auth-card-title{font-size:15px;font-weight:800;line-height:1.3;margin-bottom:6px;overflow-wrap:anywhere;}
-/* picker: the Viewing-as sheet as a page */
+/* My teams: a card per team, role pills, the club row */
 .auth-group{margin:4px 0 8px;}
 .auth-group + .auth-team{margin-top:0;}
 .auth-team{background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow-card);padding:4px 16px;margin-bottom:12px;}
@@ -80,6 +81,20 @@ export const AUTH_CSS = `
 .auth-row .txt span{display:block;font-size:12px;color:var(--muted);margin-top:1px;}
 .auth-row .txt .name{display:block;font-size:15px;font-weight:800;}
 .auth-row .chev{color:#9AA3A6;flex-shrink:0;}
+.auth-mine{padding:6px 16px 14px;}
+.auth-mine-top{display:flex;align-items:center;gap:12px;}
+.auth-mine-top .auth-team-name{flex:1;min-width:0;overflow-wrap:anywhere;}
+.auth-mine .chev,.auth-club .chev{color:#9AA3A6;flex-shrink:0;}
+.auth-pills{display:flex;flex-wrap:wrap;gap:6px;}
+.auth-pill{display:inline-flex;align-items:center;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;line-height:1.2;
+  background:var(--soft);color:var(--muted);}
+.auth-pill.staff{background:var(--green-tint);color:var(--green-strong);}
+.auth-pill.family{background:var(--blue-tint);color:var(--blue-strong);}
+.auth-none{margin-bottom:12px;}
+.auth-club-label{margin-top:18px;}
+.auth-club{text-decoration:none;padding:4px 16px;min-height:64px;border-bottom:1px solid var(--line);}
+.auth-club .ico{width:36px;height:36px;border-radius:11px;background:var(--red-tint);color:var(--pitch);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+.auth-team-btn:focus-visible,.auth-club:focus-visible{outline:2px solid var(--pitch);outline-offset:2px;}
 .auth-out{margin-top:2px;}
 @media (min-width:431px){.auth-col{padding-bottom:48px;}}
 `;

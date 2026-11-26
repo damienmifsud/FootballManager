@@ -65,8 +65,8 @@ describe("account mode", () => {
     });
     expect(body.hats).toEqual([{ role: "parent", playerIds: ["p1"], playerNames: ["Sam"] }]);
     expect(body.teams).toEqual([
-      { teamSlug: "a", teamName: "Team A", hats: [{ role: "coach", playerIds: [], playerNames: [] }] },
-      { teamSlug: "b", teamName: "Team B", hats: [{ role: "parent", playerIds: ["p1"], playerNames: ["Sam"] }] }
+      { teamSlug: "a", teamName: "Team A", hats: [{ role: "coach", playerIds: [], playerNames: [] }], mine: true },
+      { teamSlug: "b", teamName: "Team B", hats: [{ role: "parent", playerIds: ["p1"], playerNames: ["Sam"] }], mine: true }
     ]);
     expect(body.canSwitch).toBe(true);
     expect(body.memberships).toEqual([
@@ -96,6 +96,31 @@ describe("account mode", () => {
     expect(res.status).toBe(409);
     expect((await res.json()).error).toMatch(/pick a team/i);
     expect((await GET(fakeRequest({ cookies: { team_slug: "forged" } }))).status).toBe(409);
+  });
+
+  it("tells the dashboard which teams are the person's own: a super admin's other teams carry mine false and a club-level hat", async () => {
+    auth.mockResolvedValue({ user: { email: "owner@example.com" } });
+    isAdminEmail.mockReturnValue(true);
+    membershipsForEmail.mockResolvedValue({ memberships: [
+      { teamSlug: "a", teamName: "Team A", role: "coach", admin: true, club: true },
+      { teamSlug: "b", teamName: "Team B", role: "coach", staffRole: "Assistant coach", admin: true },
+      { teamSlug: "b", teamName: "Team B", role: "parent", playerId: "p1", playerName: "Sam", admin: true }
+    ] });
+    const { GET } = await loadRoute({ authOn: true });
+    // No cookie: the one team of their own.
+    const body = await (await GET(fakeRequest())).json();
+    expect(body).toMatchObject({ admin: true, teamSlug: "b", role: "coach", staffRole: "Assistant coach" });
+    expect(body.teams).toEqual([
+      { teamSlug: "a", teamName: "Team A", mine: false, hats: [{ role: "coach", playerIds: [], playerNames: [], admin: true, club: true }] },
+      { teamSlug: "b", teamName: "Team B", mine: true, hats: [
+        { role: "coach", playerIds: [], playerNames: [], staffRole: "Assistant coach", admin: true },
+        { role: "parent", playerIds: ["p1"], playerNames: ["Sam"] }
+      ] }
+    ]);
+    // Opened from club admin: the other team, as the super admin.
+    const other = await (await GET(fakeRequest({ cookies: { team_slug: "a" } }))).json();
+    expect(other).toMatchObject({ teamSlug: "a", role: "coach" });
+    expect(other.hats).toEqual([{ role: "coach", playerIds: [], playerNames: [], admin: true, club: true }]);
   });
 
   it("carries the coach's staffRole on the hat and on the raw membership row", async () => {

@@ -18,7 +18,7 @@ values into classes in the CSS block. Icons are `lucide-react`.
 
 Where the styles live (one design, three stylesheets, same token values):
 - `components/Dashboard.jsx` — the dashboard: `const CSS`, tokens on `:root`.
-- `components/AuthShell.jsx` — sign-in, the Viewing-as picker page and the splash pages: `auth-` classes.
+- `components/AuthShell.jsx` — sign-in, My teams and the splash pages: `auth-` classes.
 - `components/AdminShell.jsx` — club admin (`/admin`: access manager, team wizard, role table) and the
   league page (`/league`): `adm-` classes, the dashboard's sub-header and cards.
 

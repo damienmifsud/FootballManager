@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // app/page.jsx is an async server component: call the default export and
-// inspect the element tree it returns. Which of TeamPicker / DashboardHost it
-// picks (and with what props) is the whole team-and-hat routing decision.
+// inspect what it returns. Whether it renders DashboardHost or sends the
+// person to My teams (/teams) is the whole which-team routing decision.
 const { auth, membershipsForEmail, isAdminEmail, isClubAdminEmail, redirect, cookieJar } = vi.hoisted(() => ({
   auth: vi.fn(), membershipsForEmail: vi.fn(), isAdminEmail: vi.fn(), isClubAdminEmail: vi.fn(), redirect: vi.fn(), cookieJar: { values: {} }
 }));
@@ -12,9 +12,7 @@ vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({ get: (name) => (name in cookieJar.values ? { name, value: cookieJar.values[name] } : undefined) })
 }));
-function TeamPickerStub() { return null; }
 function DashboardHostStub() { return null; }
-vi.mock("@/components/TeamPicker", () => ({ default: TeamPickerStub }));
 vi.mock("@/components/DashboardHost", () => ({ default: DashboardHostStub }));
 
 let savedSecret;
@@ -25,6 +23,8 @@ beforeEach(() => {
   auth.mockResolvedValue({ user: { email: "me@a.com" } });
   isAdminEmail.mockReturnValue(false);
   isClubAdminEmail.mockResolvedValue(false);
+  // next/navigation's redirect() throws to stop rendering; the page returns it, so a marker is enough here.
+  redirect.mockImplementation((to) => ({ redirectedTo: to }));
 });
 afterEach(() => {
   if (savedSecret === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = savedSecret;
@@ -55,6 +55,11 @@ function findEl(el, pred) {
 const A_COACH = { teamSlug: "a", teamName: "Team A", role: "coach" };
 const A_PARENT = { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam" };
 const B_COACH = { teamSlug: "b", teamName: "Team B", role: "coach" };
+// Club-level access: a super admin on teams they hold no role on.
+const A_CLUB = { teamSlug: "a", teamName: "Team A", role: "coach", admin: true, club: true };
+const B_CLUB = { teamSlug: "b", teamName: "Team B", role: "coach", admin: true, club: true };
+const C_CLUB = { teamSlug: "c", teamName: "Team C", role: "coach", admin: true, club: true };
+const B_PARENT = { teamSlug: "b", teamName: "Team B", role: "parent", playerId: "p2", playerName: "Alex" };
 
 describe("app/page (account mode)", () => {
   it("single team, single hat, no cookies -> DashboardHost with canSwitch false", async () => {
@@ -66,47 +71,61 @@ describe("app/page (account mode)", () => {
     expect(redirect).not.toHaveBeenCalled();
   });
 
-  it("two teams and no team_slug cookie -> TeamPicker (no preselect)", async () => {
+  it("two teams of their own and no team_slug cookie -> My teams", async () => {
     membershipsForEmail.mockResolvedValue({ memberships: [A_COACH, B_COACH] });
     const Page = await loadPage();
-    const el = await Page();
-    expect(el.type).toBe(TeamPickerStub);
-    expect(el.props.email).toBe("me@a.com");
-    expect(el.props.memberships).toEqual([A_COACH, B_COACH]);
-    expect(el.props.preselect).toBeUndefined();
+    expect(await Page()).toEqual({ redirectedTo: "/teams" });
+    expect(redirect).toHaveBeenCalledWith("/teams");
   });
 
   it("a team_slug cookie naming a team the email doesn't hold is ignored", async () => {
     membershipsForEmail.mockResolvedValue({ memberships: [A_COACH, B_COACH] });
     cookieJar.values.team_slug = "zzz";
     const Page = await loadPage();
-    const el = await Page();
-    expect(el.type).toBe(TeamPickerStub);
+    expect(await Page()).toEqual({ redirectedTo: "/teams" });
   });
 
-  it("multi-hat team with team_slug but no act_as -> TeamPicker preselected on that team", async () => {
+  it("nobody is asked which role first: a coach-parent goes straight in, with or without act_as", async () => {
     membershipsForEmail.mockResolvedValue({ memberships: [A_COACH, A_PARENT] });
     const Page = await loadPage();
-    // A lone team needs no team_slug cookie, but the hat still has to be chosen.
+    // A lone team needs no team_slug cookie and no act_as: the server wears the strongest role.
     let el = await Page();
-    expect(el.type).toBe(TeamPickerStub);
-    expect(el.props.preselect).toBe("a");
-    // A forged act_as the email doesn't hold is treated as unset.
+    expect(el.type).toBe(DashboardHostStub);
+    expect(el.props.canSwitch).toBe(true);
+    // A forged act_as the email doesn't hold changes nothing here either.
     cookieJar.values.team_slug = "a";
     cookieJar.values.act_as = "viewer";
     el = await Page();
-    expect(el.type).toBe(TeamPickerStub);
-    expect(el.props.preselect).toBe("a");
+    expect(el.type).toBe(DashboardHostStub);
+    cookieJar.values.act_as = "parent";
+    el = await Page();
+    expect(el.type).toBe(DashboardHostStub);
+    expect(redirect).not.toHaveBeenCalled();
   });
 
-  it("multi-hat team with a valid act_as -> DashboardHost with canSwitch true", async () => {
-    membershipsForEmail.mockResolvedValue({ memberships: [A_COACH, A_PARENT] });
-    cookieJar.values.team_slug = "a";
-    cookieJar.values.act_as = "parent";
+  it("a super admin with one team of their own opens it; the teams they can only open don't make it a choice", async () => {
+    membershipsForEmail.mockResolvedValue({ memberships: [A_CLUB, B_CLUB, B_PARENT, C_CLUB] });
     const Page = await loadPage();
     const el = await Page();
     expect(el.type).toBe(DashboardHostStub);
-    expect(el.props.canSwitch).toBe(true);
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it("a team opened from club admin stays open: the cookie may name a team they hold no role on", async () => {
+    membershipsForEmail.mockResolvedValue({ memberships: [A_CLUB, B_CLUB, B_PARENT, C_CLUB] });
+    cookieJar.values.team_slug = "c";
+    const Page = await loadPage();
+    expect((await Page()).type).toBe(DashboardHostStub);
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it("running the club but on no team themselves: several teams -> My teams, a single team -> straight in", async () => {
+    membershipsForEmail.mockResolvedValue({ memberships: [A_CLUB, B_CLUB] });
+    let Page = await loadPage();
+    expect(await Page()).toEqual({ redirectedTo: "/teams" });
+    membershipsForEmail.mockResolvedValue({ memberships: [A_CLUB] });
+    Page = await loadPage();
+    expect((await Page()).type).toBe(DashboardHostStub);
   });
 
   it("two single-hat teams with a valid team_slug -> DashboardHost, canSwitch true", async () => {
@@ -166,15 +185,14 @@ describe("app/page (account mode)", () => {
     expect(text).not.toContain("No teams yet");
   });
 
-  it("view-as labels the picker email with '(viewing as)'", async () => {
+  it("view-as resolves the other person's teams: two of theirs -> My teams", async () => {
     auth.mockResolvedValue({ user: { email: "boss@dam.fund" } });
     isAdminEmail.mockImplementation((e) => e === "boss@dam.fund");
     cookieJar.values.view_as = "mum@a.com";
     membershipsForEmail.mockResolvedValue({ memberships: [A_COACH, B_COACH] });
     const Page = await loadPage();
-    const el = await Page();
-    expect(el.type).toBe(TeamPickerStub);
-    expect(el.props.email).toBe("mum@a.com (viewing as)");
+    expect(await Page()).toEqual({ redirectedTo: "/teams" });
+    expect(membershipsForEmail).toHaveBeenCalledWith("mum@a.com");
   });
 
   it("no session -> redirect to /login", async () => {

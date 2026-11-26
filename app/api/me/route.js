@@ -17,10 +17,13 @@ const AUTH_ON = !!process.env.AUTH_SECRET;
 // plays there is coach AND parent. `role`, `playerIds` and `playerNames`
 // describe the hat currently WORN (chosen by the act_as cookie, validated by
 // lib/viewer so it can only narrow, never widen); `hats` lists every hat held
-// on this team, strongest first; `teams` lists every team with the hats held
-// there; `canSwitch` says whether there is any choice at all (more than one
-// team, or more than one hat on some team), so the header knows whether to
-// render the switcher. `memberships` stays as the raw rows for older callers.
+// on this team, strongest first; `teams` lists every team this login can open
+// with the hats held there, and `mine` on each says whether the person is on
+// that team themselves or can only open it as a super admin or club admin (a
+// hat marked `club`): the Viewing-as sheet counts and links to the person's
+// own teams. `canSwitch` says whether there is any choice at all (more than
+// one team, or more than one hat on some team). `memberships` stays as the raw
+// rows for older callers.
 export async function GET(req) {
   const v = await resolveViewer(req);
 
