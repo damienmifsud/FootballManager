@@ -15,7 +15,7 @@ import {
   countdown, ytId, videoKind, mapsUrl, activeOn, intlPhone, recentChanges,
   initials, secToClock, clockToSec, occurrences, monthItems, upcomingItems,
   nextBirthdays, isCarnival, carnivalOf, isCarnivalGame, carnivalGameRows, carnivalMeta, carnivalDescription, pitchLabel,
-  playerFullName
+  playerFullName, competitionOf, countsForSeason, roundLabel
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
@@ -181,7 +181,7 @@ const BYDAY = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
 function gameEv(f, team) {
   const title = `${f.homeAway === "H" ? team : f.opponent} v ${f.homeAway === "H" ? f.opponent : team}`;
   const res = f.status === "played" && f.us != null ? ` (${f.us}-${f.them})` : "";
-  return { uid: f.id, title: "⚽ " + title, dateISO: f.dateISO, time: f.time, endTime: f.time ? addMin(f.time, 105) : null, location: f.venue, desc: `${f.round ? `Round ${f.round}` : ""}${res}`.trim(), allDay: !f.time };
+  return { uid: f.id, title: "⚽ " + title, dateISO: f.dateISO, time: f.time, endTime: f.time ? addMin(f.time, 105) : null, location: f.venue, desc: `${roundLabel(f)}${res}`.trim(), allDay: !f.time };
 }
 // A carnival is ONE timed event across its whole window (six hours when no end
 // is set), "Carnival: …", with its linked games listed in the description —
@@ -1219,7 +1219,7 @@ export default function App() {
   const setWhosInShow = (show) => setStack((s) => s.length ? [...s.slice(0, -1), { ...s[s.length - 1], payload: { ...(s[s.length - 1].payload || {}), show } }] : s);
   // The player behind a pushed player screen, read live from data (S5).
   const screenPlayer = screen === "player" ? (data.players || []).find((p) => p.id === screenPayload?.playerId) || null : null;
-  const roundOf = (f) => (f?.round ? `Round ${f.round}` : "");
+  const roundOf = (f) => roundLabel(f);
   // The team's season window drives the Calendar range, the Stats kicker and
   // the ICS export; the shown calendar month is resolved against it.
   const season = teamSeason(data.team);
@@ -1549,7 +1549,7 @@ const dutyWho = (data, key, id) => {
   const s = shortName(p.name);
   return DUTY_DEFS[key].family ? `${s}'s family` : s;
 };
-const roundText = (f) => (f?.round ? `Round ${f.round}` : "this game");
+const roundText = (f) => roundLabel(f) || "this game";
 // Optimistic duty write through /api/duty. D4 on the client too: a newly set
 // keeper also fills the plan's block-1 GK slot when the plan has one, exactly
 // as the server does, so the planner opens on the same keeper.
@@ -1672,7 +1672,7 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
       {next ? (
         <div className="card nextgame">
           <div className="ng-head">
-            <span className="ng-label">Next game{next.round ? ` · Round ${next.round}` : ""} · {next.homeAway === "H" ? "Home" : "Away"}</span>
+            <span className="ng-label">Next game{roundLabel(next) ? ` · ${roundLabel(next)}` : ""} · {next.homeAway === "H" ? "Home" : "Away"}</span>
             {next.dateISO && <span className="ng-cd"><Clock size={12} />{countdown(next.dateISO, next.time)}</span>}
           </div>
           <div className="matchup">
@@ -2005,6 +2005,9 @@ function MatchRow({ data, f, onTap }) {
   // A carnival game: the carnival's name on a tag line, and a medal in the
   // round column when the game has no round (most don't).
   const carnival = carnivalOf(data, f);
+  // A game in another competition (not the season): that competition's name
+  // on the same tag line. The round column keeps its own round number.
+  const comp = carnival ? null : competitionOf(f);
   const hs = home ? f.us : f.them, as = home ? f.them : f.us;
   const side = (ours, away) => (
     <div className={"mr-side" + (ours ? " ours" : "") + (away ? " away" : "")}>
@@ -2024,6 +2027,7 @@ function MatchRow({ data, f, onTap }) {
       <div className="mr-centre">{centre}</div>
       {side(!home, true)}
       {carnival && <div className="mrow-tag"><span className="mtag"><Medal size={10} /><span>{carnival.title}</span></span></div>}
+      {comp && <div className="mrow-tag"><span className="mtag"><Trophy size={10} /><span>{comp.name}</span></span></div>}
     </div>
   );
 }
@@ -2036,6 +2040,7 @@ function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
   const results = sorted.filter(f => fixtureState(f).past);
   const upcoming = sorted.filter(f => !fixtureState(f).past);
   const hasCarnivalGame = data.fixtures.some(f => isCarnivalGame(data, f));
+  const hasCompetitionGame = data.fixtures.some(f => competitionOf(f) && !isCarnivalGame(data, f));
   return (
     <>
       <div className="card season-mini">
@@ -2066,6 +2071,9 @@ function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
 
       {hasCarnivalGame && (
         <div className="footnote res-foot">Carnival games are tagged with their carnival and don't count toward the season record.</div>
+      )}
+      {hasCompetitionGame && (
+        <div className="footnote res-foot">Games in another competition are tagged with its name and don't count toward the season record.</div>
       )}
       {isMiniRoos(data.team) && (
         <div className="footnote res-foot">MiniRoos doesn't publish ladders at {String(data.team.ageGroup).toUpperCase()} — results only help grade the leagues. These are just our own numbers.</div>
@@ -2249,7 +2257,7 @@ function DutiesTab({ data, isCoach, viewer, me, setModal, patchLocal, showToast 
           <div key={f.id} className={"card ducard" + (past ? " past" : "")}>
             <div className="du-head">
               <span className="du-round">{f.round ? `R${f.round}` : "—"}</span>
-              <span className="du-opp">vs {f.opponent}</span>
+              <span className="du-opp">vs {f.opponent}{competitionOf(f) ? ` · ${competitionOf(f).name}` : ""}</span>
               <span className="du-date">{fmtDate(f.dateISO)}</span>
             </div>
             {keys.map((key) => slot(f, key, past))}
@@ -2279,7 +2287,7 @@ function DutySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast, 
   const head = staff.find((s) => /head coach/i.test(s.role || "")) || staff[0];
   const coachFirst = head?.name ? firstName(head.name) : null;
   const write = (playerId) => { saveDuty({ fixture: f, duty: key, playerId, data, patchLocal, showToast }); close(); };
-  const title = `${def.label} · ${f.round ? `Round ${f.round}` : "this game"}`;
+  const title = `${def.label} · ${roundLabel(f) || "this game"}`;
   const sub = `vs ${f.opponent} · ${fmtDate(f.dateISO)}`;
   const sorted = coachFirst ? `We'll let Coach ${coachFirst} know it's sorted.` : "We'll let the coach know it's sorted.";
 
@@ -2355,7 +2363,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 function StatsTab({ data, stats, openMatch, openPlayer }) {
   // Played fixtures in date order — the same set computeStats counts (so no carnival games).
   const rounds = useMemo(() => data.fixtures
-    .filter(f => f.status === "played" && f.us != null && f.them != null && !isCarnivalGame(data, f))
+    .filter(f => f.status === "played" && f.us != null && f.them != null && countsForSeason(data, f))
     .sort((a, b) => a.dateISO.localeCompare(b.dateISO)), [data]);
   const diff = stats.gf - stats.ga;
   const scorers = stats.scorers.filter(p => p.goals > 0);
@@ -3510,7 +3518,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
   return (<>
     <div className="card mhero">
       <div className="mh-head">
-        <span className="mh-label">{carnival ? `Carnival · ${carnival.title} · ${fmtDate(f.dateISO) || "Date TBC"}` : `${f.round ? `Round ${f.round} · ` : ""}${home ? "Home" : "Away"} · ${fmtDate(f.dateISO) || "Date TBC"}`}</span>
+        <span className="mh-label">{carnival ? `Carnival · ${carnival.title} · ${fmtDate(f.dateISO) || "Date TBC"}` : `${roundLabel(f) ? `${roundLabel(f)} · ` : ""}${home ? "Home" : "Away"} · ${fmtDate(f.dateISO) || "Date TBC"}`}</span>
         {isCoach && <button className="mh-edit" onClick={() => setModal({ type: "fixture", payload: f })}><Pencil size={13} />Edit</button>}
       </div>
       <div className="matchup">
@@ -3677,7 +3685,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
       {f.dateISO && !carnival && <CalAdd ev={gameEv(f, data.team.name)} style={{ marginBottom: 12 }} />}
       <a className="washare" target="_blank" rel="noopener noreferrer"
         href={"https://wa.me/?text=" + encodeURIComponent(
-          `⚽ ${data.team.name} — ${carnival ? carnival.title : f.round ? `Round ${f.round}` : "Match"} vs ${f.opponent}\n` +
+          `⚽ ${data.team.name} — ${carnival ? carnival.title : roundLabel(f) || "Match"} vs ${f.opponent}\n` +
           (f.status === "played" && f.us != null
             ? `Result: ${f.us}–${f.them}` +
               ((f.goals || []).length ? `\nGoals: ${(f.goals || []).map(g => `${pname(g.pid)}${g.n > 1 ? " ×" + g.n : ""}`).join(", ")}` : "")
@@ -3726,7 +3734,7 @@ function WhosInScreen({ data, events, setShow, isCoach, viewer, me, setModal, pa
 
   // D7: nothing is sent from here. The reminder is copied and WhatsApp opened
   // with it; the toast says exactly that.
-  const eventName = isSession ? s.title : `${f.round ? `Round ${f.round} ` : ""}vs ${f.opponent}`;
+  const eventName = isSession ? s.title : `${roundLabel(f) ? `${roundLabel(f)} ` : ""}vs ${f.opponent}`;
   const reminder = `${eventName}, ${nudgeDate(dateISO)}${time ? " " + time : ""}. Still need In or Out from ${listNames(noReply)}. Reply on the team page please.`;
   const nudge = () => {
     try { const c = navigator.clipboard; if (c?.writeText) Promise.resolve(c.writeText(reminder)).catch(() => {}); } catch {}
@@ -4076,7 +4084,7 @@ function PlayerScreen({ data, p, next, persist, patchLocal, isCoach, viewer, me,
 
     {canReply && (
       <div className="card preply">
-        <div className="label">{[next.round ? `Round ${next.round}` : "", fmtDate(next.dateISO), next.time || ""].filter(Boolean).join(" · ")}</div>
+        <div className="label">{[roundLabel(next), fmtDate(next.dateISO), next.time || ""].filter(Boolean).join(" · ")}</div>
         <div className="replyrows">
           <ReplyRow p={p} name={`Is ${first} playing?`} status={next.availability?.[p.id]?.status || null} onTap={openReply} />
         </div>

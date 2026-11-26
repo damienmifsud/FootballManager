@@ -76,9 +76,16 @@ export default function LeaguePage() {
       const res = await fetch("/api/sync", { cache: "no-store" });
       const j = await res.json();
       if (!res.ok || !j.ok) { setSyncMsg("Sync failed: " + (j.error || res.status)); return; }
-      setSyncMsg(j.changes.length
+      // Nothing to pull: no draw has its Squadi ids yet (they go in club admin).
+      if (j.skipped === "no squadi config") { setSyncMsg("No Squadi draw is set up for this team yet."); return; }
+      // A team can have several draws (its season and other competitions). One
+      // that could not be fetched is named; the others were still applied.
+      const failed = Array.isArray(j.failed) && j.failed.length
+        ? " Could not sync " + j.failed.map((f) => `${f.name} (${f.error})`).join("; ") + "."
+        : "";
+      setSyncMsg((j.changes.length
         ? `Updated ${j.changes.length} item${j.changes.length > 1 ? "s" : ""}: ` + j.changes.slice(0, 3).join(" · ") + (j.changes.length > 3 ? " …" : "")
-        : "Already up to date with Squadi.");
+        : "Already up to date with Squadi.") + failed);
     } catch (e) { setSyncMsg("Sync failed: " + e.message); }
   };
 

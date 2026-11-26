@@ -231,3 +231,120 @@ describe("applySync — schedChanges housekeeping", () => {
     expect(res.data.isSample).toBe(false);
   });
 });
+
+// A team can have more than one Squadi draw: its season and other competitions
+// (lib/competitions.js). applySync runs once per draw; `comp` says which one a
+// draw is. Every competition has its own Round 1, so they must never be
+// matched to each other's games.
+describe("applySync — another competition's draw", () => {
+  const WINTER = { id: "cwinter", name: "Winterfest" };
+  const game = (over = {}) => ({ squadiId: "w1", round: 1, dateISO: "2026-07-04", time: "09:00", opponent: "Lions", venue: "Perry Park", homeAway: "H", ...over });
+  const seasonRound1 = (over = {}) => ({
+    id: "s1", squadiId: "m1", round: 1, dateISO: "2026-05-02", time: "08:00", opponent: "Wests", venue: "Home",
+    homeAway: "H", status: "played", us: 3, them: 1, ...over
+  });
+
+  it("tags a new game with its competition and names it in the change line", () => {
+    const res = applySync({ fixtures: [] }, [game()], { comp: WINTER });
+    expect(res.created).toBe(1);
+    expect(res.data.fixtures[0]).toMatchObject({ squadiId: "w1", round: 1, opponent: "Lions", comp: "cwinter", compName: "Winterfest" });
+    // (The date's wording is the runtime's en-AU format, so it is not pinned here.)
+    expect(res.changes).toHaveLength(1);
+    expect(res.changes[0]).toMatch(/^NEW — Winterfest Round 1 vs Lions: .+ 09:00 @ Perry Park$/);
+  });
+
+  it("a season game carries no competition at all", () => {
+    const res = applySync({ fixtures: [] }, [game()]);
+    expect("comp" in res.data.fixtures[0]).toBe(false);
+    expect("compName" in res.data.fixtures[0]).toBe(false);
+    expect(res.changes[0]).toMatch(/^NEW — Round 1 vs Lions/);
+    // The same with the option spelt out.
+    expect("comp" in applySync({ fixtures: [] }, [game()], { comp: null }).data.fixtures[0]).toBe(false);
+  });
+
+  it("never matches the season's Round 1 by round number: both games exist side by side", () => {
+    // A season Round 1 typed in by hand and not yet linked to Squadi: the
+    // season's own draw would adopt it by round number. Winterfest's must not.
+    const typed = seasonRound1({ squadiId: undefined, status: "upcoming", us: null, them: null });
+    const res = applySync({ fixtures: [typed] }, [game()], { comp: WINTER });
+    expect(res.created).toBe(1);
+    expect(res.data.fixtures).toHaveLength(2);
+    expect(res.data.fixtures[0]).toEqual(typed); // untouched
+    expect(res.data.fixtures[1]).toMatchObject({ squadiId: "w1", comp: "cwinter", opponent: "Lions" });
+  });
+
+  it("the season's draw never adopts another competition's game by round number", () => {
+    // A Winterfest game with no Squadi id of its own (added some other way).
+    const winter = { id: "w0", round: 1, comp: "cwinter", compName: "Winterfest", dateISO: "2026-07-04", time: "09:00", opponent: "Lions", venue: "Perry Park", homeAway: "H", status: "upcoming" };
+    const res = applySync({ fixtures: [winter] }, [{ squadiId: "m1", round: 1, dateISO: "2026-05-02", time: "08:00", opponent: "Wests", venue: "Home", homeAway: "H" }]);
+    expect(res.created).toBe(1);
+    expect(res.data.fixtures[0]).toEqual(winter);
+    expect(res.data.fixtures[1]).toMatchObject({ squadiId: "m1", opponent: "Wests" });
+    expect("comp" in res.data.fixtures[1]).toBe(false);
+    // The season still adopts its own hand-typed round, as before.
+    const typed = { id: "t1", round: 1, dateISO: "", time: "", opponent: "Wests", venue: "", homeAway: "H", status: "upcoming" };
+    const adopted = applySync({ fixtures: [winter, typed] }, [{ squadiId: "m1", round: 1, dateISO: "2026-05-02", time: "08:00", opponent: "Wests", venue: "Home", homeAway: "H" }]);
+    expect(adopted.created).toBe(0);
+    expect(adopted.data.fixtures[1]).toMatchObject({ id: "t1", squadiId: "m1", dateISO: "2026-05-02" });
+  });
+
+  it("updates its own game by Squadi id and keeps everything the coach recorded on it", () => {
+    const existing = { id: "w0", squadiId: "w1", round: 1, comp: "cwinter", compName: "Winterfest", dateISO: "2026-07-04", time: "09:00", opponent: "Lions", venue: "Perry Park", homeAway: "H", status: "upcoming", availability: { p1: { status: "in" } }, gk: "p1", notes: "Bring gazebo" };
+    const res = applySync({ fixtures: [seasonRound1(), existing] }, [game({ time: "10:30", venue: "Field 3" })], { comp: WINTER });
+    expect(res.created).toBe(0);
+    expect(res.changes).toHaveLength(1);
+    expect(res.changes[0]).toMatch(/^Winterfest Round 1 vs Lions: time .+ 09:00 → .+ 10:30; venue "Perry Park" → "Field 3"$/);
+    expect(res.data.fixtures[1]).toMatchObject({ id: "w0", time: "10:30", venue: "Field 3", comp: "cwinter", compName: "Winterfest", availability: { p1: { status: "in" } }, gk: "p1", notes: "Bring gazebo" });
+    expect(res.data.fixtures[0]).toEqual(seasonRound1()); // the season game is not touched
+  });
+
+  it("a renamed competition renames its games, quietly (saved, no change line)", () => {
+    const existing = { id: "w0", squadiId: "w1", round: 1, comp: "cwinter", compName: "Winterfest", dateISO: "2026-07-04", time: "09:00", opponent: "Lions", venue: "Perry Park", homeAway: "H", status: "upcoming" };
+    const res = applySync({ fixtures: [existing] }, [game()], { comp: { id: "cwinter", name: "Winterfest 2026" } });
+    expect(res.changes).toEqual([]);
+    expect(res.mutated).toBe(true);
+    expect(res.data.fixtures[0]).toMatchObject({ comp: "cwinter", compName: "Winterfest 2026" });
+    // Nothing changed: nothing to save.
+    const again = applySync({ fixtures: [existing] }, [game()], { comp: WINTER });
+    expect(again.mutated).toBe(false);
+    expect(again.changes).toEqual([]);
+  });
+
+  it("the draw a game comes back in decides its competition: ids moved to another row retag the games", () => {
+    // Synced as a season game first (the ids were entered in the season's row by mistake).
+    const untagged = { id: "w0", squadiId: "w1", round: 1, dateISO: "2026-07-04", time: "09:00", opponent: "Lions", venue: "Perry Park", homeAway: "H", status: "upcoming" };
+    const tagged = applySync({ fixtures: [untagged] }, [game()], { comp: WINTER });
+    expect(tagged.created).toBe(0);
+    expect(tagged.mutated).toBe(true);
+    expect(tagged.data.fixtures[0]).toMatchObject({ id: "w0", comp: "cwinter", compName: "Winterfest" });
+    // And the other way: a game the season's draw returns is a season game.
+    const back = applySync({ fixtures: tagged.data.fixtures }, [game()]);
+    expect(back.mutated).toBe(true);
+    expect("comp" in back.data.fixtures[0]).toBe(false);
+    expect("compName" in back.data.fixtures[0]).toBe(false);
+    expect(back.changes).toEqual([]);
+  });
+
+  it("two competitions' draws applied in turn keep to their own games", () => {
+    const cup = { id: "ccup", name: "Premier Invitational" };
+    let data = { fixtures: [] };
+    data = applySync(data, [{ squadiId: "m1", round: 1, dateISO: "2026-05-02", time: "08:00", opponent: "Wests", venue: "Home", homeAway: "H" }]).data;
+    data = applySync(data, [game()], { comp: WINTER }).data;
+    data = applySync(data, [game({ squadiId: "c1", opponent: "Rovers", dateISO: "2026-05-13" })], { comp: cup }).data;
+    expect(data.fixtures.map((f) => [f.round, f.opponent, f.comp || "season"])).toEqual([[1, "Wests", "season"], [1, "Lions", "cwinter"], [1, "Rovers", "ccup"]]);
+    // Run all three again: nothing is created, nothing changes.
+    const runs = [
+      applySync(data, [{ squadiId: "m1", round: 1, dateISO: "2026-05-02", time: "08:00", opponent: "Wests", venue: "Home", homeAway: "H" }]),
+      applySync(data, [game()], { comp: WINTER }),
+      applySync(data, [game({ squadiId: "c1", opponent: "Rovers", dateISO: "2026-05-13" })], { comp: cup })
+    ];
+    for (const r of runs) expect([r.created, r.changes.length, r.data.fixtures.length]).toEqual([0, 0, 3]);
+  });
+
+  it("does not mutate the document it was given", () => {
+    const data = { fixtures: [seasonRound1()] };
+    const before = JSON.stringify(data);
+    applySync(data, [game()], { comp: WINTER });
+    expect(JSON.stringify(data)).toBe(before);
+  });
+});

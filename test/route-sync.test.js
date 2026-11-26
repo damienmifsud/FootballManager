@@ -34,6 +34,9 @@ beforeEach(() => {
   m.setData.mockResolvedValue();
   m.fetchSquadi.mockResolvedValue([]);
   m.applySync.mockReturnValue({ data: { fixtures: [] }, changes: [], created: 0, mutated: false });
+  // clearAllMocks keeps return values, so the view-as test would otherwise
+  // leak its impersonation into every test that runs after it.
+  m.viewingAs.mockReturnValue(null);
 });
 afterEach(() => {
   if (savedSecret === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = savedSecret;
@@ -181,5 +184,178 @@ describe("account mode — view as blocks any sync", () => {
     expect((await GET(fakeRequest({ url: "https://x.test/api/sync" }))).status).toBe(403);
     expect((await GET(fakeRequest({ url: "https://x.test/api/sync?ifStale=1" }))).status).toBe(403);
     expect(m.fetchSquadi).not.toHaveBeenCalled();
+  });
+});
+
+// A team can have several Squadi draws: its season and any other competition
+// on its registry entry whose ids are complete (lib/competitions.js, the real
+// module). The route fetches every draw, applies each in turn and saves once.
+describe("a team with more than one draw", () => {
+  const SEASON_IDS = TEAM.squadi;
+  const WINTER_IDS = { competitionId: "4", divisionId: "5", teamId: 6 };
+  const MULTI = {
+    ...TEAM,
+    competitions: [
+      { id: "cw", name: "Winterfest", squadi: WINTER_IDS },
+      { id: "cp", name: "Premier Invitational" }, // draw not published yet: named, no ids
+      { id: "ch", name: "Half filled", squadi: { competitionId: "7", divisionId: "", teamId: 0 } }
+    ]
+  };
+  const cron = (GET) => GET(fakeRequest({ url: "https://x.test/api/sync", headers: { authorization: "Bearer s3cret" } }));
+  // A stand-in applySync: each match in the draw becomes a fixture, tagged like the real one.
+  const applyLikeReal = (data, squadi, opts) => {
+    const fixtures = [...(data.fixtures || []), ...squadi.map((s) => ({ id: "f-" + s.squadiId, squadiId: s.squadiId, ...(opts?.comp ? { comp: opts.comp.id, compName: opts.comp.name } : {}), schedChanges: [{ field: "New game" }] }))];
+    const label = opts?.comp ? opts.comp.name + " " : "";
+    return { data: { ...data, fixtures }, changes: squadi.map((s) => `NEW — ${label}${s.squadiId}`), created: squadi.length, mutated: squadi.length > 0 };
+  };
+
+  let savedResend, savedNotify, realFetch;
+  beforeEach(() => {
+    savedResend = process.env.RESEND_API_KEY; savedNotify = process.env.NOTIFY_EMAILS; realFetch = global.fetch;
+    delete process.env.RESEND_API_KEY; delete process.env.NOTIFY_EMAILS;
+    m.getTeams.mockReturnValue([MULTI]);
+    m.fetchSquadi.mockImplementation(async (ids) => (ids === SEASON_IDS ? [{ squadiId: "s1" }] : [{ squadiId: "w1" }, { squadiId: "w2" }]));
+    m.applySync.mockImplementation(applyLikeReal);
+  });
+  afterEach(() => {
+    if (savedResend === undefined) delete process.env.RESEND_API_KEY; else process.env.RESEND_API_KEY = savedResend;
+    if (savedNotify === undefined) delete process.env.NOTIFY_EMAILS; else process.env.NOTIFY_EMAILS = savedNotify;
+    global.fetch = realFetch;
+  });
+
+  it("fetches the season and every competition whose ids are complete, and no other", async () => {
+    const { GET } = await loadRoute({ authOn: true });
+    const res = await cron(GET);
+    expect(res.status).toBe(200);
+    expect(m.fetchSquadi.mock.calls.map((c) => c[0])).toEqual([SEASON_IDS, WINTER_IDS]);
+  });
+
+  it("applies each draw with its own competition, the second on top of the first, and saves once", async () => {
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await cron(GET)).json();
+    expect(m.applySync).toHaveBeenCalledTimes(2);
+    expect(m.applySync.mock.calls[0][2]).toEqual({ comp: null });
+    expect(m.applySync.mock.calls[1][2]).toEqual({ comp: { id: "cw", name: "Winterfest" } });
+    // The Winterfest draw is applied to the document the season's draw produced.
+    expect(m.applySync.mock.calls[1][0].fixtures.map((f) => f.squadiId)).toEqual(["s1"]);
+    expect(m.setData).toHaveBeenCalledTimes(1);
+    const [slug, saved] = m.setData.mock.calls[0];
+    expect(slug).toBe("a");
+    expect(saved.fixtures.map((f) => [f.squadiId, f.comp || "season"])).toEqual([["s1", "season"], ["w1", "cw"], ["w2", "cw"]]);
+    expect(body.results[0]).toMatchObject({ team: "a", matchesSeen: 3, created: 3, changes: ["NEW — s1", "NEW — Winterfest w1", "NEW — Winterfest w2"] });
+    expect("failed" in body.results[0]).toBe(false);
+  });
+
+  it("one draw failing does not stop the others: it is named under failed and the rest are saved", async () => {
+    m.fetchSquadi.mockImplementation(async (ids) => { if (ids === WINTER_IDS) throw new Error("Squadi responded 404"); return [{ squadiId: "s1" }]; });
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await cron(GET)).json();
+    expect(body.results[0]).toMatchObject({ team: "a", created: 1, changes: ["NEW — s1"], failed: [{ name: "Winterfest", error: "Squadi responded 404" }] });
+    expect(body.results[0].ok).toBeUndefined(); // not an error for the team
+    expect(m.setData.mock.calls[0][1].fixtures.map((f) => f.squadiId)).toEqual(["s1"]);
+    // The other way round: the season's draw is down, Winterfest still comes in.
+    m.setData.mockClear();
+    m.fetchSquadi.mockImplementation(async (ids) => { if (ids === SEASON_IDS) throw new Error("Squadi responded 503"); return [{ squadiId: "w1" }]; });
+    const again = await (await cron(GET)).json();
+    expect(again.results[0]).toMatchObject({ created: 1, failed: [{ name: "Season", error: "Squadi responded 503" }] });
+    expect(m.setData.mock.calls[0][1].fixtures.map((f) => [f.squadiId, f.comp])).toEqual([["w1", "cw"]]);
+  });
+
+  it("every draw failing is the team's error, as it was with one draw: nothing is saved", async () => {
+    m.fetchSquadi.mockRejectedValue(new Error("Squadi responded 503"));
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await cron(GET)).json();
+    expect(body.results[0]).toMatchObject({ team: "a", ok: false });
+    expect(body.results[0].error).toContain("503");
+    expect(m.applySync).not.toHaveBeenCalled();
+    expect(m.setData).not.toHaveBeenCalled();
+    // A coach pressing Sync now gets the same as a 502.
+    m.auth.mockResolvedValue({ user: { email: "coach@a.com" } });
+    m.membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", teamName: "Team A", role: "coach" }] });
+    m.teamBySlug.mockReturnValue(MULTI);
+    const res = await GET(fakeRequest({ url: "https://x.test/api/sync" }));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ ok: false, error: expect.stringContaining("503") });
+  });
+
+  it("another competition can be the only draw there is: the season's is not out yet", async () => {
+    m.getTeams.mockReturnValue([{ slug: "a", name: "Team A", competitions: MULTI.competitions }]);
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await cron(GET)).json();
+    expect(m.fetchSquadi.mock.calls.map((c) => c[0])).toEqual([WINTER_IDS]);
+    expect(body.results[0]).toMatchObject({ team: "a", created: 2 });
+    expect(m.setData.mock.calls[0][1].fixtures.every((f) => f.comp === "cw")).toBe(true);
+  });
+
+  it("a team whose draws are all still to come is skipped without a request", async () => {
+    m.getTeams.mockReturnValue([{ slug: "a", name: "Team A", competitions: [{ id: "cp", name: "Premier Invitational" }] }]);
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await cron(GET)).json();
+    expect(body.results[0]).toEqual({ team: "a", skipped: "no squadi config" });
+    expect(m.fetchSquadi).not.toHaveBeenCalled();
+    expect(m.setData).not.toHaveBeenCalled();
+  });
+
+  it("reads the document after Squadi has answered, so a reply saved meanwhile is in what the sync saves", async () => {
+    const before = { fixtures: [{ id: "old", availability: {} }] };
+    const after = { fixtures: [{ id: "old", availability: { p1: { status: "in" } } }] }; // a parent replied while Squadi was answering
+    m.getData.mockReset();
+    m.getData.mockResolvedValueOnce(before).mockResolvedValue(after);
+    const { GET } = await loadRoute({ authOn: true });
+    await cron(GET);
+    expect(m.applySync.mock.calls[0][0]).toBe(after);
+    // Order: the last fetch finished before the document was read for the save.
+    const lastFetch = Math.max(...m.fetchSquadi.mock.invocationCallOrder);
+    const readForSave = m.getData.mock.invocationCallOrder[1];
+    expect(readForSave).toBeGreaterThan(lastFetch);
+    expect(m.setData.mock.calls[0][1].fixtures[0]).toEqual({ id: "old", availability: { p1: { status: "in" } } });
+  });
+
+  it("a competition's first import is not news; a real change in the same run still is", async () => {
+    process.env.RESEND_API_KEY = "key";
+    process.env.NOTIFY_EMAILS = "coach@a.com";
+    const sent = [];
+    global.fetch = vi.fn(async (url, opts) => { sent.push(JSON.parse(opts.body)); return { ok: true }; });
+    // The season: one game moved (a change, nothing created). Winterfest: five games arriving for the first time.
+    m.fetchSquadi.mockImplementation(async (ids) => (ids === SEASON_IDS ? [{ squadiId: "s1" }] : ["w1", "w2", "w3", "w4", "w5"].map((squadiId) => ({ squadiId }))));
+    m.applySync.mockImplementation((data, squadi, opts) => (opts.comp
+      ? applyLikeReal(data, squadi, opts)
+      : { data: { ...data, fixtures: (data.fixtures || []).map((f) => (f.id === "old" ? { ...f, schedChanges: [{ field: "Time" }] } : f)) }, changes: ["Round 3 vs Wests: time moved"], created: 0, mutated: true }));
+    m.getData.mockResolvedValue({ fixtures: [{ id: "old", squadiId: "s1", schedChanges: [] }] });
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await cron(GET)).json();
+    expect(body.results[0].emailStatus).toBe("emailed");
+    // Only the season's change is emailed.
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain("Round 3 vs Wests: time moved");
+    expect(sent[0].text).not.toContain("Winterfest");
+    expect(sent[0].subject).toContain("1 fixture change");
+    // Every change is still reported to whoever asked.
+    expect(body.results[0].changes).toHaveLength(6);
+    const saved = m.setData.mock.calls[0][1].fixtures;
+    // The season game keeps its "time changed" badge; the five new games arrive without a "new game" one.
+    expect(saved.find((f) => f.id === "old").schedChanges).toEqual([{ field: "Time" }]);
+    expect(saved.filter((f) => f.comp === "cw")).toHaveLength(5);
+    expect(saved.filter((f) => f.comp === "cw").every((f) => f.schedChanges.length === 0)).toBe(true);
+  });
+
+  it("a first import on its own says so and sends nothing", async () => {
+    process.env.RESEND_API_KEY = "key";
+    process.env.NOTIFY_EMAILS = "coach@a.com";
+    global.fetch = vi.fn(async () => ({ ok: true }));
+    m.fetchSquadi.mockImplementation(async (ids) => (ids === SEASON_IDS ? [] : ["w1", "w2", "w3", "w4"].map((squadiId) => ({ squadiId }))));
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await cron(GET)).json();
+    expect(body.results[0].emailStatus).toBe("initial import — email skipped");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("nothing new in any draw: nothing is saved, only the sync clock moves", async () => {
+    m.fetchSquadi.mockResolvedValue([]);
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await cron(GET)).json();
+    expect(body.results[0]).toMatchObject({ team: "a", matchesSeen: 0, created: 0, changes: [], emailStatus: "no changes" });
+    expect(m.setData).not.toHaveBeenCalled();
+    expect(m.setMeta).toHaveBeenCalledTimes(1);
   });
 });
