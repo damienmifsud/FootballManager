@@ -103,8 +103,9 @@ describe("App — coach-mode PIN gate", () => {
     render(<App />);
     await expectChip("Parent");
     await openChip();
-    expect(screen.getByText("Switch team, open settings or sign out.")).toBeTruthy();
+    expect(screen.getByText("Coach mode, and who replies from this device.")).toBeTruthy();
     expect(screen.queryByText("Team settings")).toBeNull(); // coach-only row hidden in the parent view
+    expect(document.querySelectorAll(".hs-label").length).toBe(0); // no "This team" / "You" sections without their rows
     expect(screen.getByText("Sign in to respond")).toBeTruthy();
     fireEvent.click(screen.getByText("Coach mode"));
     // Now in coach mode: the chip reads Coach and the sheet has closed.
@@ -148,7 +149,7 @@ describe("App — account-mode roles (/api/me)", () => {
     return {
       mode: "account", email: "x@a.com", admin: false, clubAdmin: false, teamSlug: "a", teamName: "Test FC", role: "coach",
       playerIds: worn.playerIds, playerNames: worn.playerNames, hats,
-      teams: [{ teamSlug: "a", teamName: "Test FC", hats }], canSwitch: false, memberships: [], ...over
+      teams: [{ teamSlug: "a", teamName: "Test FC", hats, mine: hats.some((h) => !h.club) }], canSwitch: false, memberships: [], ...over
     };
   };
   const threeKids = [
@@ -167,6 +168,14 @@ describe("App — account-mode roles (/api/me)", () => {
     if (k) document.cookie = `${k}=; path=/; max-age=0`;
   });
   const hatRow = (label) => screen.getByText(label, { selector: ".hs-row b" }).closest(".hs-row");
+  // The sheet top to bottom: its row titles, and its section labels.
+  const sheetRows = () => [...document.querySelectorAll(".hs-list .hs-row b")].map((b) => b.textContent);
+  const sheetLabels = () => [...document.querySelectorAll(".hs-list .hs-label")].map((l) => l.textContent);
+  const rowSub = (label) => hatRow(label).querySelector(".txt span")?.textContent;
+  // Club-level hats: what a super admin or club admin wears on a team they hold no role on.
+  const superHat = { role: "coach", playerIds: [], playerNames: [], admin: true, club: true };
+  const clubHat = { role: "viewer", playerIds: [], playerNames: [], clubAdmin: true, club: true };
+  const team = (slug, name, hats) => ({ teamSlug: slug, teamName: name, hats, mine: hats.some((h) => !h.club) });
 
   it("a parent gets the parent chip and a sheet with no coach mode, no settings and no legacy sign-in", async () => {
     meFetch(account({ email: "mum@a.com", role: "parent", hats: [parentHat(["p1"], ["Sam Smith"])] }));
@@ -175,7 +184,10 @@ describe("App — account-mode roles (/api/me)", () => {
     await screen.findByText(/Div 1 · U8/);
     await expectChip("Parent of Sam");
     await openChip();
-    expect(screen.getByText("Switch team, open settings or sign out.")).toBeTruthy();
+    expect(screen.getByText("Your role on this team.")).toBeTruthy();
+    // One team, nothing to manage: just the role and Sign out.
+    expect(sheetRows()).toEqual(["Parent of Sam"]);
+    expect(sheetLabels()).toEqual([]);
     expect(hatRow("Parent of Sam").querySelector(".disc.on").textContent).toBe("SS");
     expect(screen.getByText("Reply for Sam and see the team")).toBeTruthy();
     expect(screen.queryByText("Coach mode")).toBeNull();
@@ -192,7 +204,8 @@ describe("App — account-mode roles (/api/me)", () => {
     await expectChip("Club admin (view only)");
     await openChip();
     expect(screen.getByText("Read everything, change nothing")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Club admin/ }).getAttribute("href")).toBe("/admin");
+    expect(screen.getByRole("link", { name: /^Club admin/ }).getAttribute("href")).toBe("/admin");
+    expect(rowSub("Club admin")).toBe("Every team");
     expect(screen.queryByText("Coach mode")).toBeNull();
     expect(screen.queryByText("Team settings")).toBeNull();
     expect(screen.queryByText(/Sign in to respond/)).toBeNull();
@@ -214,39 +227,44 @@ describe("App — account-mode roles (/api/me)", () => {
     expect(headerKicker()).toBe("Test FC");
   });
 
-  it("one hat, one team: the sheet shows the worn coach hat with a check and no Other teams section", async () => {
+  it("one role, one team: the sheet shows the worn coach role with a check, Team settings, and nothing to switch to", async () => {
     meFetch(account({ email: "coach@a.com" }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await expectChip("Coach");
     await openChip();
-    expect(screen.getByText("Switch team, open settings or sign out.")).toBeTruthy();
+    expect(screen.getByText("Your role on this team.")).toBeTruthy();
     const row = hatRow("Coach");
     expect(row.querySelector(".disc.on").textContent).toBe("C");
-    expect(row.querySelector('[aria-label="Current hat"]')).toBeTruthy();
+    expect(row.querySelector('[aria-label="Current role"]')).toBeTruthy();
     expect(screen.getByText("Edit fixtures, scores and duties")).toBeTruthy();
+    // One team of their own: nowhere to switch to, so no Switch team and no "You" section.
+    expect(sheetRows()).toEqual(["Coach", "Team settings"]);
+    expect(sheetLabels()).toEqual(["This team"]);
     expect(screen.queryByText("Other teams")).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(document.querySelector(".whoami")).toBeNull();
   });
 
-  it("two hats: the sheet lists both; tapping the parent hat sets the team_slug and act_as cookies", async () => {
+  it("two roles: the sheet lists both; tapping the parent role sets the team_slug and act_as cookies", async () => {
     clearCookies();
     const hats = [coachHat, parentHat(["p1"], ["Sam Smith"])];
     meFetch(account({
       email: "both@a.com", hats, canSwitch: true,
-      teams: [{ teamSlug: "a", teamName: "Test FC", hats }, { teamSlug: "bees", teamName: "Bees FC", hats: [coachHat] }]
+      teams: [team("a", "Test FC", hats), team("bees", "Bees FC", [coachHat])]
     }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await expectChip("Coach");
     await openChip();
-    expect(screen.getByText("You're both a coach and a parent here. Pick a hat.")).toBeTruthy();
-    const labels = [...document.querySelectorAll(".hs-list .hs-row b")].map((b) => b.textContent);
-    expect(labels).toEqual(["Coach", "Parent of Sam", "Bees FC", "Team settings"]);
+    expect(screen.getByText("Your roles on this team. Tap one to switch.")).toBeTruthy();
+    // Roles, then this team, then you. The other team is not listed: it is on My teams.
+    expect(sheetRows()).toEqual(["Coach", "Parent of Sam", "Team settings", "Switch team"]);
+    expect(sheetLabels()).toEqual(["This team", "You"]);
     expect(hatRow("Coach").querySelector(".disc.on")).toBeTruthy();
     expect(hatRow("Parent of Sam").querySelector(".disc.on")).toBeNull();
-    expect(screen.getByText("Other teams")).toBeTruthy();
+    expect(screen.queryByText("Other teams")).toBeNull();
+    expect(screen.queryByText("Bees FC")).toBeNull();
 
     fireEvent.click(hatRow("Parent of Sam"));
     expect(document.cookie).toContain("team_slug=a");
@@ -254,56 +272,111 @@ describe("App — account-mode roles (/api/me)", () => {
     clearCookies();
   });
 
-  it("Other teams: switching lands in that team's strongest hat and drops its legacy identity cookie", async () => {
-    clearCookies();
-    document.cookie = "whoami_b=parent-device; path=/";
+  it("Switch team leads to My teams and counts only the person's own teams", async () => {
     const hats = [coachHat, parentHat(["p1"], ["Sam Smith"])];
     meFetch(account({
       email: "both@a.com", hats, canSwitch: true,
-      teams: [{ teamSlug: "a", teamName: "Test FC", hats }, { teamSlug: "b", teamName: "Bees FC", hats: [parentHat(["p9"], ["Kai Lee"]), { role: "viewer", playerIds: [], playerNames: [] }] }]
+      teams: [team("a", "Test FC", hats), team("b", "Bees FC", [parentHat(["p9"], ["Kai Lee"])]), team("c", "Cats FC", [parentHat(["p4"], ["Mia Lee"])])]
     }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await expectChip("Coach");
     await openChip();
-    const bees = hatRow("Bees FC");
-    expect(bees.querySelector(".txt span").textContent).toBe("Parent of Kai"); // strongest hat there
-    expect(screen.queryByText("Test FC", { selector: ".hs-row b" })).toBeNull(); // the current team isn't an "other"
-    expect(document.cookie).toContain("whoami_b=parent-device");
-
-    fireEvent.click(bees);
-    expect(document.cookie).toContain("team_slug=b");
-    expect(document.cookie).toContain("act_as=parent"); // strongest hat on Bees FC is parent, not viewer
-    expect(document.cookie).not.toContain("whoami_b=");
-    clearCookies();
+    const link = screen.getByRole("link", { name: /^Switch team/ });
+    expect(link.getAttribute("href")).toBe("/teams");
+    expect(rowSub("Switch team")).toBe("My teams: 3");
+    // No team is switched to from here, so no cookie is written by the sheet for another team.
+    expect(screen.queryByText("Bees FC")).toBeNull();
+    expect(screen.queryByText("Cats FC")).toBeNull();
   });
 
-  it("admins see Create a team and a Club admin link in the sheet, plus Sign out", async () => {
+  it("a super admin on their own team reads as their role there, with the club one tap away", async () => {
+    // Assistant coach and parent on this team; two more teams they can only open as the super admin.
+    const hats = [{ role: "coach", playerIds: [], playerNames: [], staffRole: "Assistant coach", admin: true }, parentHat(["p1"], ["Sam Smith"])];
+    meFetch(account({
+      email: "owner@example.com", admin: true, staffRole: "Assistant coach", hats, canSwitch: true,
+      teams: [team("a", "Test FC", hats), team("b", "Bees FC", [superHat]), team("c", "Cats FC", [superHat])]
+    }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await expectChip("Assistant coach");
+    await openChip();
+    expect(screen.getByText("Your roles on this team. Tap one to switch.")).toBeTruthy();
+    // One team of their own, so nothing to switch to: the other teams are reached through club admin.
+    expect(sheetRows()).toEqual(["Assistant coach", "Parent of Sam", "Team settings", "Club admin"]);
+    expect(sheetLabels()).toEqual(["This team", "You"]);
+    expect(rowSub("Club admin")).toBe("Every team, and who can do what");
+    expect(document.querySelector(".sheet").textContent).not.toContain("Super admin");
+    expect(screen.queryByText("Bees FC")).toBeNull();
+  });
+
+  it("a super admin in a team opened from club admin is told so, and can get back to their own teams", async () => {
+    meFetch(account({
+      email: "owner@example.com", admin: true, hats: [superHat], canSwitch: true, teamSlug: "b", teamName: "Bees FC",
+      teams: [team("a", "Test FC", [parentHat(["p1"], ["Sam Smith"])]), team("b", "Bees FC", [superHat]), team("c", "Cats FC", [superHat])]
+    }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await expectChip("Super admin");
+    await openChip();
+    expect(screen.getByText("You're not on this team yourself. You're here as the club's super admin.")).toBeTruthy();
+    expect(sheetRows()).toEqual(["Super admin", "Team settings", "Switch team", "Club admin"]);
+    expect(rowSub("Switch team")).toBe("My teams: 1");
+    expect(hatRow("Super admin").querySelector('[aria-label="Current role"]')).toBeTruthy();
+  });
+
+  it("a super admin on no team themselves gets Club admin and no Switch team", async () => {
+    meFetch(account({
+      email: "owner@example.com", admin: true, hats: [superHat], canSwitch: true,
+      teams: [team("a", "Test FC", [superHat]), team("b", "Bees FC", [superHat])]
+    }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await expectChip("Super admin");
+    await openChip();
+    expect(sheetRows()).toEqual(["Super admin", "Team settings", "Club admin"]);
+    expect(screen.queryByRole("link", { name: /^Switch team/ })).toBeNull();
+  });
+
+  it("a club admin in a team they are not on is told it is view only", async () => {
+    meFetch(account({
+      email: "td@example.com", role: "viewer", clubAdmin: true, hats: [clubHat],
+      teams: [team("a", "Test FC", [clubHat]), team("b", "Bees FC", [clubHat])]
+    }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await expectChip("Club admin (view only)");
+    await openChip();
+    expect(screen.getByText("You're not on this team yourself. You're here as a club admin, view only.")).toBeTruthy();
+    expect(sheetRows()).toEqual(["Club admin (view only)", "Club admin"]);
+    expect(sheetLabels()).toEqual(["You"]);
+  });
+
+  it("admins get a Club admin link in the sheet (creating a team lives there), plus Sign out", async () => {
     meFetch(account({ email: "admin@club.com", admin: true }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await expectChip("Coach");
     await openChip();
-    const create = screen.getByRole("link", { name: /Create a team/ });
-    expect(create.getAttribute("href")).toBe("/admin");
-    expect(create.closest(".hs-list")).toBeTruthy();
-    const link = screen.getByRole("link", { name: /Club admin/ });
+    expect(screen.queryByText(/Create a team/)).toBeNull();
+    const link = screen.getByRole("link", { name: /^Club admin/ });
     expect(link.getAttribute("href")).toBe("/admin");
+    expect(link.closest(".hs-list")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Sign out/ }).closest(".sheet")).toBeTruthy();
     // The header carries nothing but crest, team and chip.
     expect(document.querySelector(".head").textContent).not.toContain("Club admin");
   });
 
-  it("a club admin (not super admin) also gets Create a team and the Club admin link", async () => {
+  it("a club admin (not super admin) also gets the Club admin link", async () => {
     meFetch(account({ email: "club@club.com", clubAdmin: true }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await openChip();
-    expect(screen.getByRole("link", { name: /Create a team/ }).getAttribute("href")).toBe("/admin");
-    expect(screen.getByRole("link", { name: /Club admin/ }).getAttribute("href")).toBe("/admin");
+    expect(screen.queryByText(/Create a team/)).toBeNull();
+    expect(screen.getByRole("link", { name: /^Club admin/ }).getAttribute("href")).toBe("/admin");
   });
 
-  it("a plain coach sees neither Create a team nor the Club admin link", async () => {
+  it("a plain coach sees no Club admin link", async () => {
     meFetch(account({ email: "coach@a.com" }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
@@ -413,6 +486,30 @@ describe("App — account-mode roles (/api/me)", () => {
     expect(screen.queryByText("Team settings")).toBeNull();
     expect(screen.queryByText(/Sign in to respond/)).toBeNull();
     expect(screen.getByRole("button", { name: /Sign out/ })).toBeTruthy();
+  });
+
+  it("viewingAs: the read-only bar sits above the header, not over it, so the role chip and its sheet still work", async () => {
+    meFetch(account({ email: "mum@example.com", role: "parent", hats: [parentHat(["p1"], ["Sam Smith"])], realAdmin: true, viewingAs: "mum@example.com" }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await expectChip("Parent of Sam");
+    const bar = document.querySelector(".vabar");
+    expect(bar.textContent).toBe("Viewing as mum@example.com — read onlyExit");
+    // In the page's flow ahead of the header (which is told to stick below it), never laid over the top.
+    expect(bar.style.position).toBe("");
+    expect(bar.compareDocumentPosition(document.querySelector(".head")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector(".fqd").classList.contains("va")).toBe(true);
+    await openChip();
+    expect(sheetRows()).toEqual(["Parent of Sam"]);
+  });
+
+  it("no view-as, no bar", async () => {
+    meFetch(account({ email: "coach@a.com" }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await expectChip("Coach");
+    expect(document.querySelector(".vabar")).toBeNull();
+    expect(document.querySelector(".fqd").classList.contains("va")).toBe(false);
   });
 
   it("viewingAs: a coach edit writes nothing and shows the read-only notice as a toast", async () => {
@@ -4322,5 +4419,488 @@ describe("Carnivals", () => {
     expect([...week.querySelectorAll(".wk-title")].map((e) => e.textContent)).toEqual(["Winter carnival"]);
     expect(week.querySelector(".wk-meta").textContent).toBe(META);
     expect(document.querySelector(".carnivalcard")).toBeTruthy();
+  });
+});
+
+describe("Bulk import of training and games", () => {
+  const thisYear = new Date().getFullYear();
+  const Y = thisYear + 1;
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); render(<App />); return waitForLoaded(); };
+  const nav = (label) => fireEvent.click(within(screen.getByRole("navigation")).getByText(label));
+  const sheetTitle = () => document.querySelector(".sheet h2")?.textContent;
+  const openTraining = async () => {
+    nav("Calendar");
+    fireEvent.click(await screen.findByText("Import training"));
+    await waitFor(() => expect(sheetTitle()).toBe("Import training"));
+  };
+  const openGames = async () => {
+    nav("Results");
+    fireEvent.click(await screen.findByText("Import games"));
+    await waitFor(() => expect(sheetTitle()).toBe("Import games"));
+  };
+  const paste = (text, label = "Training list") => fireEvent.change(screen.getByLabelText(label), { target: { value: text } });
+  const fileInput = () => document.querySelector(".sheet .filebtn input[type=file]");
+  const upload = (text, name = "schedule.csv") => fireEvent.change(fileInput(), { target: { files: [new File([text], name, { type: "text/csv" })] } });
+  const sheetButton = () => document.querySelector(".sheet .btn");
+  const statusLines = () => [...screen.getByRole("status").children].map((el) => el.textContent);
+  const saved = () => JSON.parse(storage.set.mock.calls.at(-1)[1]);
+  const closed = () => waitFor(() => expect(document.querySelector(".sheet")).toBeNull());
+  // A stored session or game without its id and its import stamp.
+  const bare = ({ id, imported, ...x }) => x;
+  // Two sessions inside this year's (default) season and two that run into next year.
+  const TWO = [`12/03/${thisYear}, 5:00pm, 6:00pm, Home Ground`, `19/03/${thisYear}, 5:00pm, 6:15pm, Home Ground`].join("\n");
+  const NEXT_YEAR = [`10/02/${Y}, 16:30, 17:30, Home Ground`, `17/02/${Y}, 16:30, 17:30, Home Ground`].join("\n");
+  // The layout XPS Network exports: one header row, Practice rows, a duration and an arrive-early column.
+  const XPS_HEAD = "Session Type (Game/Practice/Event),Team/Group,Date,Time,Duration (minutes),Arrive X min before,Label,Color (1-12),Notes,Coach's Notes,Location,Location Description,Notify Athletes Now (Yes/No),Notify Family Now (Yes/No)";
+  const xps = (rows) => [XPS_HEAD, ...rows].join("\n");
+
+  it("only a coach is offered the imports: on Calendar, on Results and in Team settings", async () => {
+    await load(makeData());
+    nav("Calendar");
+    await waitFor(() => expect(document.querySelector(".callist")).toBeTruthy());
+    expect(screen.queryByText("Import training")).toBeNull();
+    nav("Results");
+    expect(screen.queryByText("Import games")).toBeNull();
+    await enterCoachMode();
+    expect(screen.getByText("Import games")).toBeTruthy();
+    nav("Calendar");
+    expect(await screen.findByText("Import training")).toBeTruthy();
+    await openSettings();
+    fireEvent.click(screen.getByText("Import training or games (CSV)"));
+    await waitFor(() => expect(sheetTitle()).toBe("Import training"));
+  });
+
+  it("a pasted list is read back before anything is saved, then stored as dated training sessions", async () => {
+    await load(makeData());
+    await enterCoachMode();
+    await openTraining();
+    expect(sheetButton().disabled).toBe(true);
+    expect(sheetButton().textContent).toBe("Add sessions");
+    paste(TWO);
+    expect(statusLines()).toEqual([
+      "Ready to add 2 sessions",
+      `12 Mar – 19 Mar ${thisYear}`,
+      `First one: ${fmtDate(`${thisYear}-03-12`)} · 17:00–18:00 · Home Ground`
+    ]);
+    expect(storage.set).not.toHaveBeenCalled();
+    expect(sheetButton().textContent).toBe("Add 2 sessions");
+    fireEvent.click(sheetButton());
+    await closed();
+    const out = saved();
+    expect(out.sessions.map(bare)).toEqual([
+      { title: "Training", kind: "training", time: "17:00", endTime: "18:00", location: "Home Ground", notes: "", recur: "once", dateISO: `${thisYear}-03-12` },
+      { title: "Training", kind: "training", time: "17:00", endTime: "18:15", location: "Home Ground", notes: "", recur: "once", dateISO: `${thisYear}-03-19` }
+    ]);
+    expect(new Set(out.sessions.map((s) => s.id)).size).toBe(2);
+    // Both carry the one stamp of this import: today's date and the time.
+    expect(new Set(out.sessions.map((s) => s.imported)).size).toBe(1);
+    expect(out.sessions[0].imported).toMatch(new RegExp(`^${isoLocal(new Date())}T\\d\\d:\\d\\d:\\d\\d$`));
+    expect(out.fixtures).toEqual(makeData().fixtures); // games untouched
+    expect(out.players).toEqual(makeData().players);
+    expect(fetch.mock.calls.some((c) => String(c[0]).includes("/api/team-settings"))).toBe(false); // nothing outside the season
+  });
+
+  it("the sessions then show on the calendar", async () => {
+    const today = new Date();
+    const dd = String(Math.min(28, today.getDate())).padStart(2, "0"), mm = String(today.getMonth() + 1).padStart(2, "0");
+    await load(makeData({ fixtures: [] }));
+    await enterCoachMode();
+    await openTraining();
+    paste(`${dd}/${mm}/${thisYear}, 5:00pm, 6:00pm, Home Ground, Skills night`);
+    fireEvent.click(sheetButton());
+    await closed();
+    const cell = [...document.querySelectorAll(".cal-cell")].find((c) => +c.querySelector(".n").textContent === +dd);
+    expect(cell.querySelector(".cal-dot.training")).toBeTruthy();
+  });
+
+  it("an uploaded XPS file is read as it is: duration gives the finish, arriving early becomes a note, coach's notes stay out", async () => {
+    await load(makeData());
+    await enterCoachMode();
+    await openTraining();
+    upload(xps([
+      `Practice,U9 Reds,12/03/${thisYear},16:30,60,5,Training,3,Bring a ball,Private thoughts,Home Ground,Field 2,No,No`,
+      `Practice,U9 Reds,14/03/${thisYear},16:30,75,0,,3,,Keep this quiet,Home Ground,,No,No`
+    ]), "U9-import.csv");
+    await screen.findByText("U9-import.csv");
+    expect(statusLines()[0]).toBe("Ready to add 2 sessions");
+    expect(screen.getByLabelText("Training list").value).toContain("Practice,U9 Reds");
+    expect(screen.queryByText(/Import which/)).toBeNull(); // one team in the file: nothing to choose
+    fireEvent.click(sheetButton());
+    await closed();
+    const out = saved().sessions.map(bare);
+    expect(out).toEqual([
+      { title: "Training", kind: "training", time: "16:30", endTime: "17:30", location: "Home Ground", notes: "Bring a ball Field 2 Arrive 5 minutes early.", recur: "once", dateISO: `${thisYear}-03-12` },
+      { title: "Training", kind: "training", time: "16:30", endTime: "17:45", location: "Home Ground", notes: "", recur: "once", dateISO: `${thisYear}-03-14` }
+    ]);
+    expect(JSON.stringify(saved())).not.toMatch(/Private thoughts|Keep this quiet/);
+  });
+
+  it("a file covering several teams asks which to import and keeps only those rows", async () => {
+    await load(makeData());
+    await enterCoachMode();
+    await openTraining();
+    upload(xps([
+      `Practice,U9 Reds,12/03/${thisYear},16:30,60,0,,3,,,Home Ground,,No,No`,
+      `Practice,U10 Blues,12/03/${thisYear},17:30,60,0,,3,,,Home Ground,,No,No`,
+      `Practice,U9 Reds,14/03/${thisYear},16:30,60,0,,3,,,Home Ground,,No,No`
+    ]));
+    await screen.findByText(/This file covers 2 teams/);
+    expect(statusLines()).toEqual(["Choose a team above."]);
+    expect(sheetButton().disabled).toBe(true);
+    const reds = screen.getByRole("button", { name: "U9 Reds" });
+    expect(reds.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(reds);
+    expect(reds.getAttribute("aria-pressed")).toBe("true");
+    expect(statusLines()[0]).toBe("Ready to add 2 sessions");
+    fireEvent.click(sheetButton());
+    await closed();
+    expect(saved().sessions.map((s) => `${s.dateISO} ${s.time}`)).toEqual([`${thisYear}-03-12 16:30`, `${thisYear}-03-14 16:30`]);
+  });
+
+  it("sessions past the season offer to extend it: the sessions are stored first, then the wider season goes through /api/team-settings", async () => {
+    stubNarrowRoutes();
+    await load(makeData({ fixtures: [] }));
+    await enterCoachMode();
+    await openTraining();
+    paste(NEXT_YEAR);
+    const sw = screen.getByRole("switch", { name: "Extend the season to fit" });
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+    expect(document.querySelector(".sheet").textContent).toContain(`2 are outside this team's season (1 Jan – 31 Dec ${thisYear}). Extend the season to 1 Jan ${thisYear} – 17 Feb ${Y} so they show on the calendar.`);
+    fireEvent.click(sheetButton());
+    await closed();
+    expect(saved().sessions.map((s) => s.dateISO)).toEqual([`${Y}-02-10`, `${Y}-02-17`]);
+    expect(bodyOf("/api/team-settings")).toEqual({ season: { startISO: `${thisYear}-01-01`, endISO: `${Y}-02-17` } });
+    // The season never rides on the whole-document save.
+    expect(saved().team.season).toBeUndefined();
+    // And the calendar now reaches February of next year, where they are.
+    const nextBtn = () => screen.getByRole("button", { name: "Next month" });
+    while (!nextBtn().disabled) fireEvent.click(nextBtn());
+    expect(document.querySelector(".cg-month").textContent).toBe(`February ${Y}`);
+    expect([...document.querySelectorAll(".cal-cell")].filter((c) => c.querySelector(".cal-dot.training")).map((c) => +c.querySelector(".n").textContent)).toEqual([10, 17]);
+  });
+
+  it("with the switch off the sessions are still stored and the season is left alone", async () => {
+    stubNarrowRoutes();
+    await load(makeData());
+    await enterCoachMode();
+    await openTraining();
+    paste(NEXT_YEAR);
+    fireEvent.click(screen.getByRole("switch", { name: "Extend the season to fit" }));
+    expect(screen.getByRole("switch", { name: "Extend the season to fit" }).getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(sheetButton());
+    await closed();
+    expect(saved().sessions.length).toBe(2);
+    expect(callTo("/api/team-settings")).toBeUndefined();
+  });
+
+  it("when the season cannot stretch that far it says so and points to Team settings", async () => {
+    await load(makeData());
+    await enterCoachMode();
+    await openTraining();
+    paste(`10/02/${Y + 1}, 16:30, 17:30, Home Ground`);
+    expect(screen.queryByRole("switch", { name: "Extend the season to fit" })).toBeNull();
+    expect(document.querySelector(".sheet").textContent).toMatch(/1 is outside this team's season .* and too far from it to extend here\. It is saved, but the calendar only shows months inside the season: change it in Team settings\./);
+    expect(sheetButton().textContent).toBe("Add 1 session");
+  });
+
+  it("a refused save leaves the season alone", async () => {
+    stubNarrowRoutes();
+    await load(makeData());
+    await enterCoachMode();
+    await openTraining();
+    paste(NEXT_YEAR);
+    storage.set.mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(sheetButton());
+    await closed();
+    expect(callTo("/api/team-settings")).toBeUndefined();
+  });
+
+  it("if the season write is refused the sessions stay and a toast says where to set it", async () => {
+    fetch.mockImplementation((url) => Promise.resolve(String(url).includes("/api/team-settings")
+      ? { ok: false, status: 500, json: async () => ({ error: "boom" }) } : { ok: false, json: async () => ({}) }));
+    await load(makeData());
+    await enterCoachMode();
+    await openTraining();
+    paste(NEXT_YEAR);
+    fireEvent.click(sheetButton());
+    await closed();
+    expect(saved().sessions.length).toBe(2);
+    expect(await screen.findByText("Added. The season could not be changed: set it in Team settings.")).toBeTruthy();
+  });
+
+  it("importing the same list again adds nothing, and fills in only what was blank", async () => {
+    const have = [
+      { id: "s1", title: "Training", kind: "training", recur: "once", dateISO: `${thisYear}-03-12`, time: "17:00", endTime: "18:00", location: "Home Ground", notes: "" },
+      { id: "s2", title: "Training", kind: "training", recur: "once", dateISO: `${thisYear}-03-19`, time: "17:00", endTime: "", location: "Top oval", notes: "" }
+    ];
+    await load(makeData({ sessions: have }));
+    await enterCoachMode();
+    await openTraining();
+    paste(TWO);
+    expect(statusLines()).toEqual(["Filling in missing details on 1 already there.", "1 already on the calendar."]);
+    expect(sheetButton().textContent).toBe("Update 1");
+    fireEvent.click(sheetButton());
+    await closed();
+    // The finish time was blank and is filled; the location the coach typed is kept.
+    expect(saved().sessions).toEqual([have[0], { ...have[1], endTime: "18:15" }]);
+  });
+
+  it("nothing new and nothing blank: the button says so and stays off", async () => {
+    const have = [
+      { id: "s1", title: "Training", kind: "training", recur: "once", dateISO: `${thisYear}-03-12`, time: "17:00", endTime: "18:00", location: "Home Ground", notes: "" },
+      { id: "s2", title: "Training", kind: "training", recur: "once", dateISO: `${thisYear}-03-19`, time: "17:00", endTime: "18:15", location: "Home Ground", notes: "" }
+    ];
+    await load(makeData({ sessions: have }));
+    await enterCoachMode();
+    await openTraining();
+    paste(TWO);
+    expect(statusLines()).toEqual(["2 already on the calendar."]);
+    expect(sheetButton().textContent).toBe("Nothing to add");
+    expect(sheetButton().disabled).toBe(true);
+  });
+
+  it("dated sessions an existing weekly session already runs are not added on top of it", async () => {
+    // A weekly session on the weekday of 12 March at 17:00 already covers both dates.
+    const weekday = new Date(`${thisYear}-03-12T00:00:00`).getDay();
+    const weekly = { id: "w1", title: "Training", kind: "training", recur: "weekly", weekday, startISO: "", untilISO: "", dateISO: "", time: "17:00", endTime: "18:00", location: "Home Ground", notes: "" };
+    await load(makeData({ sessions: [weekly] }));
+    await enterCoachMode();
+    await openTraining();
+    paste(TWO);
+    expect(statusLines()).toEqual(["2 already on the calendar."]);
+    expect(sheetButton().disabled).toBe(true);
+  });
+
+  it("already imported but outside the season: the button extends the season without saving the document again", async () => {
+    stubNarrowRoutes();
+    const have = [
+      { id: "s1", title: "Training", kind: "training", recur: "once", dateISO: `${Y}-02-10`, time: "16:30", endTime: "17:30", location: "Home Ground", notes: "" },
+      { id: "s2", title: "Training", kind: "training", recur: "once", dateISO: `${Y}-02-17`, time: "16:30", endTime: "17:30", location: "Home Ground", notes: "" }
+    ];
+    await load(makeData({ sessions: have }));
+    await enterCoachMode();
+    await openTraining();
+    paste(NEXT_YEAR);
+    expect(statusLines()).toEqual(["2 already on the calendar."]);
+    expect(sheetButton().textContent).toBe("Extend the season");
+    storage.set.mockClear();
+    fireEvent.click(sheetButton());
+    await closed();
+    expect(bodyOf("/api/team-settings")).toEqual({ season: { startISO: `${thisYear}-01-01`, endISO: `${Y}-02-17` } });
+    expect(storage.set).not.toHaveBeenCalled();
+  });
+
+  it("rows it cannot read are named with the reason, and the rest still import", async () => {
+    await load(makeData());
+    await enterCoachMode();
+    await openTraining();
+    paste([`12/03/${thisYear}, 5:00pm, 6:00pm, Home Ground`, "sometime soon, 5pm, 6pm, Home Ground"].join("\n"));
+    expect(statusLines().at(-1)).toBe("1 row skipped: row 2 has no date it can read.");
+    expect(sheetButton().textContent).toBe("Add 1 session");
+    paste("just some words");
+    expect(statusLines()).toEqual(["1 row skipped: row 1 has no date it can read."]);
+    expect(sheetButton().disabled).toBe(true);
+  });
+
+  it("a weekly row becomes one weekly session with its finish date", async () => {
+    await load(makeData());
+    await enterCoachMode();
+    await openTraining();
+    paste(["Date,Start,Finish,Title,Venue,Notes,Repeat,Until", `05/03/${thisYear},5:00pm,6:00pm,Training,Home Ground,,weekly,26/03/${thisYear}`].join("\n"));
+    expect(statusLines()).toEqual([
+      "Ready to add 1 session",
+      `5 Mar – 26 Mar ${thisYear}`,
+      `First one: ${fmtDate(`${thisYear}-03-05`)} · weekly, 17:00–18:00 · Home Ground`
+    ]);
+    fireEvent.click(sheetButton());
+    await closed();
+    const [s] = saved().sessions;
+    expect(s).toMatchObject({ recur: "weekly", weekday: new Date(`${thisYear}-03-05T00:00:00`).getDay(), startISO: `${thisYear}-03-05`, untilISO: `${thisYear}-03-26`, time: "17:00", endTime: "18:00" });
+  });
+
+  it("games import from Results as fixtures Squadi sync will not touch, with home or away, venue and round", async () => {
+    await load(makeData());
+    await enterCoachMode();
+    await openGames();
+    paste([`14/03/${thisYear}, 9:00am, City, Home, Home Ground, 1`, `21/03/${thisYear}, 10:15am, @ Rovers, Rovers Park, 2`].join("\n"), "Games list");
+    expect(statusLines()).toEqual([
+      "Ready to add 2 games",
+      `14 Mar – 21 Mar ${thisYear}`,
+      `First one: ${fmtDate(`${thisYear}-03-14`)} · 09:00 vs City · Home Ground`
+    ]);
+    expect(sheetButton().textContent).toBe("Add 2 games");
+    fireEvent.click(sheetButton());
+    await closed();
+    const out = saved();
+    expect(out.fixtures.length).toBe(3);
+    expect(out.fixtures[0]).toEqual(makeData().fixtures[0]);
+    expect(out.fixtures.slice(1).every((f) => f.imported)).toBe(true);
+    expect(out.fixtures.slice(1).map(bare)).toEqual([
+      { round: 1, dateISO: `${thisYear}-03-14`, time: "09:00", opponent: "City", venue: "Home Ground", homeAway: "H", status: "upcoming", us: null, them: null, fruit: "", gk: "", goals: [], assists: [], notes: "", video: "", chapters: [], manual: true },
+      { round: 2, dateISO: `${thisYear}-03-21`, time: "10:15", opponent: "Rovers", venue: "Rovers Park", homeAway: "A", status: "upcoming", us: null, them: null, fruit: "", gk: "", goals: [], assists: [], notes: "", video: "", chapters: [], manual: true }
+    ]);
+    expect(out.sessions).toEqual([]);
+  });
+
+  it("a game already on the list is not added twice, and a file can carry training and games together", async () => {
+    const f1 = makeData().fixtures[0];
+    const [y, m, d] = f1.dateISO.split("-");
+    await load(makeData());
+    await enterCoachMode();
+    await openGames();
+    paste(["Type,Date,Time,Opponent,Venue,Title", `Game,${d}/${m}/${y},9:00am,wests,Perry Park,`, `Training,${d}/${m}/${y},5:00pm,,Home Ground,Recovery`].join("\n"), "Games list");
+    expect(statusLines().slice(0, 1)).toEqual(["Ready to add 1 session"]);
+    expect(statusLines().at(-1)).toBe("1 already on the calendar.");
+    expect(sheetButton().textContent).toBe("Add 1 session");
+    fireEvent.click(sheetButton());
+    await closed();
+    expect(saved().fixtures).toEqual([f1]);
+    expect(saved().sessions.map((s) => s.title)).toEqual(["Recovery"]);
+  });
+
+  it("the mode switch turns the training sheet into the games one, and each has a starter CSV to download", async () => {
+    // Record what the browser is handed: the file's name and its text.
+    const files = [];
+    let blob = null;
+    const createObjectURL = vi.fn((b) => { blob = b; return "blob:template"; });
+    const revokeObjectURL = vi.fn();
+    const had = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+    URL.createObjectURL = createObjectURL; URL.revokeObjectURL = revokeObjectURL;
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function () { files.push({ name: this.download, href: this.getAttribute("href"), blob }); });
+    try {
+      await load(makeData());
+      await enterCoachMode();
+      await openTraining();
+      fireEvent.click(screen.getByRole("button", { name: "Download a template" }));
+      expect(screen.getByRole("button", { name: "Training" }).getAttribute("aria-pressed")).toBe("true");
+      fireEvent.click(screen.getByRole("button", { name: "Games" }));
+      expect(sheetTitle()).toBe("Import games");
+      expect(screen.getByLabelText("Games list")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Download a template" }));
+      expect(files.map((f) => f.name)).toEqual(["training-template.csv", "games-template.csv"]);
+      expect(files.every((f) => f.href === "blob:template" && f.blob.type === "text/csv;charset=utf-8")).toBe(true);
+      const textOf = (b) => new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.readAsText(b); });
+      expect((await textOf(files[0].blob)).split("\n")[0]).toBe("Date,Start,Finish,Title,Venue,Notes,Repeat,Until");
+      expect((await textOf(files[1].blob)).split("\n")[0]).toBe("Date,Time,Opponent,Home or away,Venue,Round,Notes");
+    } finally {
+      click.mockRestore();
+      URL.createObjectURL = had.create; URL.revokeObjectURL = had.revoke;
+    }
+  });
+
+  it("each template reads back through its own sheet with nothing skipped", async () => {
+    const { scheduleTemplate } = await import("@/lib/scheduleImport");
+    await load(makeData());
+    await enterCoachMode();
+    await openTraining();
+    paste(scheduleTemplate("training"));
+    expect(statusLines()[0]).toBe("Ready to add 2 sessions");
+    expect(statusLines().some((l) => /skipped/.test(l))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Games" }));
+    paste(scheduleTemplate("games"), "Games list");
+    expect(statusLines()[0]).toBe("Ready to add 2 games");
+    expect(statusLines().some((l) => /skipped/.test(l))).toBe(false);
+  });
+
+  describe("taking an import back", () => {
+    const typed = { id: "s0", title: "Training", kind: "training", recur: "once", dateISO: `${thisYear}-03-05`, time: "17:00", endTime: "18:00", location: "Home Ground", notes: "" };
+    const sess = (id, day, stamp) => ({ ...typed, id, dateISO: `${thisYear}-03-${day}`, availability: { [`${thisYear}-03-${day}`]: { p1: { status: "in" } } }, imported: stamp });
+    const game = (id, opponent, stamp, over = {}) => ({ ...makeData().fixtures[0], id, opponent, imported: stamp, ...over });
+    const OLD = `${thisYear}-02-01T09:30:00`, NEW = `${thisYear}-02-20T18:05:00`;
+    const stored = () => makeData({
+      sessions: [typed, sess("s1", 12, OLD), sess("s2", 19, OLD), sess("s3", 26, NEW)],
+      fixtures: [makeData().fixtures[0], game("g1", "City", OLD), game("g2", "Rovers", OLD, { status: "played", us: 2, them: 1 })]
+    });
+    const pastRows = () => [...document.querySelectorAll(".sheet .imp-row")].map((r) => r.querySelector("span").textContent);
+
+    it("nothing imported yet: no list of earlier imports", async () => {
+      await load(makeData({ sessions: [typed] }));
+      await enterCoachMode();
+      await openTraining();
+      expect(document.querySelector(".sheet .imp-past")).toBeNull();
+    });
+
+    it("lists earlier imports newest first with what each would remove", async () => {
+      await load(stored());
+      await enterCoachMode();
+      await openTraining();
+      expect(screen.getByText("Earlier imports")).toBeTruthy();
+      expect(pastRows()).toEqual([
+        `${fmtDate(`${thisYear}-02-20`)}, 18:05 · 1 session`,
+        `${fmtDate(`${thisYear}-02-01`)}, 09:30 · 2 sessions and 1 game (1 played game stays)`
+      ]);
+    });
+
+    it("Remove asks first; Keep leaves everything as it was", async () => {
+      await load(stored());
+      await enterCoachMode();
+      await openTraining();
+      fireEvent.click(screen.getByRole("button", { name: `Remove the import of 2 sessions and 1 game made ${fmtDate(`${thisYear}-02-01`)}, 09:30` }));
+      expect(pastRows()[1]).toBe("Remove 2 sessions and 1 game, and any replies to them?");
+      expect(storage.set).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+      expect(pastRows()[1]).toBe(`${fmtDate(`${thisYear}-02-01`)}, 09:30 · 2 sessions and 1 game (1 played game stays)`);
+      expect(storage.set).not.toHaveBeenCalled();
+    });
+
+    it("confirming removes that import only: typed-in sessions, other imports and played games stay, and the sheet stays open", async () => {
+      await load(stored());
+      await enterCoachMode();
+      await openTraining();
+      fireEvent.click(screen.getByRole("button", { name: `Remove the import of 2 sessions and 1 game made ${fmtDate(`${thisYear}-02-01`)}, 09:30` }));
+      fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+      await waitFor(() => expect(storage.set).toHaveBeenCalled());
+      const out = saved();
+      expect(out.sessions.map((s) => s.id)).toEqual(["s0", "s3"]);
+      expect(out.fixtures.map((f) => f.id)).toEqual(["f1", "g2"]);
+      expect(out.players).toEqual(makeData().players);
+      expect(await screen.findByText("Removed 2 sessions and 1 game")).toBeTruthy();
+      expect(sheetTitle()).toBe("Import training");
+      await waitFor(() => expect(pastRows()).toEqual([`${fmtDate(`${thisYear}-02-20`)}, 18:05 · 1 session`]));
+    });
+
+    it("an import made a moment ago is listed the next time the sheet opens, and can be taken back", async () => {
+      await load(makeData({ sessions: [typed] }));
+      await enterCoachMode();
+      await openTraining();
+      paste(TWO);
+      fireEvent.click(sheetButton());
+      await closed();
+      expect(saved().sessions.length).toBe(3);
+      fireEvent.click(screen.getByText("Import training"));
+      await waitFor(() => expect(pastRows().length).toBe(1));
+      expect(pastRows()[0]).toMatch(/ · 2 sessions$/);
+      fireEvent.click(screen.getByRole("button", { name: /^Remove the import of 2 sessions made / }));
+      fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+      await waitFor(() => expect(saved().sessions).toEqual([typed]));
+      await waitFor(() => expect(document.querySelector(".sheet .imp-past")).toBeNull());
+    });
+
+    it("a refused save puts the import back on the list and says nothing was removed", async () => {
+      await load(stored());
+      await enterCoachMode();
+      await openTraining();
+      storage.set.mockRejectedValueOnce(new Error("offline"));
+      fireEvent.click(screen.getByRole("button", { name: `Remove the import of 1 session made ${fmtDate(`${thisYear}-02-20`)}, 18:05` }));
+      fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+      await waitFor(() => expect(storage.set).toHaveBeenCalled());
+      await waitFor(() => expect(pastRows().length).toBe(2));
+      expect(screen.queryByText("Removed 1 session")).toBeNull();
+    });
+  });
+
+  it("a file that cannot be read says so and leaves the list as it was", async () => {
+    await load(makeData());
+    await enterCoachMode();
+    await openTraining();
+    paste(TWO);
+    const RealReader = window.FileReader;
+    class FailingReader { readAsText() { setTimeout(() => this.onerror?.(new Error("nope")), 0); } }
+    vi.stubGlobal("FileReader", FailingReader);
+    try {
+      upload("x", "broken.csv");
+      expect((await screen.findByRole("alert")).textContent).toBe("Couldn't read that file. Try again, or paste the list instead.");
+      expect(screen.getByLabelText("Training list").value).toBe(TWO);
+    } finally { vi.stubGlobal("FileReader", RealReader); }
   });
 });

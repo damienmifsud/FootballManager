@@ -200,14 +200,16 @@ Roles exist only in account mode. They are resolved from the signed-in email in
 `lib/directory.js`, from most to least access:
 
 - **Super admin** — the emails in `ADMIN_EMAILS` (comma-separated, no quotes). A super
-  admin is a coach on every team, including teams added later, and is the only role
+  admin has coach access to every team, including teams added later (opened from club
+  admin when it is not one of their own: see My teams below), and is the only role
   that can open `/admin`: club access control, the team wizard, league sync, managing
   club admins, setting per-person per-team overrides, and **View as** any user
   (read-only, marked by an orange banner). Super admins are immune to overrides.
   **Set this before enabling `AUTH_SECRET`** — with no `ADMIN_EMAILS` nobody can
   reach `/admin`.
 - **Club admin** — the emails in `CLUB_ADMIN_EMAILS`, or added at `/admin`. View-only
-  on every team: reads everything, writes nothing to team data. Can open `/admin` to
+  on every team (opened from club admin): reads everything, writes nothing to team
+  data. Can open `/admin` to
   create and edit teams in the wizard (not delete them, and no access control). Typical
   use: the club's technical director.
 - **Coach** — either listed in the team's `coachEmails` (in the `TEAMS` JSON or set in
@@ -266,18 +268,38 @@ coach-level. Duties: coaches assign or clear any duty; parents claim fruit or je
 for their own family (never the goalkeeper) and can hand it back. Every duty write goes
 through its own narrow route (`/api/duty`), so a claim never touches the rest of the fixture.
 
-### Hats: several roles, several teams
+### My teams, roles, and running the club
 
 One email can hold more than one role on the same team (a coach whose child plays
-there) and belong to several teams. On first sign-in, a person with a real choice picks
-the team and the hat — "Viewing as Coach" or "Viewing as Parent of Leo" — and a header
-chip shows the current hat and switches it. The choice is stored in the `team_slug` and
-`act_as` cookies and re-validated on every request: a cookie can only narrow what the
-person is entitled to, never widen it. Someone with a single team and a single hat never
-sees the picker.
+there) and be on several teams. There are three levels, and a person can be at any of
+them at once:
 
-**Sign out** is the bottom-left button (in both modes). **Switch team or role** is also
-bottom-left, shown only when there is a choice.
+- **Club**: the super admin and club admins. They create teams and manage access, and
+  can open any team when they need to.
+- **Team**: the staff (head coach, assistant coach, manager). They run their own team.
+- **Squad**: players and their families. A parent replies for their own child.
+
+**My teams** (`/teams`) lists the teams a person is on *themselves*, each with their
+roles there as pills ("Assistant coach", "Parent of Leo"). Someone on one team goes
+straight into it; someone on several lands on My teams and picks.
+
+Running the club is not the same as being on every team in it. A super admin's coach
+access to a team they hold no role on, and a club admin's view of it, are **club-level**:
+the access is exactly as described above, but those teams are not listed under My teams.
+They are opened from **Club admin** (Teams, then Open), which My teams links to. A super
+admin who is on a team's staff reads as that role there ("Assistant coach"); "Super
+admin" is the label only where they hold no role of their own.
+
+Inside a team, the chip in the header shows the current role. Tapping it opens **Viewing
+as**: the person's roles on this team (tap one to switch), **Team settings** for a coach,
+**Switch team** back to My teams, **Club admin** for the people who run the club, and
+**Sign out**. Nobody is asked to choose a role up front: a team opens in the strongest
+role held there.
+
+The choice is stored in the `team_slug` and `act_as` cookies and re-validated on every
+request: a cookie can only narrow what the person is entitled to, never widen it. The
+home page and every API route resolve the team with the same rule (`resolveTeamSlug` in
+`lib/hats.js`), so what a page shows and what its data routes serve cannot differ.
 
 ### Prerequisites and notes
 
@@ -292,6 +314,39 @@ bottom-left, shown only when there is a choice.
   paste it. Importing a list again updates the players already in the squad instead of
   adding them twice, which is also how to fill in last names on a squad that was
   imported before they were kept.
+- **Importing training and games:** Calendar tab, **Import training**, or Results tab,
+  **Import games** (coaches only; both are also in Team settings under Import & data).
+  Upload a CSV or paste a list. The sheet reads it back before anything is saved: how
+  many, the dates they cover, how the first one was understood, and any rows it
+  skipped with the reason.
+  - *Training:* columns `Date, Start, Finish, Title, Venue, Notes`, in any order.
+    `Duration` (minutes) works in place of `Finish`. `Repeat` = weekly with an `Until`
+    date makes one weekly session instead of a row per week. With no header row: one
+    session per line as date, start, finish, venue, title, notes.
+  - *Games:* columns `Date, Time, Opponent, Home or away, Venue, Round, Notes`. A
+    `Score` column (3-1, ours first) marks a game as played. With no header row: one
+    game per line in that order, and "@ Rovers" means away.
+  - A `Type` column (Training, Game, Event, Carnival) lets one file carry both.
+  - An **XPS Network import file** works as it is: Practice rows become training,
+    Duration gives the finish time, "Arrive X min before" becomes a note, and the
+    Coach's Notes column is never read. If the file covers several teams the sheet
+    asks which to import.
+  - Dates are day first (12/01/2027, 12 Jan 2027) or 2027-01-12. Times can be 17:30,
+    5:30pm or 5.30 PM; a bare 1 to 6 o'clock is taken as the afternoon.
+  - Importing the same file again adds nothing. A session on the same day at the same
+    time with the same title, or a game on the same day against the same opponent, is
+    left as it is apart from filling in a blank finish time, venue, note or round. A
+    dated session that an existing weekly session already runs is not added on top.
+  - Dates outside the team's season would be saved but not shown, so the sheet offers
+    to extend the season to fit them.
+  - **Taking an import back:** the same sheet lists **Earlier imports**, each with a
+    Remove that takes out everything that import added (and the replies on it) in one
+    go. Sessions and games typed in by hand, other imports, and imported games that
+    have since been played are left alone.
+  - Imported games are marked as entered by hand, so the Squadi sync never changes
+    them. For a team whose fixtures come from Squadi, leave the league games to the
+    sync (importing them as well would list them twice) and import only what Squadi
+    does not carry.
 - **Env teams taken over by the wizard:** editing an env-defined team in `/admin`
   stores a copy in the data store; from then on the stored copy wins for that slug.
 

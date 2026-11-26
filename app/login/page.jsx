@@ -10,8 +10,8 @@ import { AuthPage, AuthHeader, AuthFooter } from "@/components/AuthShell";
 //  - legacy mode (no providers configured): the shared team code, posted to
 //    /api/login, with the wrong-code error and Enter-to-submit.
 // The page is club-wide — it doesn't know the team yet — so the header says
-// "Olympic FC / Team hub". After sign-in, app/page.jsx routes to the Viewing
-// as picker when the account has a choice to make (D8), else straight home.
+// "Olympic FC / Team hub". After sign-in, app/page.jsx routes to My teams
+// when the account has a choice to make, else straight into the team.
 
 const looksLikeEmail = (s) => /\S+@\S+/.test(String(s || "").trim());
 

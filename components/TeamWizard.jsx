@@ -123,8 +123,13 @@ export default function TeamWizard({ onTeamsChanged }) {
   };
 
   // As super admin you're a coach on every team — jump straight into one.
+  // Open a team from club admin. This is how the people who run the club
+  // reach a team they hold no role on: the team_slug cookie names it, and
+  // dropping act_as lets the server pick the strongest role they hold there
+  // (rather than a role last worn on some other team).
   const openDashboard = (t) => {
     document.cookie = `team_slug=${encodeURIComponent(t.slug)}; path=/; max-age=${60 * 60 * 24 * 180}; samesite=lax`;
+    document.cookie = "act_as=; path=/; max-age=0; samesite=lax";
     window.location.href = "/";
   };
   const rotateKey = async (slug) => {

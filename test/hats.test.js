@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hatsFor, pickHat, teamsFor, hatLabel, joinNames, hasChoice, HAT_ORDER } from "@/lib/hats";
+import { hatsFor, pickHat, teamsFor, resolveTeamSlug, hatLabel, joinNames, hasChoice, HAT_ORDER } from "@/lib/hats";
 
 // Pure helpers over the membership list: collapse (team, role, child) rows into
 // the hats a person can act as, pick the one a session wears, and label them.
@@ -9,7 +9,7 @@ const M = [
   { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam Smith" },
   { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p2", playerName: "Alex Smith" },
   { teamSlug: "b", teamName: "Team B", role: "viewer", clubAdmin: true },
-  { teamSlug: "c", teamName: "Team C", role: "coach", admin: true }
+  { teamSlug: "c", teamName: "Team C", role: "coach", admin: true, club: true }
 ];
 
 describe("hatsFor", () => {
@@ -19,7 +19,7 @@ describe("hatsFor", () => {
       { role: "parent", playerIds: ["p1", "p2"], playerNames: ["Sam Smith", "Alex Smith"] }
     ]);
     expect(hatsFor(M, "b")).toEqual([{ role: "viewer", playerIds: [], playerNames: [], clubAdmin: true }]);
-    expect(hatsFor(M, "c")).toEqual([{ role: "coach", playerIds: [], playerNames: [], admin: true }]);
+    expect(hatsFor(M, "c")).toEqual([{ role: "coach", playerIds: [], playerNames: [], admin: true, club: true }]);
   });
 
   it("returns nothing for a team the person is not in, or junk input", () => {
@@ -60,12 +60,66 @@ describe("teamsFor / hasChoice", () => {
     expect(teams[1].teamName).toBe("Team B");
   });
 
+  it("a team is mine when at least one hat there is not club-level", () => {
+    expect(teamsFor(M).map((t) => [t.teamSlug, t.mine])).toEqual([["a", true], ["b", true], ["c", false]]);
+    // A super admin whose child plays in the team: club-level coach access, but the parent hat is their own.
+    const ownerParent = [
+      { teamSlug: "d", teamName: "Team D", role: "coach", admin: true, club: true },
+      { teamSlug: "d", teamName: "Team D", role: "parent", playerId: "p1", playerName: "Sam" }
+    ];
+    expect(teamsFor(ownerParent)).toEqual([{
+      teamSlug: "d", teamName: "Team D", mine: true,
+      hats: [{ role: "coach", playerIds: [], playerNames: [], admin: true, club: true }, { role: "parent", playerIds: ["p1"], playerNames: ["Sam"] }]
+    }]);
+    // A club admin's default view of a team is club-level too.
+    expect(teamsFor([{ teamSlug: "e", teamName: "Team E", role: "viewer", clubAdmin: true, club: true }])[0]).toMatchObject({
+      mine: false, hats: [{ role: "viewer", clubAdmin: true, club: true }]
+    });
+  });
+
   it("knows when there is a real choice to make", () => {
     expect(hasChoice(M)).toBe(true);                                  // several teams
     expect(hasChoice([M[0], M[1]])).toBe(true);                       // one team, two hats
     expect(hasChoice([M[1], M[2]])).toBe(false);                      // one team, one hat (two kids)
     expect(hasChoice([{ teamSlug: "a", teamName: "A", role: "coach" }])).toBe(false);
     expect(hasChoice([])).toBe(false);
+  });
+});
+
+describe("resolveTeamSlug", () => {
+  const coach = (slug) => ({ teamSlug: slug, teamName: slug.toUpperCase(), role: "coach" });
+  const clubCoach = (slug) => ({ teamSlug: slug, teamName: slug.toUpperCase(), role: "coach", admin: true, club: true });
+  const clubView = (slug) => ({ teamSlug: slug, teamName: slug.toUpperCase(), role: "viewer", clubAdmin: true, club: true });
+
+  it("a cookie naming a team this login can open wins, club-level teams included", () => {
+    expect(resolveTeamSlug([coach("a"), coach("b")], "b")).toBe("b");
+    expect(resolveTeamSlug([coach("a"), clubCoach("b"), clubCoach("c")], "c")).toBe("c");
+    expect(resolveTeamSlug([clubView("a"), clubView("b")], "b")).toBe("b");
+  });
+
+  it("a cookie naming a team it cannot open is ignored", () => {
+    expect(resolveTeamSlug([coach("a"), coach("b")], "zzz")).toBeNull();
+    expect(resolveTeamSlug([coach("a")], "zzz")).toBe("a");
+  });
+
+  it("with no cookie: the only team the person is on", () => {
+    expect(resolveTeamSlug([coach("a")], undefined)).toBe("a");
+    // One team of their own among many they can merely open: theirs.
+    expect(resolveTeamSlug([clubCoach("a"), coach("b"), clubCoach("c")], undefined)).toBe("b");
+    expect(resolveTeamSlug([clubView("a"), { teamSlug: "b", teamName: "B", role: "parent", playerId: "p1", playerName: "Sam" }], "")).toBe("b");
+  });
+
+  it("with no cookie and several teams of their own: there is a choice to make", () => {
+    expect(resolveTeamSlug([coach("a"), coach("b")], undefined)).toBeNull();
+    expect(resolveTeamSlug([coach("a"), coach("b"), clubCoach("c")], undefined)).toBeNull();
+  });
+
+  it("on no team themselves: the only team there is, else a choice", () => {
+    expect(resolveTeamSlug([clubCoach("a")], undefined)).toBe("a");
+    expect(resolveTeamSlug([clubCoach("a"), clubCoach("b")], undefined)).toBeNull();
+    expect(resolveTeamSlug([clubView("a"), clubView("b")], undefined)).toBeNull();
+    expect(resolveTeamSlug([], undefined)).toBeNull();
+    expect(resolveTeamSlug(undefined, "a")).toBeNull();
   });
 });
 
@@ -83,6 +137,9 @@ describe("labels", () => {
     expect(hatLabel(hatsFor(M, "a")[1])).toBe("Parent of Sam & Alex");
     expect(hatLabel(hatsFor(M, "b")[0])).toBe("Club admin (view only)");
     expect(hatLabel(hatsFor(M, "c")[0])).toBe("Super admin");
+    // A super admin who is on the team's staff reads as that role there; so does one who is simply its coach.
+    expect(hatLabel({ role: "coach", playerIds: [], playerNames: [], staffRole: "Assistant coach", admin: true })).toBe("Assistant coach");
+    expect(hatLabel({ role: "coach", playerIds: [], playerNames: [], admin: true })).toBe("Coach");
     expect(hatLabel({ role: "coach", playerIds: [], playerNames: [] })).toBe("Coach");
     expect(hatLabel({ role: "viewer", playerIds: [], playerNames: [] })).toBe("View only");
     expect(hatLabel({ role: "parent", playerIds: ["p9"], playerNames: [""] })).toBe("Parent");
