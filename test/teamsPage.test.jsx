@@ -48,13 +48,42 @@ describe("app/teams/page", () => {
     const el = await Page();
     expect(el.type).toBe(MyTeamsStub);
     expect(el.props).toEqual({
-      email: "sam@example.com", admin: null, viewingAs: false,
+      email: "sam@example.com", admin: null, viewingAs: false, family: false, // a child in one team: nothing to put together
       teams: [
         { teamSlug: "a", teamName: "Team A", mine: true, hats: [{ role: "coach", playerIds: [], playerNames: [] }] },
         { teamSlug: "b", teamName: "Team B", mine: true, hats: [{ role: "parent", playerIds: ["p1"], playerNames: ["Leo"] }] }
       ]
     });
     expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it("says when the login has a family on two or more teams, which is who the combined view is for", async () => {
+    const A_PARENT = { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p2", playerName: "Mia" };
+    const A_PLAYER = { teamSlug: "a", teamName: "Team A", role: "player", playerId: "p7", playerName: "Sam" };
+    const family = async (memberships) => {
+      membershipsForEmail.mockResolvedValue({ memberships });
+      const Page = await loadPage();
+      return (await Page()).props.family;
+    };
+    expect(await family([A_PARENT, B_PARENT])).toBe(true);            // a child in each of two teams
+    expect(await family([A_PLAYER, B_PARENT])).toBe(true);            // their own team and their child's
+    expect(await family([A_COACH, A_PARENT, B_PARENT])).toBe(true);   // a coach is still a parent
+    expect(await family([A_PARENT, { ...A_PARENT, playerId: "p3", playerName: "Ana" }])).toBe(false); // two children, one team
+    expect(await family([A_COACH, B_PARENT, C_CLUB])).toBe(false);    // coaching or running a team is not family
+  });
+
+  it("the family being viewed as decides it, not the super admin viewing", async () => {
+    auth.mockResolvedValue({ user: { email: "owner@example.com" } });
+    isAdminEmail.mockImplementation((e) => e === "owner@example.com");
+    cookieJar.values = { view_as: encodeURIComponent("sam@example.com") };
+    membershipsForEmail.mockImplementation(async (email) => ({
+      memberships: email === "sam@example.com"
+        ? [{ teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p2", playerName: "Mia" }, B_PARENT]
+        : [C_CLUB]
+    }));
+    const Page = await loadPage();
+    const el = await Page();
+    expect(el.props).toMatchObject({ family: true, viewingAs: true, admin: null });
   });
 
   it("a person with a single team can still open the page: it is where Switch team leads", async () => {

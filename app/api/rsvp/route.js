@@ -18,10 +18,15 @@ export const dynamic = "force-dynamic";
 // whole-object overwrite, so concurrent parents can't clobber each other and
 // nobody can smuggle in config/score changes.
 //
-// Body: { kind: "game" | "session", id, occ?, playerId, status, reason? }
+// Body: { kind: "game" | "session", id, occ?, playerId, status, reason?, teamSlug? }
 //  - kind "game":    id = fixture id
 //  - kind "session": id = session id, occ = occurrence ISO date (yyyy-mm-dd)
 //  - status: "in" | "out" | null  (null clears the response)
+//  - teamSlug: the team this reply is for, from the combined family view on
+//    My teams, where one page answers for children in several teams. A reply
+//    that names its team is always made as the family (the parent hat on that
+//    team), whatever role the session is otherwise acting in, so naming a team
+//    can never do more than that login's own family reply could.
 //
 // A two-team squad plays two games a round (lib/dashboardData twinOf) and
 // collects availability once: a game reply is written to the fixture and to
@@ -37,7 +42,7 @@ function whoamiFromCookies(req, slug) {
 export async function POST(req) {
   let body;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "bad json" }, { status: 400 }); }
-  const { kind, id, occ, playerId, status, reason } = body || {};
+  const { kind, id, occ, playerId, status, reason, teamSlug } = body || {};
 
   if (!["game", "session"].includes(kind) || !id || !playerId) {
     return NextResponse.json({ error: "bad request" }, { status: 400 });
@@ -48,10 +53,14 @@ export async function POST(req) {
   if (kind === "session" && !occ) {
     return NextResponse.json({ error: "missing occurrence" }, { status: 400 });
   }
+  if (teamSlug !== undefined && (typeof teamSlug !== "string" || !teamSlug)) {
+    return NextResponse.json({ error: "bad team" }, { status: 400 });
+  }
 
   // Who is acting, on which team, wearing which hat. A write: a super admin
-  // "viewing as" someone is refused before anything else.
-  const v = await resolveViewer(req, { write: true });
+  // "viewing as" someone is refused before anything else. A reply that names
+  // its team acts as the family there and nothing more.
+  const v = await resolveViewer(req, { write: true, ...(teamSlug !== undefined ? { team: teamSlug, as: "parent" } : {}) });
   if (v.error) return viewerError(v);
   const team = v.team;
 
