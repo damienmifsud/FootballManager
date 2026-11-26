@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { AdminPage } from "@/components/AdminShell";
+import { syncDribl } from "@/lib/driblSync";
 
 // FQ Metro Region organisation key (from footballqueensland.com.au's own embeds).
 const FQ_METRO_ORG = "b0e92958-980b-4da0-9ec9-a9c2597b06f0";
@@ -75,24 +76,45 @@ export default function LeaguePage() {
   // never open on, and save over, a set-up it has not read.
   const canManage = loaded && !!me && (me.mode === "code" || me.role === "coach");
 
+  // One button syncs every draw the team has. Squadi's are pulled by the
+  // server (/api/sync). A draw on Dribl is fetched here in the browser and
+  // posted back, because Dribl turns servers away (lib/driblSync.js). Squadi
+  // first, then Dribl: one after the other, as both write the team's
+  // document. Neither waits on the other's luck: with Squadi down, a draw on
+  // Dribl is still synced.
   const syncNow = async () => {
     setSyncMsg("Syncing…");
+    let j = null, squadiError = "";
     try {
       const res = await fetch("/api/sync", { cache: "no-store" });
-      const j = await res.json();
-      if (!res.ok || !j.ok) { setSyncMsg("Sync failed: " + (j.error || res.status)); return; }
-      // Nothing to pull: no draw has its Squadi ids yet (they go in club admin).
-      if (j.skipped === "no squadi config") { setSyncMsg("No Squadi draw is set up for this team yet."); return; }
-      // A team can have several draws (its season, which is two feeds on a
-      // two-team squad, and other competitions). One that could not be fetched
-      // is named (the competition, or the side); the others were still applied.
-      const failed = Array.isArray(j.failed) && j.failed.length
-        ? " Could not sync " + j.failed.map((f) => `${f.name} (${f.error})`).join("; ") + "."
-        : "";
-      setSyncMsg((j.changes.length
-        ? `Updated ${j.changes.length} item${j.changes.length > 1 ? "s" : ""}: ` + j.changes.slice(0, 3).join(" · ") + (j.changes.length > 3 ? " …" : "")
-        : "Already up to date with Squadi.") + failed);
-    } catch (e) { setSyncMsg("Sync failed: " + e.message); }
+      const body = await res.json();
+      if (res.ok && body.ok) j = body; else squadiError = String(body.error || res.status);
+    } catch (e) { squadiError = e.message; }
+    let dribl;
+    try { dribl = await syncDribl({ force: true }); }
+    catch (e) { dribl = { changes: [], failed: [{ name: "Dribl", error: e.message }], synced: 0 }; }
+    // With no draw on Dribl, a sync that failed reads as it always has.
+    if (squadiError && dribl.skipped) { setSyncMsg("Sync failed: " + squadiError); return; }
+    const noSquadi = !!j && j.skipped === "no squadi config";
+    // Nothing to pull: no draw has been set up yet (that is done in club admin).
+    if (noSquadi && dribl.skipped) { setSyncMsg("No draw is set up for this team yet."); return; }
+    // A team can have several draws (its season, which is two feeds on a
+    // two-team squad, and other competitions). One that could not be fetched
+    // is named (the competition, the side, or Squadi as a whole); the others
+    // were still applied.
+    const changes = [...(Array.isArray(j?.changes) ? j.changes : []), ...(dribl.changes || [])];
+    const missed = [
+      ...(squadiError ? [{ name: "Squadi", error: squadiError }] : Array.isArray(j.failed) ? j.failed : []),
+      ...(dribl.failed || [])
+    ];
+    // The reason sits in brackets, so its own full stop is dropped.
+    const failed = missed.length ? "Could not sync " + missed.map((f) => `${f.name} (${String(f.error).replace(/\.+$/, "")})`).join("; ") + "." : "";
+    // "Up to date" is only said of what was actually checked.
+    const checked = [!!j && !noSquadi && "Squadi", dribl.synced > 0 && "Dribl"].filter(Boolean);
+    const head = changes.length
+      ? `Updated ${changes.length} item${changes.length > 1 ? "s" : ""}: ` + changes.slice(0, 3).join(" · ") + (changes.length > 3 ? " …" : "")
+      : checked.length ? `Already up to date with ${checked.join(" and ")}.` : "";
+    setSyncMsg([head, failed].filter(Boolean).join(" "));
   };
 
   useEffect(() => {
@@ -247,7 +269,7 @@ export default function LeaguePage() {
           )}
           <button className="adm-btn block" style={{ marginTop: 14 }} onClick={save} disabled={saving}>{saving ? "Saving…" : "Save for everyone"}</button>
           {saveError && <div className="adm-msg err" role="alert" style={{ marginTop: 10 }}>{saveError}</div>}
-          <button className="adm-btn soft block" style={{ marginTop: 8 }} onClick={syncNow}>Sync fixtures from Squadi now</button>
+          <button className="adm-btn soft block" style={{ marginTop: 8 }} onClick={syncNow}>Sync fixtures now</button>
           {syncMsg && <div className="adm-note" role="status" style={{ marginTop: 10 }}>{syncMsg}</div>}
         </section>
       )}

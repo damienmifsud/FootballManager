@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, knownCompetitions, sanitizeSquad, MAX_COMPETITIONS } from "@/lib/competitions";
+import { sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, knownCompetitions, sanitizeSquad, competitionsError, driblSources, MAX_COMPETITIONS } from "@/lib/competitions";
+import { NOT_A_DRIBL_REQUEST, ONE_SOURCE } from "@/lib/dribl";
 
 // lib/competitions: a team's competitions beyond its season (a winter
 // tournament, an invitational league). Each has a permanent id, a name and,
@@ -286,5 +287,77 @@ describe("sanitizeSquad", () => {
     sanitizeSquad(sent, players);
     expect(sent).toEqual(["p3", "p1", "p3"]);
     expect(players.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+  });
+});
+
+// A competition's draw comes from Squadi (three ids) or from Dribl (a fixtures
+// request: lib/dribl.js). One source each; the wizard's save is refused, with
+// a sentence, when a row has a bad Dribl link or both.
+describe("a competition whose draw is on Dribl", () => {
+  const REQUEST = "https://mc-api.dribl.com/api/fixtures?date_range=all&season=S1&competition=C1&league=L1&club=CL1&tenant=T1&timezone=Australia%2FBrisbane";
+  const IDS = { competitionId: "1750", divisionId: "20001", teamId: 300123 };
+  const counter = () => { let n = 0; return () => `cnew${++n}`; };
+
+  it("sanitizeCompetitions keeps the Dribl source, tidied, beside the name", () => {
+    expect(sanitizeCompetitions([{ name: "Premier Invitational", dribl: { url: REQUEST + "&cursor=x", team: " Olympic  FC U9 " } }], counter()))
+      .toEqual([{ id: "cnew1", name: "Premier Invitational", dribl: { url: REQUEST, team: "Olympic FC U9" } }]);
+    // No team name given: none stored.
+    expect(sanitizeCompetitions([{ id: "cprem", name: "Premier Invitational", dribl: { url: REQUEST } }], counter()))
+      .toEqual([{ id: "cprem", name: "Premier Invitational", dribl: { url: REQUEST } }]);
+    // A row with only its Dribl request is a row: it is kept and given a name.
+    expect(sanitizeCompetitions([{ dribl: { url: REQUEST } }], counter())).toEqual([{ id: "cnew1", name: "Competition 1", dribl: { url: REQUEST } }]);
+  });
+
+  it("never stores a link that is not a Dribl request, and never two sources on one competition", () => {
+    // (The save is refused before this by competitionsError; this is the second line of defence.)
+    expect(sanitizeCompetitions([{ name: "Bad link", dribl: { url: "https://evil.example/api/fixtures?tenant=T1" } }], counter())).toEqual([{ id: "cnew1", name: "Bad link" }]);
+    expect(sanitizeCompetitions([{ name: "Both", squadi: IDS, dribl: { url: REQUEST } }], counter())).toEqual([{ id: "cnew1", name: "Both", squadi: IDS }]);
+    // A blank Dribl field beside Squadi ids is just a Squadi competition.
+    expect(sanitizeCompetitions([{ name: "Winterfest", squadi: IDS, dribl: { url: "", team: "" } }], counter())).toEqual([{ id: "cnew1", name: "Winterfest", squadi: IDS }]);
+    // A bad link alone, with no name, is nothing at all.
+    expect(sanitizeCompetitions([{ dribl: { url: "not a link" } }], counter())).toEqual([]);
+  });
+
+  it("competitionsError says why a list cannot be saved, naming the competition", () => {
+    expect(competitionsError([{ name: "Premier Invitational", dribl: { url: "https://premierinvitational.dribl.com/fixtures?season=x" } }])).toBe(`Premier Invitational: ${NOT_A_DRIBL_REQUEST}`);
+    expect(competitionsError([{ name: "", dribl: { url: "not a link" } }])).toBe(NOT_A_DRIBL_REQUEST);
+    expect(competitionsError([{ name: "Both", squadi: IDS, dribl: { url: REQUEST } }])).toBe(`Both: ${ONE_SOURCE}`);
+    expect(competitionsError([{ squadi: { competitionId: "1" }, dribl: { url: REQUEST } }])).toBe(ONE_SOURCE);
+    expect(ONE_SOURCE).toBe("A competition gets its draw from Squadi or from Dribl, not both.");
+    // The first problem in the list is the one reported.
+    expect(competitionsError([{ name: "Fine", dribl: { url: REQUEST } }, { name: "Second", dribl: { url: "x" } }, { name: "Third", squadi: IDS, dribl: { url: REQUEST } }])).toBe(`Second: ${NOT_A_DRIBL_REQUEST}`);
+  });
+
+  it("competitionsError has nothing to say about a list that can be saved", () => {
+    expect(competitionsError([{ name: "Winterfest", squadi: IDS }, { name: "Premier Invitational", dribl: { url: REQUEST, team: "Olympic" } }, { name: "Later" }])).toBeNull();
+    expect(competitionsError([{ name: "Winterfest", squadi: IDS, dribl: { url: "  ", team: "left over" } }])).toBeNull();
+    for (const none of [undefined, null, [], "x", {}, [null, "x", 7, []]]) expect(competitionsError(none)).toBeNull();
+  });
+
+  it("driblSources: the competitions a browser should fetch, with their own id and name", () => {
+    const team = { slug: "a", squadi: { competitionId: "1439", divisionId: "10661", teamId: 110013 }, competitions: [
+      { id: "cw", name: "Winterfest", squadi: IDS },
+      { id: "cp", name: "Premier Invitational", dribl: { url: REQUEST } },
+      { id: "cc", name: "Cup", dribl: { url: REQUEST.replace("L1", "L2"), team: "Olympic FC U9 White" } },
+      { id: "cl", name: "Not published" }
+    ] };
+    expect(driblSources(team)).toEqual([
+      { comp: { id: "cp", name: "Premier Invitational" }, dribl: { url: REQUEST } },
+      { comp: { id: "cc", name: "Cup" }, dribl: { url: REQUEST.replace("L1", "L2"), team: "Olympic FC U9 White" } }
+    ]);
+    // And Squadi's list is unchanged by them: the season and Winterfest.
+    expect(squadiSources(team).map((x) => x.comp?.id || "season")).toEqual(["season", "cw"]);
+  });
+
+  it("driblSources leaves out anything that cannot be fetched or is already Squadi's", () => {
+    const comps = [
+      null, "x", { name: "No id", dribl: { url: REQUEST } }, { id: "", name: "Blank id", dribl: { url: REQUEST } },
+      { id: "c1", name: "Tampered", dribl: { url: "https://evil.example/api/fixtures?tenant=T1" } },
+      { id: "c2", name: "No url", dribl: { team: "Olympic" } },
+      { id: "c3", name: "Both stored", squadi: IDS, dribl: { url: REQUEST } },
+      { id: "c4", dribl: { url: REQUEST } }
+    ];
+    expect(driblSources({ competitions: comps })).toEqual([{ comp: { id: "c4", name: "Competition" }, dribl: { url: REQUEST } }]);
+    for (const none of [null, undefined, {}, { competitions: "x" }]) expect(driblSources(none)).toEqual([]);
   });
 });

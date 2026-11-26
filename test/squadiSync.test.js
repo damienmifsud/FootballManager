@@ -470,3 +470,33 @@ describe("applySync — sides and competitions together", () => {
     expect(moved.changes[0]).toMatch(/^McKay · Winterfest Round 7 vs Wests: time /);
   });
 });
+
+// A draw from elsewhere (Dribl) can have games with no round: a final, a pool
+// game. They are named by their competition alone.
+describe("applySync — a game with no round", () => {
+  const WINTER = { id: "cwinter", name: "Winterfest" };
+  const rec = (over = {}) => ({ squadiId: "dribl:x1", round: null, dateISO: "2026-06-21", time: "08:00", opponent: "Wests", opponentLogo: "", ourLogo: "", homeAway: "H", venue: "Perry Park", ...over });
+
+  it("is created with no round and reads by its competition's name in the change line", () => {
+    const r = applySync({ fixtures: [] }, [rec()], { comp: WINTER });
+    expect(r.data.fixtures[0]).toMatchObject({ squadiId: "dribl:x1", round: null, comp: "cwinter", compName: "Winterfest" });
+    expect(r.changes[0]).toMatch(/^NEW — Winterfest vs Wests: /);
+    const moved = applySync(r.data, [rec({ time: "09:30" })], { comp: WINTER });
+    expect(moved.changes[0]).toMatch(/^Winterfest vs Wests: time /);
+    expect(moved.data.fixtures).toHaveLength(1);
+  });
+
+  it("with no competition either it is simply a game, and a numbered round reads as it always did", () => {
+    expect(applySync({ fixtures: [] }, [rec()]).changes[0]).toMatch(/^NEW — Game vs Wests: /);
+    expect(applySync({ fixtures: [] }, [rec()], { side: "McKay" }).changes[0]).toMatch(/^NEW — McKay · Game vs Wests: /);
+    expect(applySync({ fixtures: [] }, [rec({ round: 4 })], { comp: WINTER }).changes[0]).toMatch(/^NEW — Winterfest Round 4 vs Wests: /);
+    expect(applySync({ fixtures: [] }, [rec({ round: 4 })]).changes[0]).toMatch(/^NEW — Round 4 vs Wests: /);
+  });
+
+  it("is never matched to a hand-typed game: a competition's draw matches by its own ids only", () => {
+    const typed = { id: "t1", round: null, dateISO: "2026-06-21", opponent: "Wests", comp: "cwinter", compName: "Winterfest" };
+    const r = applySync({ fixtures: [typed] }, [rec()], { comp: WINTER });
+    expect(r.created).toBe(1);
+    expect(r.data.fixtures.map((f) => f.squadiId || "typed")).toEqual(["typed", "dribl:x1"]);
+  });
+});

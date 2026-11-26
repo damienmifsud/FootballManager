@@ -759,3 +759,67 @@ describe("two Squadi feeds and other competitions on one team", () => {
     expect(setStoredTeams).not.toHaveBeenCalled();
   });
 });
+
+// A competition whose draw is on Dribl: its fixtures request is stored on the
+// registry entry (lib/dribl.js, the real module). A link that is not one, or a
+// competition given both sources, refuses the save with a sentence.
+describe("a competition on Dribl", () => {
+  const REQUEST = "https://mc-api.dribl.com/api/fixtures?date_range=all&season=S1&competition=C1&league=L1&club=CL1&tenant=T1&timezone=Australia%2FBrisbane";
+  const IDS = { competitionId: "1750", divisionId: "20001", teamId: 300123 };
+  const create = async (competitions) => {
+    const { POST } = await asAdmin();
+    return POST(fakeRequest({ body: { name: "U9 Academy", ageGroup: "U9", password: "gold-roo-99", competitions } }));
+  };
+
+  it("POST stores the request tidied, with the team's name when one is given, beside a Squadi competition", async () => {
+    const res = await create([
+      { name: "Winterfest", squadi: IDS },
+      { name: "Premier Invitational", dribl: { url: "  " + REQUEST + "&cursor=abc  ", team: " Olympic FC U9 " } }
+    ]);
+    expect(res.status).toBe(200);
+    const stored = setStoredTeams.mock.calls[0][0].find((t) => t.name === "U9 Academy");
+    expect(stored.competitions.map(({ id: _id, ...rest }) => rest)).toEqual([
+      { name: "Winterfest", squadi: IDS },
+      { name: "Premier Invitational", dribl: { url: REQUEST, team: "Olympic FC U9" } }
+    ]);
+    // The draw's source is registry-only: nothing of it goes on the team document.
+    expect(JSON.stringify(setData.mock.calls[0][1])).not.toMatch(/dribl/i);
+  });
+
+  it("POST refuses a link that is not a Dribl fixtures request, and a competition with both sources; nothing is stored", async () => {
+    let res = await create([{ name: "Premier Invitational", dribl: { url: "https://premierinvitational.dribl.com/fixtures?season=S1" } }]);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Premier Invitational: That is not a Dribl fixtures request. It should start with https://mc-api.dribl.com/api/fixtures?");
+    res = await create([{ name: "Both", squadi: IDS, dribl: { url: REQUEST } }]);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Both: A competition gets its draw from Squadi or from Dribl, not both.");
+    expect(setStoredTeams).not.toHaveBeenCalled();
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("GET returns it for the edit form, and PATCH can add, change and take it away", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "u9", name: "U9 Academy", password: "code-u9", competitions: [{ id: "cprem", name: "Premier Invitational", dribl: { url: REQUEST } }] }]);
+    const { GET, PATCH } = await asAdmin();
+    const listed = (await (await GET()).json()).teams.find((t) => t.slug === "u9");
+    expect(listed.competitions).toEqual([{ id: "cprem", name: "Premier Invitational", dribl: { url: REQUEST } }]);
+    const stored = () => setStoredTeams.mock.calls.at(-1)[0].find((t) => t.slug === "u9").competitions;
+    // Add the team's name.
+    expect((await PATCH(fakeRequest({ body: { slug: "u9", competitions: [{ id: "cprem", name: "Premier Invitational", dribl: { url: REQUEST, team: "Olympic FC U9 White" } }] } }))).status).toBe(200);
+    expect(stored()).toEqual([{ id: "cprem", name: "Premier Invitational", dribl: { url: REQUEST, team: "Olympic FC U9 White" } }]);
+    // Clear the request: the competition stays, with no source, under the same id.
+    expect((await PATCH(fakeRequest({ body: { slug: "u9", competitions: [{ id: "cprem", name: "Premier Invitational", dribl: { url: "", team: "" } }] } }))).status).toBe(200);
+    expect(stored()).toEqual([{ id: "cprem", name: "Premier Invitational" }]);
+    // Swap it for Squadi ids.
+    expect((await PATCH(fakeRequest({ body: { slug: "u9", competitions: [{ id: "cprem", name: "Premier Invitational", squadi: IDS }] } }))).status).toBe(200);
+    expect(stored()).toEqual([{ id: "cprem", name: "Premier Invitational", squadi: IDS }]);
+  });
+
+  it("PATCH refuses a bad link and changes nothing", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "u9", name: "U9 Academy", password: "code-u9", competitions: [{ id: "cprem", name: "Premier Invitational", dribl: { url: REQUEST } }] }]);
+    const { PATCH } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "u9", name: "Renamed", competitions: [{ id: "cprem", name: "Premier Invitational", dribl: { url: "https://evil.example/api/fixtures?tenant=T1" } }] } }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/^Premier Invitational: That is not a Dribl fixtures request\./);
+    expect(setStoredTeams).not.toHaveBeenCalled();
+  });
+});
