@@ -15,10 +15,11 @@ import {
   countdown, ytId, videoKind, mapsUrl, activeOn, intlPhone, recentChanges,
   initials, secToClock, clockToSec, occurrences, monthItems, upcomingItems,
   nextBirthdays, isCarnival, carnivalOf, isCarnivalGame, carnivalGameRows, carnivalMeta, carnivalDescription, pitchLabel,
-  playerFullName
+  playerFullName, timeWindow
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
+import { parseScheduleImport, onlyGroups, mergeSchedule, scheduleTemplate, stampImport, importBatches, removeImport } from "@/lib/scheduleImport";
 import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths } from "@/lib/teamSetup";
 import { seasonICS } from "@/lib/ics";
 import {
@@ -226,9 +227,10 @@ function veventWeekly(s, season) {
 const wrapICS = (name, body) => ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//FQ Team Dashboard//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", `X-WR-CALNAME:${esc(name)}`, `X-WR-TIMEZONE:${TZ}`, ...body, "END:VCALENDAR"].join("\r\n");
 const singleICS = (ev) => wrapICS(ev.title, vevent(ev));
 // seasonICS (the whole-season export) is shared with the feed route: lib/ics.js.
-function downloadICS(filename, text) {
+// Hand the browser a small text file to save.
+function downloadText(filename, text, type) {
   try {
-    const blob = new Blob([text], { type: "text/calendar;charset=utf-8" });
+    const blob = new Blob([text], { type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = filename.replace(/[^\w.-]+/g, "_");
@@ -236,6 +238,7 @@ function downloadICS(filename, text) {
     setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 150);
   } catch (e) { console.error(e); }
 }
+const downloadICS = (filename, text) => downloadText(filename, text, "text/calendar;charset=utf-8");
 function googleUrl(ev) {
   const dates = ev.allDay
     ? `${ev.dateISO.replace(/-/g, "")}/${isoLocal(addDays(ev.dateISO, 1)).replace(/-/g, "")}`
@@ -624,6 +627,13 @@ const CSS = `
   border-radius:13px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;min-height:44px;margin-bottom:10px;}
 .filebtn input{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0 0 0 0);}
 .filebtn:focus-within{outline:2px solid var(--pitch);outline-offset:2px;}
+.imp-past{margin-top:20px;}
+.imp-row{display:flex;align-items:center;gap:16px;min-height:44px;border-top:1px solid var(--line);font-size:13px;line-height:1.4;}
+.imp-past .label + .imp-row{border-top:none;}
+.imp-row span{flex:1;min-width:0;padding:8px 0;}
+.imp-row .ghostlink{padding:0;min-height:44px;flex-shrink:0;}
+.imp-row .ghostlink.quiet{color:var(--muted);}
+.imp-row .ghostlink:disabled{opacity:.5;cursor:default;}
 .btn.danger{background:#fdecec;color:var(--red);}
 .iconbtn{background:var(--soft);border:none;width:32px;height:32px;border-radius:9px;display:flex;
   align-items:center;justify-content:center;cursor:pointer;color:var(--muted);}
@@ -1111,12 +1121,13 @@ export default function App() {
 
   // Whole-document write. Optimistic, but undone (and announced) when storage
   // refuses; a super admin viewing as someone else never writes at all.
+  // Resolves true once saved, false when it was refused.
   const persist = useCallback(async (next) => {
-    if (me?.viewingAs) { setNotice(`Read only while viewing as ${me.viewingAs}.`); return; }
+    if (me?.viewingAs) { setNotice(`Read only while viewing as ${me.viewingAs}.`); return false; }
     const prev = dataRef.current;
     setData(next);
-    try { await window.storage.set(KEY, JSON.stringify(next), true); }
-    catch (e) { console.error(e); setData(prev); saveFailed(e); }
+    try { await window.storage.set(KEY, JSON.stringify(next), true); return true; }
+    catch (e) { console.error(e); setData(prev); saveFailed(e); return false; }
   }, [me]);
 
   // Local-only patch: the narrow routes have already written the field, so
@@ -1947,6 +1958,11 @@ function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, openPlaye
         </div>
         {listItems.length === 0 && <div className="wk-empty">Nothing scheduled in {monthName}.</div>}
         {listItems.map(it => <EventRow key={it.key} data={data} it={it} isCoach={isCoach} own={own} onOpen={calOpenFor(it, { openMatch, openPlayer, setModal })} />)}
+        {isCoach && (
+          <div className="pr-foot">
+            <button className="ghostlink" onClick={() => setModal({ type: "scheduleImport", payload: { mode: "training" } })}>Import training</button>
+          </div>
+        )}
       </div>
 
       <AddToCalendarCard data={data} />
@@ -2062,6 +2078,11 @@ function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
         </div>
         {upcoming.length === 0 && <div className="rl-empty">No fixtures yet.</div>}
         {upcoming.map(f => <MatchRow key={f.id} data={data} f={f} onTap={() => openMatch(f)} />)}
+        {isCoach && (
+          <div className="pr-foot">
+            <button className="ghostlink" onClick={() => setModal({ type: "scheduleImport", payload: { mode: "games" } })}>Import games</button>
+          </div>
+        )}
       </div>
 
       {hasCarnivalGame && (
@@ -2751,6 +2772,7 @@ function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal,
       {isCoach && (
         <div className="card">
           <div className="label" style={{ marginBottom: 8 }}>Import & data</div>
+          <button className="btn ghost" style={{ marginBottom: 8 }} onClick={() => setModal({ type: "scheduleImport", payload: { mode: "training" } })}>Import training or games (CSV)</button>
           <button className="btn ghost" style={{ marginBottom: 8 }} onClick={() => setModal({ type: "import" })}>Paste fixtures from Squadi</button>
           <button className="btn danger" onClick={() => setModal({ type: "reset" })}>Clear everything & start fresh</button>
         </div>
@@ -2801,6 +2823,17 @@ function seasonRange({ startISO, endISO }) {
   const dm = (iso) => `${+iso.slice(8, 10)} ${MONTHS_SHORT[+iso.slice(5, 7) - 1]}`;
   const y1 = startISO.slice(0, 4), y2 = endISO.slice(0, 4);
   return y1 === y2 ? `${dm(startISO)} – ${dm(endISO)} ${y2}` : `${dm(startISO)} ${y1} – ${dm(endISO)} ${y2}`;
+}
+
+// The dates a list of sessions and games covers: one [from, to] per item (a
+// weekly session runs from its start to its finish) and the earliest and latest.
+function scheduleSpan(items) {
+  const spans = items.map((x) => (x.recur === "weekly" ? [x.startISO, x.untilISO || x.startISO] : [x.dateISO, x.dateISO]));
+  return {
+    spans,
+    first: spans.reduce((m, [a]) => (!m || a < m ? a : m), ""),
+    last: spans.reduce((m, [, b]) => (!m || b > m ? b : m), "")
+  };
 }
 
 // Season window: two dates saved together through the narrow route once both
@@ -3115,6 +3148,7 @@ function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach
         {modal.type === "player" && <PlayerSheet {...{ data, persist, payload: modal.payload, me, close }} />}
         {modal.type === "import" && <ImportSheet {...{ data, persist, close }} />}
         {modal.type === "playersImport" && <PlayersImportSheet {...{ data, persist, close }} />}
+        {modal.type === "scheduleImport" && <ScheduleImportSheet {...{ data, persist, patchLocal, payload: modal.payload, showToast, close }} />}
         {modal.type === "reset" && <ResetSheet {...{ data, persist, close }} />}
       </div>
     </div>
@@ -4194,6 +4228,182 @@ function PlayersImportSheet({ data, persist, close }) {
       </div>
     )}
     <button className="btn" onClick={save} disabled={!nAdd && !nUpd}>{action}</button>
+  </>);
+}
+
+// Bulk import of training sessions and games (lib/scheduleImport.js): upload
+// a CSV or paste a list, see exactly what was understood, then save. Opened
+// from Calendar ("Import training") and Results ("Import games"); either way
+// a file's own Type column can carry both. Dates outside the team's season
+// would be saved but not shown, so the sheet offers to widen the season to
+// fit them (a separate, narrow write). Each import is stamped on what it
+// added, and listed under "Earlier imports" so a wrong file can be taken back
+// in one go rather than a session at a time.
+function ScheduleImportSheet({ data, persist, patchLocal, payload, showToast, close }) {
+  const [mode, setMode] = useState(payload?.mode === "games" ? "games" : "training");
+  const [txt, setTxt] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [fileErr, setFileErr] = useState("");
+  const [picked, setPicked] = useState([]); // teams / groups chosen, when the file names several
+  const [extend, setExtend] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(""); // the earlier import being confirmed for removal
+
+  const parsed = useMemo(() => parseScheduleImport(txt, { mode }), [txt, mode]);
+  const manyGroups = parsed.groups.length > 1;
+  const chosen = useMemo(() => (manyGroups ? onlyGroups(parsed, picked) : parsed), [parsed, manyGroups, picked]);
+
+  // Every date the chosen rows touch, to compare with the team's season: the
+  // ones already on the calendar count too, since they are hidden just the same.
+  const season = teamSeason(data.team);
+  const all = scheduleSpan([...chosen.sessions, ...chosen.fixtures]);
+  const outside = all.spans.filter(([a, b]) => a < season.startISO || b > season.endISO).length;
+  const wider = outside ? sanitizeSeason({ startISO: all.first < season.startISO ? all.first : season.startISO, endISO: all.last > season.endISO ? all.last : season.endISO }) : null;
+  const extending = !!wider && extend;
+  const merged = useMemo(() => mergeSchedule(data, chosen, { season: extending ? wider : season }),
+    [data, chosen, extending, wider?.startISO, wider?.endISO, season.startISO, season.endISO]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const nS = merged.addedSessions.length, nG = merged.addedFixtures.length;
+  const already = merged.unchanged + merged.covered;
+  const changes = nS + nG + merged.updated > 0;
+  const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const adding = [nS && count(nS, "session", "sessions"), nG && count(nG, "game", "games")].filter(Boolean).join(" and ");
+  // With nothing new, the button can still widen the season for what is there.
+  const action = adding ? `Add ${adding}` : merged.updated ? `Update ${merged.updated}` : extending ? "Extend the season"
+    : (chosen.sessions.length + chosen.fixtures.length ? "Nothing to add" : (mode === "games" ? "Add games" : "Add sessions"));
+  const canSave = !saving && (changes || extending);
+  const added = scheduleSpan([...merged.addedSessions, ...merged.addedFixtures]);
+  // One line showing how an item was read, so dates and times can be checked.
+  const describe = (x) => [fmtDate(x.dateISO || x.startISO), "opponent" in x ? `${x.time || "Time TBC"} vs ${x.opponent}` : `${x.recur === "weekly" ? "weekly, " : ""}${timeWindow(x) || "Time TBC"}`, x.venue || x.location].filter(Boolean).join(" · ");
+  const sample = [...merged.addedSessions, ...merged.addedFixtures][0];
+
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setFileErr("");
+    const reader = new FileReader();
+    reader.onload = () => { setTxt(String(reader.result || "")); setFileName(file.name); setPicked([]); };
+    reader.onerror = () => { setFileName(""); setFileErr("Couldn't read that file. Try again, or paste the list instead."); };
+    reader.readAsText(file);
+  };
+
+  const save = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    const now = new Date();
+    const lists = stampImport(merged, `${isoLocal(now)}T${now.toTimeString().slice(0, 8)}`);
+    const ok = changes ? await persist({ ...data, ...lists, isSample: false }) : true;
+    if (ok && extending) {
+      const prev = data.team.season;
+      teamPatch(patchLocal, { season: wider });
+      try {
+        const res = await fetchJson("/api/team-settings", { season: wider });
+        if (res?.team && "season" in res.team) teamPatch(patchLocal, { season: res.team.season });
+      } catch (e) {
+        teamPatch(patchLocal, { season: prev });
+        showToast?.(changes ? "Added. The season could not be changed: set it in Team settings." : "The season could not be changed: set it in Team settings.");
+      }
+    }
+    setSaving(false);
+    close();
+  };
+
+  // Earlier imports still on the lists, each removable as a whole.
+  const batches = importBatches(data);
+  const batchText = (b) => [b.sessions && count(b.sessions, "session", "sessions"), b.games && count(b.games, "game", "games")].filter(Boolean).join(" and ");
+  const batchWhen = (b) => `${fmtDate(b.stamp.slice(0, 10))}, ${b.stamp.slice(11, 16)}`; // the stamp is local time
+  const takeBack = async (b) => {
+    if (saving) return;
+    setSaving(true);
+    const ok = await persist({ ...data, ...removeImport(data, b.stamp) });
+    setSaving(false);
+    setRemoving("");
+    if (ok) showToast?.(`Removed ${batchText(b)}`);
+  };
+
+  const games = mode === "games";
+  return (<>
+    <SheetHead title={games ? "Import games" : "Import training"} close={close} />
+    <div className="wi-seg" style={{ marginBottom: 12 }}>
+      <button className={!games ? "on" : ""} aria-pressed={!games} onClick={() => setMode("training")}>Training</button>
+      <button className={games ? "on" : ""} aria-pressed={games} onClick={() => setMode("games")}>Games</button>
+    </div>
+    <label className="filebtn">
+      <Upload size={16} aria-hidden="true" />{fileName ? "Choose a different file" : "Upload CSV"}
+      <input type="file" accept={PLAYER_FILE_ACCEPT} onChange={onFile} />
+    </label>
+    {fileName && <div className="note" style={{ marginBottom: 10 }}>Loaded <b>{fileName}</b></div>}
+    {fileErr && <div className="note" role="alert" style={{ color: "var(--red)", marginBottom: 10 }}>{fileErr}</div>}
+    <div className="note" style={{ marginBottom: 12 }}>
+      {games
+        ? <>Upload a CSV with <b>Date, Time, Opponent, Home or away, Venue</b> and <b>Round</b> columns, or paste one game per line in that order. A <b>Score</b> column (3-1) marks a game as played. Dates are day first (14/02/2027). A game already on the list is not added twice.</>
+        : <>Upload a CSV with <b>Date, Start, Finish, Title, Venue</b> and <b>Notes</b> columns, or paste one session per line: date, start, finish, venue. An XPS import file works as it is. Dates are day first (12/01/2027). A session already on the calendar is not added twice.</>}
+      <button type="button" className="ghostlink" style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0 0", minHeight: 32 }}
+        onClick={() => downloadText(games ? "games-template.csv" : "training-template.csv", scheduleTemplate(mode), "text/csv;charset=utf-8")}>
+        <Download size={13} aria-hidden="true" />Download a template
+      </button>
+    </div>
+    <div className="field">
+      <textarea className="inp" rows={fileName ? 3 : 6} aria-label={games ? "Games list" : "Training list"} value={txt} onChange={e => { setTxt(e.target.value); setPicked([]); }}
+        placeholder={games ? "Or paste the list here:\n14/02/2027, 9:00am, City, Home, Home Ground, 1" : "Or paste the list here:\n12/01/2027, 5:00pm, 6:00pm, Home Ground"} />
+    </div>
+    {manyGroups && (
+      <div className="field">
+        <label>This file covers {parsed.groups.length} teams. Import which?</label>
+        <div className="chips">
+          {parsed.groups.map((g) => {
+            const on = picked.includes(g);
+            return <button key={g} type="button" className={"ds-chip" + (on ? " on" : "")} aria-pressed={on} onClick={() => setPicked(on ? picked.filter((x) => x !== g) : [...picked, g])}>{g}</button>;
+          })}
+        </div>
+      </div>
+    )}
+    {txt.trim() && !saving && (
+      <div className="note" role="status" style={{ marginBottom: 10 }}>
+        {parsed.sessions.length + parsed.fixtures.length === 0 && parsed.problems.length === 0 && <div>Nothing readable yet. Check the format.</div>}
+        {manyGroups && picked.length === 0 && <div>Choose a team above.</div>}
+        {nS > 0 && <div>Ready to add <b>{count(nS, "session", "sessions")}</b></div>}
+        {nG > 0 && <div>Ready to add <b>{count(nG, "game", "games")}</b></div>}
+        {nS + nG > 0 && <div>{added.first === added.last ? `${fmtDate(added.first)} ${added.first.slice(0, 4)}` : seasonRange({ startISO: added.first, endISO: added.last })}</div>}
+        {sample && <div>First one: {describe(sample)}</div>}
+        {merged.updated > 0 && <div>Filling in missing details on <b>{merged.updated}</b> already there.</div>}
+        {already > 0 && <div>{already} already on the calendar.</div>}
+        {parsed.problems.length > 0 && <div style={{ color: "var(--red)" }}>
+          {count(parsed.problems.length, "row", "rows")} skipped: {parsed.problems.slice(0, 3).map((p) => `row ${p.row} has ${p.reason}`).join("; ")}{parsed.problems.length > 3 ? "; and more" : ""}.
+        </div>}
+      </div>
+    )}
+    {outside > 0 && (wider ? (
+      <div className="swrow" style={{ borderBottom: "none", paddingTop: 0, alignItems: "flex-start" }}>
+        <span style={{ flex: 1, fontSize: 13 }}>
+          <b>{outside}</b> {outside === 1 ? "is" : "are"} outside this team's season ({seasonRange(season)}). Extend the season to {seasonRange(wider)} so {outside === 1 ? "it shows" : "they show"} on the calendar.
+        </span>
+        <Switch on={extend} label="Extend the season to fit" onClick={() => setExtend(!extend)} />
+      </div>
+    ) : (
+      <div className="note" style={{ marginBottom: 10 }}>
+        <b>{outside}</b> {outside === 1 ? "is" : "are"} outside this team's season ({seasonRange(season)}) and too far from it to extend here. {outside === 1 ? "It is" : "They are"} saved, but the calendar only shows months inside the season: change it in Team settings.
+      </div>
+    ))}
+    <button className="btn" onClick={save} disabled={!canSave}>{saving ? "Saving…" : action}</button>
+    {batches.length > 0 && (
+      <div className="imp-past">
+        <div className="label">Earlier imports</div>
+        {batches.map((b) => (removing === b.stamp ? (
+          <div className="imp-row" key={b.stamp}>
+            <span>Remove {batchText(b)}, and any replies to them?</span>
+            <button type="button" className="ghostlink" disabled={saving} onClick={() => takeBack(b)}>Remove</button>
+            <button type="button" className="ghostlink quiet" disabled={saving} onClick={() => setRemoving("")}>Keep</button>
+          </div>
+        ) : (
+          <div className="imp-row" key={b.stamp}>
+            <span>{batchWhen(b)} · {batchText(b)}{b.played ? ` (${count(b.played, "played game stays", "played games stay")})` : ""}</span>
+            <button type="button" className="ghostlink" aria-label={`Remove the import of ${batchText(b)} made ${batchWhen(b)}`} disabled={saving} onClick={() => setRemoving(b.stamp)}>Remove</button>
+          </div>
+        )))}
+      </div>
+    )}
   </>);
 }
 
