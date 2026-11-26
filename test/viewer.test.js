@@ -202,3 +202,79 @@ describe("account mode — view as (impersonation)", () => {
     expect((await resolveViewer(fakeRequest())).hat.role).toBe("coach");
   });
 });
+
+// The combined family view names the team each reply is for, and always acts
+// as the family there. Neither option may reach past what the login holds.
+describe("a request that names its team and its role", () => {
+  const FAMILY = [
+    { teamSlug: "a", teamName: "Team A", role: "coach" },
+    { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam" },
+    { teamSlug: "b", teamName: "Team B", role: "parent", playerId: "p9", playerName: "Leo" },
+    { teamSlug: "c", teamName: "Team C", role: "coach" },
+    { teamSlug: "d", teamName: "Team D", role: "viewer", clubAdmin: true, club: true }
+  ];
+  const signIn = (memberships = FAMILY) => {
+    auth.mockResolvedValue({ user: { email: "sam@example.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships });
+  };
+
+  it("a named team wins over the cookie, and there is no asking to pick one", async () => {
+    signIn();
+    const { resolveViewer } = await load({ authOn: true });
+    const v = await resolveViewer(fakeRequest({ cookies: { team_slug: "a" } }), { team: "b" });
+    expect(v).toMatchObject({ mode: "account", team: { slug: "b" }, hat: { role: "parent", playerIds: ["p9"] } });
+    // With no cookie at all a login on several teams is normally told to pick (409).
+    expect((await resolveViewer(fakeRequest())).error).toBe(409);
+    expect((await resolveViewer(fakeRequest(), { team: "a" })).team.slug).toBe("a");
+  });
+
+  it("a team the login is not on is refused, never swapped for one it is on", async () => {
+    signIn();
+    const { resolveViewer } = await load({ authOn: true });
+    for (const team of ["zzz", "", "A", null]) {
+      expect(await resolveViewer(fakeRequest({ cookies: { team_slug: "a" } }), { team }), String(team)).toEqual({ error: 403, message: "forbidden" });
+    }
+    // Even someone on exactly one team: a wrong name is not corrected to it.
+    signIn([{ teamSlug: "b", teamName: "Team B", role: "parent", playerId: "p9", playerName: "Leo" }]);
+    expect(await resolveViewer(fakeRequest(), { team: "a" })).toEqual({ error: 403, message: "forbidden" });
+    expect(teamBySlug).not.toHaveBeenCalled(); // refused before the team is even looked up
+  });
+
+  it("a pinned role is worn whatever the act_as cookie says", async () => {
+    signIn();
+    const { resolveViewer } = await load({ authOn: true });
+    // On Team A this login is coach and parent: the cookie says coach, the request says family.
+    const v = await resolveViewer(fakeRequest({ cookies: { act_as: "coach" } }), { team: "a", as: "parent" });
+    expect(v.hat).toEqual({ role: "parent", playerIds: ["p1"], playerNames: ["Sam"] });
+    // Without a named team the cookie's team is used, and the pin still holds.
+    const w = await resolveViewer(fakeRequest({ cookies: { team_slug: "a" } }), { as: "parent" });
+    expect(w).toMatchObject({ team: { slug: "a" }, hat: { role: "parent" } });
+  });
+
+  it("a pinned role the login does not hold on that team is refused: no falling back to a stronger one", async () => {
+    signIn();
+    const { resolveViewer } = await load({ authOn: true });
+    expect(await resolveViewer(fakeRequest(), { team: "c", as: "parent" })).toEqual({ error: 403, message: "forbidden" }); // coach only
+    expect(await resolveViewer(fakeRequest(), { team: "d", as: "parent" })).toEqual({ error: 403, message: "forbidden" }); // view only
+    expect(await resolveViewer(fakeRequest(), { team: "b", as: "coach" })).toEqual({ error: 403, message: "forbidden" });  // cannot pin up
+    expect(await resolveViewer(fakeRequest(), { team: "a", as: "admin" })).toEqual({ error: 403, message: "forbidden" });  // not a hat
+  });
+
+  it("impersonation stays read only, and reads as the person viewed", async () => {
+    signIn();
+    viewingAs.mockReturnValue("leo.parent@example.com");
+    const { resolveViewer, READ_ONLY_MESSAGE } = await load({ authOn: true });
+    expect(await resolveViewer(fakeRequest(), { write: true, team: "b", as: "parent" })).toEqual({ error: 403, message: READ_ONLY_MESSAGE });
+    expect(membershipsForEmail).not.toHaveBeenCalled();
+    const v = await resolveViewer(fakeRequest(), { team: "b", as: "parent" });
+    expect(membershipsForEmail).toHaveBeenCalledWith("leo.parent@example.com");
+    expect(v).toMatchObject({ impersonating: "leo.parent@example.com", team: { slug: "b" } });
+  });
+
+  it("team-code mode has one team per code: naming it is fine, naming another is refused", async () => {
+    teamFromCookieHeader.mockReturnValue({ slug: "a", name: "Team A" });
+    const { resolveViewer } = await load({ authOn: false });
+    expect((await resolveViewer(fakeRequest({ headers: { cookie: "site_auth=code" } }), { team: "a", as: "parent" })).team.slug).toBe("a");
+    expect(await resolveViewer(fakeRequest({ headers: { cookie: "site_auth=code" } }), { team: "b" })).toEqual({ error: 403, message: "forbidden" });
+  });
+});

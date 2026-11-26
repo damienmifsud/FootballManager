@@ -11,6 +11,7 @@ import {
   autoFillAssignments, minutesFor, rosterForFixture, seedAssignments, timerElapsed
 } from "@/lib/planner";
 import { fmtDate, initials, sideOf, roundLabel } from "@/lib/dashboardData";
+import { crestFor } from "@/lib/clubs";
 
 /* ---------------------------------------------------------------------------
    MATCH DAY — per-fixture lineup + substitution planner.
@@ -1126,7 +1127,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
                 {teamName}
               </div>
               <div className="truncate text-xs" style={{ color: P.dim, marginTop: 1 }}>
-                {roundLabel(fixture) || "Match"} {fixture.homeAway === "H" ? "vs" : "@"} {fixture.opponent}{sideOf(data, fixture) ? " · " + sideOf(data, fixture) : ""} · {fmtDate(fixture.dateISO)}{tabLabel ? " · " + tabLabel : ""}
+                {roundLabel(fixture) || "Match"} {fixture.homeAway === "H" ? "vs" : "@"} {crestFor(fixture.opponent) && <img className="md-crest" src={crestFor(fixture.opponent)} alt="" />}{fixture.opponent}{sideOf(data, fixture) ? " · " + sideOf(data, fixture) : ""} · {fmtDate(fixture.dateISO)}{tabLabel ? " · " + tabLabel : ""}
               </div>
             </div>
           </div>
@@ -1181,6 +1182,8 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
 const MDP_CSS = `
 @keyframes mdSlideUp { from { transform: translate(-50%, 24px); opacity: 0.6; } to { transform: translate(-50%, 0); opacity: 1; } }
 @keyframes mdFadeAway { 0% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+/* The opposition's crest in the header line: registry artwork only (lib/clubs.js), never a hotlink. */
+.md-crest { width: 14px; height: 14px; border-radius: 50%; object-fit: cover; display: inline-block; vertical-align: -2px; margin-right: 4px; }
 .mdp, .mdp * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 .mdp button { background: none; border: none; padding: 0; margin: 0; font: inherit; color: inherit; text-align: inherit; cursor: pointer; }
 .mdp input, .mdp select { font: inherit; }

@@ -26,6 +26,7 @@ import { seasonICS } from "@/lib/ics";
 // what counts toward the season. On a line of its own so the long import
 // above is not a meeting point for every change to this file.
 import { competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff, competitionSquad, inSquad, playersFor, nextFixtureFor } from "@/lib/dashboardData";
+import { fieldOf, sharedGround } from "@/lib/dashboardData";
 import {
   FORMATION_PRESETS, fallbackFormation, defaultFormatForAgeGroup, resolveFormat, parseFormation,
   makePositions, computeAutoSubs, computeSegments, sanitizeAssignments, rosterForFixture
@@ -33,6 +34,7 @@ import {
 import { shapeCall } from "@/lib/shapes";
 import { downscaleImage } from "@/lib/clientImage";
 import { crestFor, OUR_CREST } from "@/lib/clubs";
+import Crest, { OppCrest } from "@/components/Crest";
 import { hatLabel, kidNames, isPlayerHat, joinNames as joinKidNames } from "@/lib/hats";
 import { cannedQuestions, cannedAnswer, askFallback } from "@/lib/askCanned";
 import { signOut } from "next-auth/react";
@@ -319,6 +321,8 @@ const CSS = `
 .head .hcrest{width:30px;height:31px;object-fit:contain;flex-shrink:0;}
 .head .backbtn{width:36px;height:36px;border-radius:12px;border:none;background:var(--soft);color:var(--ink);
   display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-left:-4px;padding:0;}
+.head .hopp{width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;}
+.head .hopp.ph{display:inline-flex;align-items:center;justify-content:center;background:var(--soft);font-size:11px;font-weight:800;color:var(--muted);}
 .head .hbody{flex:1;min-width:0;}
 .head .hname{font-weight:800;font-size:14px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .head .hname.sub{font-size:15px;}
@@ -395,6 +399,7 @@ const CSS = `
 .wk-ic.game{background:var(--red-tint);color:var(--pitch);} .wk-ic.training{background:var(--amber-tint);color:var(--amber-strong);}
 .wk-ic.birthday{background:var(--pink-tint);color:var(--pink-strong);} .wk-ic.event{background:var(--blue-tint);color:var(--blue-strong);}
 .wk-ic.carnival{background:var(--red-tint);color:var(--red-strong);}
+.wk-ic.opp{background:none;border-radius:0;}
 .wk-body{flex:1;min-width:0;}
 .wk-title{font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wk-title.off{color:var(--muted);text-decoration:line-through;}
@@ -418,7 +423,19 @@ const CSS = `
 .bd-row:last-child{border-bottom:none;}
 /* reply sheet */
 .rs-title{font-size:20px;font-weight:800;line-height:1.2;}
-.rs-sub{font-size:13px;color:var(--muted);margin-top:4px;}
+/* what a reply or a duty is for: crest, vs, when, where */
+.gb{margin-top:12px;border:1px solid var(--line);border-radius:14px;padding:11px 12px;}
+.gb.plain{border:none;border-radius:0;padding:0;margin-top:10px;}
+.gb-top{display:flex;align-items:center;gap:10px;}
+.gb-body{flex:1;min-width:0;}
+.gb-title{font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.gb-meta{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.gb-place{border-top:1px solid var(--line);margin-top:10px;padding-top:9px;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:42px;}
+.gb-sides{padding-top:2px;}
+.gb-sides.first{border-top:1px solid var(--line);margin-top:10px;padding-top:4px;}
+.gb-side{display:flex;align-items:center;gap:10px;padding-top:8px;}
+.gb-side .t{font-family:'DM Mono',monospace;font-weight:500;font-size:13px;flex-shrink:0;}
+.gb-side .f{font-size:13px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .rs-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px;}
 .rs-btn{border:none;border-radius:14px;padding:18px 12px;font:inherit;font-size:17px;font-weight:800;cursor:pointer;min-height:64px;
   display:flex;align-items:center;justify-content:center;gap:8px;}
@@ -692,6 +709,8 @@ const CSS = `
 .du-head{display:flex;align-items:baseline;gap:8px;}
 .du-round{font-family:'Anton',sans-serif;font-weight:400;font-size:18px;line-height:1;color:var(--pitch);}
 .du-opp{font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.du-crest{width:22px;height:22px;border-radius:50%;object-fit:cover;flex-shrink:0;align-self:center;}
+.du-crest.ph{display:inline-flex;align-items:center;justify-content:center;background:var(--soft);font-size:8px;font-weight:800;color:var(--muted);}
 .du-date{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowrap;}
 .du-slot{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);}
 .du-head+.du-slot{margin-top:10px;}
@@ -1289,6 +1308,11 @@ export default function App() {
     : screen === "duties" ? [SUB_TITLES.duties[0], dutiesKicker(data.team)]
     : screen === "stats" ? [SUB_TITLES.stats[0], `Season ${seasonLabel(season)}`]
     : (SUB_TITLES[screen] || [screen, ""]);
+  // On a game's own screens (match detail, and Who's in while it shows the
+  // game rather than training) the header carries the opposition's crest
+  // beside the back button, the way the root header carries ours.
+  const headOpp = screen === "match" ? (screenFixture ? screenFixture.opponent : "")
+    : screen === "whosin" && whosIn && whosIn.show !== "session" ? whosIn.game.opponent : "";
   const chipLabel = account ? hatText : (isCoach ? "Coach" : "Parent");
   // Root kicker: the shown month on Calendar, "n players · m coaches" on Squad,
   // division · age group elsewhere.
@@ -1324,7 +1348,10 @@ export default function App() {
 
       <header className="head">
         {isSub ? (
-          <button className="backbtn" aria-label="Back" onClick={back}><ChevronLeft size={18} /></button>
+          <>
+            <button className="backbtn" aria-label="Back" onClick={back}><ChevronLeft size={18} /></button>
+            {headOpp && <OppCrest name={headOpp} className="hopp" discClass="hopp ph" />}
+          </>
         ) : (
           <img className="hcrest" src={data.team.logo || OUR_CREST} alt=""
             onError={(e) => { const el = e.currentTarget; if (el.getAttribute("src") !== OUR_CREST) el.src = OUR_CREST; else el.style.display = "none"; }} />
@@ -1583,15 +1610,16 @@ const pillsFor = (players, own, av, iso) => {
 };
 
 // One event row, shared by Home's Next 7 days, the Calendar list card and the
-// day sheet: 34px day column (DOW + Anton number), 32px icon square by kind,
-// title + meta, the reply pill(s), chevron. `it` is a monthItems/upcomingItems
+// day sheet: 34px day column (DOW + Anton number), 32px icon square by kind
+// (a game shows the opposition's crest there instead), title + meta, the
+// reply pill(s), chevron. `it` is a monthItems/upcomingItems
 // entry; `onOpen` is the tap handler or null for a static row. `noDay` drops the
 // day column (the day sheet's title already names the day).
 function EventRow({ data, it, isCoach, own, onOpen, noDay = false }) {
   const d = new Date(it.dateISO + "T00:00:00");
   const isGame = it.kind === "game", isBday = it.kind === "birthday", isEvent = it.kind === "event", isCarn = it.kind === "carnival";
   const kind = isGame ? "game" : isBday ? "birthday" : isEvent ? "event" : isCarn ? "carnival" : "training";
-  const Ic = isGame ? Trophy : isBday ? Cake : isEvent ? Star : isCarn ? Medal : ClipboardList;
+  const Ic = isBday ? Cake : isEvent ? Star : isCarn ? Medal : ClipboardList; // a game shows a crest instead
   const cancelled = isGame && it.ref.status === "cancelled";
   const place = isGame ? it.ref.venue : isBday ? "" : it.ref.location;
   const age = isBday && it.ref.dob && parseInt(it.ref.dob.slice(0, 4), 10) > 1990 ? d.getFullYear() - parseInt(it.ref.dob.slice(0, 4), 10) : null;
@@ -1609,13 +1637,86 @@ function EventRow({ data, it, isCoach, own, onOpen, noDay = false }) {
     <div className={"wk-row" + (open ? "" : " static")} role={open ? "button" : undefined} tabIndex={open ? 0 : undefined}
       onClick={open || undefined} onKeyDown={open ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } : undefined}>
       {!noDay && <div className="wk-day"><div className="wk-dow">{WEEKDAYS[d.getDay()]}</div><div className="wk-num">{d.getDate()}</div></div>}
-      <span className={"wk-ic " + kind}><Ic size={noDay ? 16 : 15} /></span>
+      {isGame
+        ? <span className="wk-ic game opp"><OppCrest name={it.ref.opponent} /></span>
+        : <span className={"wk-ic " + kind}><Ic size={noDay ? 16 : 15} /></span>}
       <div className="wk-body">
         <div className={"wk-title" + (cancelled ? " off" : "")}>{title}</div>
         <div className="wk-meta">{sideTag && <span className="sidetag">{sideTag}</span>}{meta}</div>
       </div>
       {pills.map((pl, i) => <span key={i} className={"wk-pill " + pl.cls}>{pl.label}</span>)}
       <ChevronRight size={15} color="#9AA3A6" style={{ flexShrink: 0, visibility: open ? "visible" : "hidden" }} />
+    </div>
+  );
+}
+
+// Where it is, with the way there: a pin, the place, and Directions when
+// there is a place to find.
+function PlaceLine({ text, link }) {
+  return (
+    <div className="gb-place">
+      <span className="ng-place"><MapPin size={12} /><span>{text}</span></span>
+      {link && <a className="dirpill" href={mapsUrl(link)} target="_blank" rel="noopener noreferrer"><Navigation size={13} />Directions</a>}
+    </div>
+  );
+}
+
+// What a reply or a duty is for, said in full wherever one is asked: the
+// opposition's crest and name, when the game is, and where, so nobody answers
+// without knowing where they are going. `both`: a reply on a paired round
+// covers both games, so each side gets its own line (kick-off and field)
+// instead of one time and place. `when` false leaves the date and time out,
+// for a card whose label already gives them. `plain` drops the box, for use
+// inside a card.
+function GameBrief({ data, f, both = false, when = true, plain = false }) {
+  const twin = both ? twinOf(data, f) : null;
+  const order = teamSides(data);
+  const sides = twin ? [f, twin].sort((a, b) => order.indexOf(a.side) - order.indexOf(b.side)) : [];
+  const shared = twin ? sharedGround(f.venue, twin.venue) : "";
+  // Home or away, when the two games of a paired round agree on it.
+  const where = twin && twin.homeAway !== f.homeAway ? "" : f.homeAway === "H" ? "Home" : f.homeAway === "A" ? "Away" : "";
+  const meta = [!both && sideOf(data, f), when && fmtDate(f.dateISO), when && !twin && f.time, where].filter(Boolean).join(" · ");
+  return (
+    <div className={"gb" + (plain ? " plain" : "")}>
+      <div className="gb-top">
+        <OppCrest name={f.opponent} />
+        <div className="gb-body">
+          <div className="gb-title">vs {f.opponent}</div>
+          {meta && <div className="gb-meta">{meta}</div>}
+        </div>
+      </div>
+      {twin ? (<>
+        {shared && <PlaceLine text={shared} link={shared} />}
+        <div className={"gb-sides" + (shared ? "" : " first")}>
+          {sides.map((g) => (
+            <div className="gb-side" key={g.id}>
+              <span className="sidetag">{g.side}</span>
+              <span className="t">{g.time || "TBC"}</span>
+              <span className="f">{(shared ? fieldOf(g.venue) : g.venue) || "Venue to be confirmed"}</span>
+            </div>
+          ))}
+        </div>
+      </>) : <PlaceLine text={f.venue || "Venue to be confirmed"} link={f.venue} />}
+    </div>
+  );
+}
+
+// The same for training, an activity or a carnival day: what it is, when, and
+// where when the place is known.
+function SessionBrief({ s, occ }) {
+  const carnival = isCarnival(s);
+  const kind = carnival ? "carnival" : s.kind === "event" ? "event" : "training";
+  const Ic = carnival ? Medal : s.kind === "event" ? Star : ClipboardList;
+  return (
+    <div className="gb">
+      <div className="gb-top">
+        <span className={"wk-ic " + kind}><Ic size={15} /></span>
+        <div className="gb-body">
+          <div className="gb-title">{s.title || "Training"}</div>
+          <div className="gb-meta">{[fmtDate(occ), timeWindow(s)].filter(Boolean).join(" · ")}</div>
+        </div>
+      </div>
+      {s.location && <PlaceLine text={s.location} link={s.location} />}
     </div>
   );
 }
@@ -1766,7 +1867,6 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
   const own = ownPlayers(data, { isCoach, me, viewer });
   const week = upcomingItems(data, todayISO, 7);
   const bdays = nextBirthdays(data, todayISO, 2);
-  const oppCrest = next ? crestFor(next.opponent) : null;
   // The next game is for its competition's squad: counts are over those
   // players, and a family is only asked about a child who is in it.
   const nextCounts = next ? replyCounts(playersFor(data, next), next.availability, next.dateISO) : null;
@@ -1781,9 +1881,7 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
   const nextSides = nextTwin ? [next, nextTwin].sort((a, b) => sideOrder.indexOf(a.side) - sideOrder.indexOf(b.side)) : [];
   // "Perry Park – Field 4C": when both games share the ground it is named once
   // and each line carries its field.
-  const ground = (f) => String(f.venue || "").split(" – ")[0];
-  const fieldOf = (f) => String(f.venue || "").split(" – ").slice(1).join(" – ");
-  const sharedGround = nextTwin && ground(next) && ground(next) === ground(nextTwin) && fieldOf(next) && fieldOf(nextTwin) ? ground(next) : "";
+  const sharedNext = nextTwin ? sharedGround(next.venue, nextTwin.venue) : "";
   // The soonest upcoming carnival within 21 days gets its own card under the
   // Duties card (parents block the day out and reply early). `next` is the
   // next league game: nextFixture skips carnival games, so the carnival never
@@ -1815,20 +1913,18 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
               <div className="mu-date">{matchDate(next.dateISO)}</div>
             </div>
             <div className="mu-side">
-              {oppCrest
-                ? <img className="mu-crest" src={oppCrest} alt="" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} />
-                : <span className="mu-disc">{initials(next.opponent)}</span>}
+              <OppCrest name={next.opponent} className="mu-crest" discClass="mu-disc" />
               <span className="mu-name">{next.opponent}</span>
             </div>
           </div>
           {nextTwin ? (
             <div className="ng-sides">
-              {sharedGround && <div className="ng-shared"><MapPin size={12} /><span>{sharedGround}</span></div>}
+              {sharedNext && <div className="ng-shared"><MapPin size={12} /><span>{sharedNext}</span></div>}
               {nextSides.map(g => (
                 <button key={g.id} className="ng-side" onClick={() => openMatch(g)} aria-label={`${g.side}: ${g.time || "time to be confirmed"}, ${g.venue || "venue to be confirmed"}`}>
                   <span className="sidetag">{g.side}</span>
                   <span className="t">{g.time || "TBC"}</span>
-                  <span className="f">{(sharedGround ? fieldOf(g) : g.venue) || "Venue to be confirmed"}</span>
+                  <span className="f">{(sharedNext ? fieldOf(g.venue) : g.venue) || "Venue to be confirmed"}</span>
                   <ChevronRight size={15} color="#9AA3A6" style={{ flexShrink: 0 }} />
                 </button>
               ))}
@@ -1941,13 +2037,10 @@ function ReplySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast,
     sendReply({ kind: isSession ? "session" : "game", fixture, session, occ, playerId: payload.playerId, status, reason: note.trim(), by, first, self, patchLocal, showToast });
     close();
   };
-  const sub = isSession
-    ? `${session.title} · ${fmtDate(occ)}${session.time ? ` · ${session.time}` : ""}`
-    : `vs ${fixture.opponent} · ${fmtDate(fixture.dateISO)}${fixture.time ? ` · ${fixture.time}` : ""}`;
   return (
     <>
       <div className="rs-title">{self ? "Your reply" : `Reply for ${first}`}</div>
-      <div className="rs-sub">{sub}</div>
+      {isSession ? <SessionBrief s={session} occ={occ} /> : <GameBrief data={data} f={fixture} both />}
       <div className="rs-grid">
         <button className={"rs-btn in" + (cur === "in" ? " sel" : "")} onClick={() => choose("in")}><Check size={18} />In</button>
         <button className={"rs-btn out" + (cur === "out" ? " sel" : "")} onClick={() => choose("out")}><X size={18} />Out</button>
@@ -2125,16 +2218,8 @@ function DaySheet({ data, iso, isCoach, viewer, me, setModal, openMatch, openPla
 }
 
 /* ---------------- RESULTS (S3, Direction C) ---------------- */
-// A club crest at row size: the registry image (never a Squadi hotlink) or an
-// initials disc when we have no artwork. Our own crest falls back to the
-// bundled file if the team's uploaded logo fails to load.
-function Crest({ src, name, ours, className = "mcrest", discClass = "mcrest ph" }) {
-  if (!src) return <span className={discClass}>{initials(name)}</span>;
-  const onError = ours
-    ? (e) => { const el = e.currentTarget; if (el.getAttribute("src") !== OUR_CREST) el.src = OUR_CREST; else el.style.visibility = "hidden"; }
-    : (e) => { e.currentTarget.style.visibility = "hidden"; };
-  return <img className={className + (ours ? " ours" : "")} src={src} alt="" onError={onError} />;
-}
+// Club crests come from components/Crest.jsx: the registry image (never a
+// Squadi hotlink) or an initials disc when we have no artwork.
 
 // Played / cancelled / upcoming, from the fixture alone.
 const fixtureState = (f) => {
@@ -2421,6 +2506,7 @@ function DutiesTab({ data, isCoach, viewer, me, setModal, patchLocal, showToast 
           <div key={f.id} className={"card ducard" + (past ? " past" : "")}>
             <div className="du-head">
               <span className="du-round">{f.round ? `R${f.round}` : "—"}</span>
+              <OppCrest name={f.opponent} className="du-crest" discClass="du-crest ph" />
               <span className="du-opp">vs {f.opponent}{competitionOf(f) ? ` · ${competitionOf(f).name}` : ""}</span>
               {sideOf(data, f) && <span className="sidetag">{sideOf(data, f)}</span>}
               <span className="du-date">{fmtDate(f.dateISO)}</span>
@@ -2454,13 +2540,13 @@ function DutySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast, 
   const coachFirst = head?.name ? firstName(head.name) : null;
   const write = (playerId) => { saveDuty({ fixture: f, duty: key, playerId, self: !isCoach && !!kids.find((p) => p.id === playerId)?.isSelf, data, patchLocal, showToast }); close(); };
   const title = `${def.label} · ${roundLabel(f) || "this game"}`;
-  const sub = `vs ${f.opponent} · ${fmtDate(f.dateISO)}`;
+  const brief = <GameBrief data={data} f={f} />;
   const sorted = coachFirst ? `We'll let Coach ${coachFirst} know it's sorted.` : "We'll let the coach know it's sorted.";
 
   if (isCoach) {
     return (<>
       <div className="rs-title">{title}</div>
-      <div className="rs-sub">{sub}</div>
+      {brief}
       <div className="ds-list">
         {players.map((p) => {
           const guardian = p.guardians?.[0]?.name || p.parentName || "";
@@ -2486,7 +2572,7 @@ function DutySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast, 
     const selfOn = !!kids.find((p) => p.id === cur)?.isSelf;
     return (<>
       <div className="rs-title">{title}</div>
-      <div className="rs-sub">{sub}</div>
+      {brief}
       <div className="ds-body">{selfOn ? "You're" : "Your family is"} on {def.word === "jersey" ? "jerseys" : def.word} this round. Thanks!</div>
       <button className="btn danger ds-btn" onClick={() => write("")}>Can't do it after all</button>
     </>);
@@ -2494,7 +2580,7 @@ function DutySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast, 
   if (cur) {
     return (<>
       <div className="rs-title">{title}</div>
-      <div className="rs-sub">{sub}</div>
+      {brief}
       <div className="ds-body">{who} already has this one. Thanks for offering!</div>
     </>);
   }
@@ -2504,7 +2590,7 @@ function DutySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast, 
     : `Take the jerseys home after the game and bring them back washed for the next one. ${sorted}`;
   return (<>
     <div className="rs-title">{title}</div>
-    <div className="rs-sub">{sub}</div>
+    {brief}
     <div className="ds-body">{body}</div>
     {kids.length > 1 && (
       <div className="ds-chips" role="radiogroup" aria-label="Whose family">
@@ -4418,6 +4504,7 @@ function PlayerScreen({ data, p, next, persist, patchLocal, isCoach, viewer, me,
     {canReply && (
       <div className="card preply">
         <div className="label">{[roundLabel(next), fmtDate(next.dateISO), next.time || ""].filter(Boolean).join(" · ")}</div>
+        <GameBrief data={data} f={next} both when={false} plain />
         <div className="replyrows">
           <ReplyRow p={self ? { ...p, isSelf: true } : p} name={self ? "Are you playing?" : `Is ${first} playing?`} status={next.availability?.[p.id]?.status || null} onTap={openReply} />
         </div>
