@@ -199,3 +199,14 @@ describe("seedAssignments and timer", () => {
     expect(timerElapsed({ running: true, elapsed: 2390, anchorTs: now - 60_000 }, 40, now)).toBe(2400); // capped
   });
 });
+
+describe("rosterForFixture: players without a jersey number", () => {
+  it("a number stored as 0, \"\" or null is \"\" (so discs show initials); a real number is its string", () => {
+    const data = { players: [
+      { id: "a", name: "Zero", number: 0 }, { id: "b", name: "Blank", number: "" },
+      { id: "c", name: "Null", number: null }, { id: "d", name: "Seven", number: 7 }
+    ] };
+    const byId = Object.fromEntries(rosterForFixture(data, { dateISO: "2026-06-21", availability: {} }).map((p) => [p.id, p.number]));
+    expect(byId).toEqual({ a: "", b: "", c: "", d: "7" });
+  });
+});

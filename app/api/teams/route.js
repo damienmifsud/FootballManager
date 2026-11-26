@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getStoredTeams, setStoredTeams, getData, setData, deleteData } from "@/lib/store";
-import { getTeams, clearTeamsCache } from "@/lib/teams";
+import { getTeams, clearTeamsCache, squadiFeeds } from "@/lib/teams";
 import { auth } from "@/auth";
 import { isAdminEmail, isClubAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
 import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE, sanitizeSeason } from "@/lib/teamSetup";
-import { sanitizeCompetitions, sanitizeSquadiIds } from "@/lib/competitions";
+import { sanitizeCompetitions } from "@/lib/competitions";
 
 export const dynamic = "force-dynamic";
 
@@ -54,10 +54,14 @@ function sanitizeTeam(input, existing = {}) {
     t.coachEmails = (Array.isArray(input.coachEmails) ? input.coachEmails : String(input.coachEmails).split(","))
       .map(norm).filter((e) => e.includes("@"));
   }
-  // The season's Squadi ids.
+  // The season's Squadi ids. One feed keeps the stored object shape; two
+  // feeds (one squad that plays as two teams each round) are stored as an
+  // array of labelled feeds (squadiError has already checked the labels).
   if (input.squadi != null) {
-    const ids = sanitizeSquadiIds(input.squadi);
-    if (ids) t.squadi = ids; else delete t.squadi;
+    const feeds = squadiFeeds({ squadi: input.squadi });
+    if (feeds.length === 2) t.squadi = feeds;
+    else if (feeds.length === 1) t.squadi = feeds[0];
+    else delete t.squadi;
   }
   // Every other competition the team plays in (lib/competitions.js). The list
   // is replaced whole: a row left out has been removed. A row keeps the id it
@@ -69,6 +73,25 @@ function sanitizeTeam(input, existing = {}) {
   return t;
 }
 const newCompetitionId = () => "c" + crypto.randomBytes(4).toString("hex");
+
+// Two feeds make one squad that plays as two teams each round. Each needs its
+// three Squadi ids and a label (trimmed, at most 12 characters, different from
+// the other): the label names the side on every game of that feed.
+const SIDE_LABEL_MAX = 12;
+function squadiError(input) {
+  if (Array.isArray(input) && input.filter((f) => f && typeof f === "object" && (f.competitionId || f.divisionId || f.teamId)).length > 2) {
+    return "a squad can have at most two Squadi teams";
+  }
+  const feeds = squadiFeeds({ squadi: input });
+  if (feeds.length < 2) return null;
+  if (feeds.some((f) => !f.competitionId || !f.divisionId || !f.teamId)) return "each Squadi team needs its competition ID, division ID and team ID";
+  if (feeds.some((f) => !f.label)) return "each Squadi team needs a label, like McKay and McKain";
+  if (feeds.some((f) => f.label.length > SIDE_LABEL_MAX)) return `a Squadi team label can be at most ${SIDE_LABEL_MAX} characters`;
+  if (feeds[0].label.toLowerCase() === feeds[1].label.toLowerCase()) return "the two Squadi team labels must be different";
+  return null;
+}
+// The document's team.sides: the two labels in wizard order, or none.
+const sidesOf = (team) => { const f = squadiFeeds(team); return f.length === 2 ? f.map((x) => x.label) : null; };
 
 // Uniqueness across BOTH sources — the password is the team selector and the
 // calendar key is the feed credential, so collisions would cross team lines.
@@ -87,9 +110,11 @@ export async function GET() {
   const teams = await getTeams();
   const enriched = await Promise.all(teams.map(async (t) => {
     const doc = await getData(t.slug).catch(() => null);
+    const feeds = squadiFeeds(t);
     return {
       slug: t.slug, name: t.name, password: t.password, calendarKey: t.calendarKey || "",
-      ageGroup: t.ageGroup || "", coachEmails: t.coachEmails || [], squadi: t.squadi || null,
+      ageGroup: t.ageGroup || "", coachEmails: t.coachEmails || [],
+      squadi: feeds.length === 2 ? feeds : (feeds[0] || null),
       competitions: Array.isArray(t.competitions) ? t.competitions : [],
       source: t.stored ? "stored" : (t.legacy ? "legacy" : "env"),
       division: doc?.team?.division || "",
@@ -123,6 +148,9 @@ export async function POST(req) {
   if (!SLUG_RE.test(slug)) return NextResponse.json({ error: "bad slug (lowercase letters, numbers, dashes)" }, { status: 400 });
   const password = String(body?.password || "").trim();
   if (password.length < 4) return NextResponse.json({ error: "team code must be at least 4 characters" }, { status: 400 });
+
+  const squadiBad = body?.squadi != null ? squadiError(body.squadi) : null;
+  if (squadiBad) return NextResponse.json({ error: squadiBad }, { status: 400 });
 
   clearTeamsCache();
   if ((await getTeams()).some((t) => t.slug === slug)) return NextResponse.json({ error: `a team with slug "${slug}" already exists` }, { status: 409 });
@@ -159,7 +187,8 @@ export async function POST(req) {
         staff: sanitizeStaff(body.staff),
         matchFormat: defaultFormatForAgeGroup(team.ageGroup),
         features: sanitizeFeatures(body.features),
-        parentsSee: sanitizeParentsSee(body.parentsSee)
+        parentsSee: sanitizeParentsSee(body.parentsSee),
+        ...(sidesOf(team) ? { sides: sidesOf(team) } : {})
       },
       players, fixtures: [], sessions
     });
@@ -192,6 +221,8 @@ export async function PATCH(req) {
   if (body.calendarKey != null && (await clash("calendarKey", String(body.calendarKey).trim(), slug))) {
     return NextResponse.json({ error: "calendar key already in use" }, { status: 409 });
   }
+  const squadiBad = body.squadi != null ? squadiError(body.squadi) : null;
+  if (squadiBad) return NextResponse.json({ error: squadiBad }, { status: 400 });
 
   const { stored: _s, legacy: _l, ...base } = current;
   const next = sanitizeTeam(body, { ...base, slug });
@@ -209,7 +240,8 @@ export async function PATCH(req) {
   // Doc-held fields (shown throughout the dashboard) update in place too.
   let docUpdated = false;
   if (body.division != null || body.whatsapp != null || body.features != null || body.parentsSee != null ||
-      body.name != null || body.logo != null || body.staff != null || body.coachPin != null || body.season !== undefined) {
+      body.name != null || body.logo != null || body.staff != null || body.coachPin != null || body.season !== undefined ||
+      body.squadi != null) {
     const doc = await getData(slug);
     if (doc) {
       const teamDoc = { ...(doc.team || {}) };
@@ -238,6 +270,9 @@ export async function PATCH(req) {
         }));
       }
       if (body.coachPin != null) teamDoc.coachPin = String(body.coachPin).trim().slice(0, 12);
+      // Two feeds: the labels in wizard order, which the dashboard orders the
+      // two games by. Back to one feed (or none): removed.
+      if (body.squadi != null) { const sides = sidesOf(next); if (sides) teamDoc.sides = sides; else delete teamDoc.sides; }
       await setData(slug, { ...doc, team: teamDoc });
       docUpdated = true;
     }

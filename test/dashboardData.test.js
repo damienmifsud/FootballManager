@@ -6,7 +6,8 @@ import {
   carnivalGames, carnivalMeta, carnivalDescription, pitchLabel,
   carnivalOf, isCarnivalGame, carnivalFixtures, carnivalGameRows,
   competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff,
-  competitionSquad, squadOf, inSquad, playersFor, nextFixtureFor
+  competitionSquad, squadOf, inSquad, playersFor, nextFixtureFor,
+  twinOf, sideOf, teamSides, sideName, inSideOrder
 } from "@/lib/dashboardData";
 
 // Pin "now" for the helpers that read the clock (countdown, isPastGame,
@@ -689,5 +690,113 @@ describe("competition squads", () => {
       expect(nextFixtureFor(dd, ["p2"]).id).toBe("s7");
       expect(nextFixtureFor(dd, []).id).toBe("s7");
     });
+  });
+});
+
+describe("twinOf: the other game of a paired round", () => {
+  const carnival = { id: "c1", kind: "carnival", recur: "once", dateISO: "2026-07-04", title: "Winter carnival" };
+  const fx = (id, round, side, over = {}) => ({ id, round, ...(side ? { side } : {}), opponent: "Wests", ...over });
+  const data = {
+    team: { name: "U9 Academy", sides: ["McKay", "McKain"] },
+    sessions: [carnival],
+    fixtures: [
+      fx("a1", 1, "McKay"), fx("b1", 1, "McKain"),
+      fx("a2", 2, "McKay"),                                  // McKain has a bye in round 2
+      fx("c1a", 1, "McKay", { carnivalId: "c1" }),           // carnival games never pair
+      fx("x3", 3), fx("y3", 3),                              // no side: a single-feed team
+      fx("a4", 4, "McKay"), fx("a4b", 4, "McKay")            // same side twice is not a pair
+    ]
+  };
+  const byId = (id) => data.fixtures.find((f) => f.id === id);
+  it("is the fixture with the same round and a different side, both ways", () => {
+    expect(twinOf(data, byId("a1")).id).toBe("b1");
+    expect(twinOf(data, byId("b1")).id).toBe("a1");
+  });
+  it("is null for a bye round, a fixture with no side, the same side and missing input", () => {
+    expect(twinOf(data, byId("a2"))).toBeNull();
+    expect(twinOf(data, byId("x3"))).toBeNull();
+    expect(twinOf(data, byId("a4"))).toBeNull();
+    expect(twinOf(data, null)).toBeNull();
+    expect(twinOf({}, byId("a1"))).toBeNull();
+  });
+  it("leaves carnival games out: one is never a twin and never has one", () => {
+    expect(twinOf(data, byId("c1a"))).toBeNull();
+    const only = { ...data, fixtures: [byId("b1"), byId("c1a")] };
+    expect(twinOf(only, byId("b1"))).toBeNull();
+  });
+  it("sideOf and sideName name the side only on a paired round", () => {
+    expect(sideOf(data, byId("a1"))).toBe("McKay");
+    expect(sideOf(data, byId("a2"))).toBe("");
+    expect(sideName(data, byId("b1"))).toBe("U9 Academy McKain");
+    expect(sideName(data, byId("a2"))).toBe("U9 Academy");
+    expect(sideName(data, byId("x3"), "Us")).toBe("Us");
+  });
+  it("teamSides is team.sides, else the order the fixtures first name them", () => {
+    expect(teamSides(data)).toEqual(["McKay", "McKain"]);
+    expect(teamSides({ fixtures: [fx("b", 1, "McKain"), fx("a", 1, "McKay"), fx("b2", 2, "McKain")] })).toEqual(["McKain", "McKay"]);
+    expect(teamSides({ fixtures: [fx("x", 1)] })).toEqual([]);
+  });
+});
+
+// Rounds are numbered per draw, so a pair is always within one competition:
+// the season's Round 1 and another competition's Round 1 are different rounds.
+describe("twinOf — a pair never crosses competitions", () => {
+  const fx = (id, round, side, over = {}) => ({ id, round, ...(side ? { side } : {}), opponent: "Wests", ...over });
+  const WINTER = { comp: "cwinter", compName: "Winterfest" };
+  const data = {
+    team: { name: "U9 Academy", sides: ["McKay", "McKain"] },
+    sessions: [],
+    fixtures: [
+      fx("a1", 1, "McKay"), fx("b1", 1, "McKain"),              // the season's round 1: a pair
+      fx("w1", 1, "McKain", WINTER),                            // Winterfest's round 1, one side only
+      fx("wa", 2, "McKay", WINTER), fx("wb", 2, "McKain", WINTER), // Winterfest's round 2: a pair of its own
+      fx("a3", 3, "McKay"), fx("w3", 3, "McKain", WINTER),      // round 3: one season game, one Winterfest game
+      fx("x4", 4, "McKay", WINTER), fx("y4", 4, "McKain", { comp: "ccup", compName: "Cup" }) // two other competitions
+    ]
+  };
+  const byId = (id) => data.fixtures.find((f) => f.id === id);
+  const twin = (id) => twinOf(data, byId(id))?.id ?? null;
+
+  it("pairs within the season and within a competition, and never between them", () => {
+    expect([twin("a1"), twin("b1")]).toEqual(["b1", "a1"]);
+    expect(twin("w1")).toBeNull();
+    expect([twin("wa"), twin("wb")]).toEqual(["wb", "wa"]);
+    expect([twin("a3"), twin("w3")]).toEqual([null, null]);
+    expect([twin("x4"), twin("y4")]).toEqual([null, null]);
+  });
+
+  it("so the side tag and our name follow: only a real pair is tagged", () => {
+    expect(["a1", "w1", "wa", "a3", "w3"].map((id) => sideOf(data, byId(id)))).toEqual(["McKay", "", "McKay", "", ""]);
+    expect(sideName(data, byId("wb"))).toBe("U9 Academy McKain");
+    expect(sideName(data, byId("w3"))).toBe("U9 Academy");
+  });
+});
+
+describe("inSideOrder — the two games of a round in wizard order", () => {
+  const data = { team: { sides: ["McKay", "McKain"] }, fixtures: [] };
+  const byRound = (a, b) => (a.round || 0) - (b.round || 0);
+  const g = (id, round, side, over = {}) => ({ id, round, ...(side ? { side } : {}), ...over });
+  const order = (list, d = data, cmp = byRound) => [...list].sort(inSideOrder(d, cmp)).map((f) => f.id);
+
+  it("breaks a tie by team.sides, whichever game was stored first", () => {
+    expect(order([g("b1", 1, "McKain"), g("a1", 1, "McKay"), g("b2", 2, "McKain"), g("a2", 2, "McKay")])).toEqual(["a1", "b1", "a2", "b2"]);
+    // The list's own order always comes first: sides only settle ties.
+    expect(order([g("a2", 2, "McKay"), g("b1", 1, "McKain")])).toEqual(["b1", "a2"]);
+  });
+
+  it("with kick-off order, the earlier game stays first even when it is the second side's", () => {
+    const list = [g("a", 7, "McKay", { dateISO: "2026-06-21", time: "10:30" }), g("b", 7, "McKain", { dateISO: "2026-06-21", time: "09:00" }),
+      g("c", 8, "McKain", { dateISO: "2026-06-28", time: "09:00" }), g("d", 8, "McKay", { dateISO: "2026-06-28", time: "09:00" })];
+    expect(order(list, data, byKickOff)).toEqual(["b", "a", "d", "c"]);
+  });
+
+  it("a game with no side, or a side the team does not list, goes after the listed sides and is otherwise left alone", () => {
+    expect(order([g("x", 1), g("b", 1, "McKain"), g("o", 1, "Other"), g("a", 1, "McKay")])).toEqual(["a", "b", "x", "o"]);
+  });
+
+  it("a team with no sides is ordered exactly as the list's own order says", () => {
+    const list = [g("r2", 2), g("r1", 1), g("r1b", 1)];
+    expect(order(list, { team: {}, fixtures: list })).toEqual(["r1", "r1b", "r2"]);
+    expect(order(list, null)).toEqual(["r1", "r1b", "r2"]);
   });
 });

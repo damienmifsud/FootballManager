@@ -621,3 +621,141 @@ describe("competitions — the team's other draws", () => {
     expect("squadi" in setStoredTeams.mock.calls[0][0][0]).toBe(false);
   });
 });
+
+describe("two Squadi feeds on one squad", () => {
+  const McKay = { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: 133944 };
+  const McKain = { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 };
+  const one = { competitionId: "1439", divisionId: "10661", teamId: 110013 };
+  const create = async (squadi) => {
+    const { POST } = await asAdmin();
+    return POST(fakeRequest({ body: { name: "U9 Academy", ageGroup: "U9", password: "gold-roo-99", ...(squadi !== undefined ? { squadi } : {}) } }));
+  };
+
+  it("POST stores two feeds as an array (ids normalised, labels trimmed) and writes team.sides in wizard order", async () => {
+    const res = await create([{ ...McKay, label: " McKay ", teamId: "133944" }, McKain]);
+    expect(res.status).toBe(200);
+    expect((await res.json()).team.squadi).toEqual([McKay, McKain]);
+    expect(setData.mock.calls[0][1].team.sides).toEqual(["McKay", "McKain"]);
+  });
+
+  it("POST keeps one feed in today's object shape, with no sides on the document", async () => {
+    const res = await create({ ...one, teamId: "110013" });
+    expect((await res.json()).team.squadi).toEqual(one);
+    expect("sides" in setData.mock.calls[0][1].team).toBe(false);
+    // An array with only one filled row is still a single feed (its label is dropped).
+    const res2 = await (await asAdmin()).POST(fakeRequest({ body: { name: "U9 Other", password: "gold-roo-98", squadi: [{ label: "McKay", ...one }, { label: "", competitionId: "", divisionId: "", teamId: "" }] } }));
+    expect((await res2.json()).team.squadi).toEqual(one);
+  });
+
+  it("label rules for two feeds: required, at most 12 characters, different from each other; ids complete", async () => {
+    const bad = async (squadi, re) => {
+      const res = await create(squadi);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(re);
+    };
+    await bad([{ ...McKay, label: "  " }, McKain], /needs a label/);
+    await bad([McKay, { ...McKain, label: "Thirteen chars" }], /at most 12 characters/);
+    await bad([McKay, { ...McKain, label: " mckay " }], /must be different/);
+    await bad([McKay, { ...McKain, divisionId: "" }], /competition ID, division ID and team ID/);
+    await bad([McKay, McKain, { ...McKain, label: "Third" }], /at most two/);
+    expect(setStoredTeams).not.toHaveBeenCalled();
+    expect((await create([McKay, { ...McKain, label: "Twelve chars" }])).status).toBe(200);
+  });
+
+  it("GET returns both shapes through squadiFeeds", async () => {
+    getStoredTeams.mockResolvedValue([
+      { slug: "two", name: "Two", password: "code-two", squadi: [McKay, McKain] },
+      { slug: "one", name: "One", password: "code-one", squadi: one },
+      { slug: "none", name: "None", password: "code-none" }
+    ]);
+    const { GET } = await asAdmin();
+    const bySlug = Object.fromEntries((await (await GET()).json()).teams.map((t) => [t.slug, t.squadi]));
+    expect(bySlug.two).toEqual([McKay, McKain]);
+    expect(bySlug.one).toEqual(one);
+    expect(bySlug.none).toBeNull();
+  });
+
+  it("PATCH to two feeds writes team.sides; back to one feed removes it and restores the object shape", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "u9", name: "U9 Academy", password: "code-u9", squadi: one }]);
+    getData.mockResolvedValue({ team: { name: "U9 Academy" }, players: [], fixtures: [] });
+    const { PATCH } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "u9", squadi: [McKay, McKain] } }));
+    expect(res.status).toBe(200);
+    expect(setStoredTeams.mock.calls[0][0][0].squadi).toEqual([McKay, McKain]);
+    expect(setData.mock.calls[0][1].team.sides).toEqual(["McKay", "McKain"]);
+
+    getStoredTeams.mockResolvedValue([{ slug: "u9", name: "U9 Academy", password: "code-u9", squadi: [McKay, McKain] }]);
+    getData.mockResolvedValue({ team: { name: "U9 Academy", sides: ["McKay", "McKain"] }, players: [], fixtures: [] });
+    const back = await (await asAdmin()).PATCH(fakeRequest({ body: { slug: "u9", squadi: one } }));
+    expect(back.status).toBe(200);
+    expect(setStoredTeams.mock.calls.at(-1)[0][0].squadi).toEqual(one);
+    expect("sides" in setData.mock.calls.at(-1)[1].team).toBe(false);
+  });
+
+  it("PATCH refuses bad labels and changes nothing; an edit that does not touch Squadi leaves sides alone", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "u9", name: "U9 Academy", password: "code-u9", squadi: [McKay, McKain] }]);
+    getData.mockResolvedValue({ team: { name: "U9 Academy", sides: ["McKay", "McKain"] }, players: [], fixtures: [] });
+    const { PATCH } = await asAdmin();
+    expect((await PATCH(fakeRequest({ body: { slug: "u9", squadi: [McKay, { ...McKain, label: "McKay" }] } }))).status).toBe(400);
+    expect(setStoredTeams).not.toHaveBeenCalled();
+    expect(setData).not.toHaveBeenCalled();
+    expect((await PATCH(fakeRequest({ body: { slug: "u9", division: "FQA 1" } }))).status).toBe(200);
+    expect(setStoredTeams.mock.calls[0][0][0].squadi).toEqual([McKay, McKain]);
+    expect(setData.mock.calls[0][1].team.sides).toEqual(["McKay", "McKain"]);
+  });
+});
+
+// Both on one registry entry: a season with two feeds, and other competitions
+// beside it. Neither is stored at the other's expense.
+describe("two Squadi feeds and other competitions on one team", () => {
+  const McKay = { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: 133944 };
+  const McKain = { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 };
+  const WINTER = { competitionId: "1750", divisionId: "20001", teamId: 300123 };
+
+  it("POST stores the two feeds, the competitions (each with an id of its own) and the document's sides together", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: {
+      name: "U9 Academy", ageGroup: "U9", password: "gold-roo-99", squadi: [McKay, McKain],
+      competitions: [{ name: "Winterfest", squadi: { ...WINTER, teamId: "300123" } }, { name: "Premier Invitational" }]
+    } }));
+    expect(res.status).toBe(200);
+    const stored = setStoredTeams.mock.calls[0][0][0];
+    expect(stored.squadi).toEqual([McKay, McKain]);
+    expect(stored.competitions.map((c) => [c.name, c.squadi || null])).toEqual([["Winterfest", WINTER], ["Premier Invitational", null]]);
+    expect(stored.competitions.every((c) => /^c[0-9a-f]{8}$/.test(c.id))).toBe(true);
+    expect(setData.mock.calls[0][1].team.sides).toEqual(["McKay", "McKain"]);
+    // A competition is not a side: nothing of it is written to the document.
+    expect(JSON.stringify(setData.mock.calls[0][1])).not.toMatch(/Winterfest/);
+  });
+
+  it("GET returns both, and an edit to one leaves the other as it was", async () => {
+    const comps = [{ id: "cwinter01", name: "Winterfest", squadi: WINTER }];
+    getStoredTeams.mockResolvedValue([{ slug: "u9", name: "U9 Academy", password: "code-u9", squadi: [McKay, McKain], competitions: comps }]);
+    getData.mockResolvedValue({ team: { name: "U9 Academy", sides: ["McKay", "McKain"] }, players: [], fixtures: [] });
+    const { GET, PATCH } = await asAdmin();
+    const listed = (await (await GET()).json()).teams.find((t) => t.slug === "u9");
+    expect(listed.squadi).toEqual([McKay, McKain]);
+    expect(listed.competitions).toEqual(comps);
+    // Rename the competition: the two feeds and the sides are untouched.
+    expect((await PATCH(fakeRequest({ body: { slug: "u9", competitions: [{ id: "cwinter01", name: "Winterfest 2027", squadi: WINTER }] } }))).status).toBe(200);
+    const stored = () => setStoredTeams.mock.calls.at(-1)[0].find((t) => t.slug === "u9");
+    let saved = stored();
+    expect(saved.squadi).toEqual([McKay, McKain]);
+    expect(saved.competitions).toEqual([{ id: "cwinter01", name: "Winterfest 2027", squadi: WINTER }]);
+    expect(setData).not.toHaveBeenCalled(); // nothing document-held changed
+    // Go back to one season feed: the competitions stay, the sides go.
+    expect((await PATCH(fakeRequest({ body: { slug: "u9", squadi: { competitionId: "1844", divisionId: "12962", teamId: 133944 } } }))).status).toBe(200);
+    saved = stored();
+    expect(saved.squadi).toEqual({ competitionId: "1844", divisionId: "12962", teamId: 133944 });
+    expect(saved.competitions).toEqual(comps);
+    expect("sides" in setData.mock.calls.at(-1)[1].team).toBe(false);
+  });
+
+  it("a bad label refuses the whole save: the competitions sent with it are not stored either", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "u9", name: "U9 Academy", password: "code-u9", squadi: [McKay, McKain] }]);
+    const { PATCH } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "u9", squadi: [McKay, { ...McKain, label: "" }], competitions: [{ name: "Winterfest", squadi: WINTER }] } }));
+    expect(res.status).toBe(400);
+    expect(setStoredTeams).not.toHaveBeenCalled();
+  });
+});

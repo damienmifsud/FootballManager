@@ -39,10 +39,11 @@ async function emailChanges(teamName, changes) {
 }
 
 // One team's sync. A team has one draw or several (lib/competitions.js): its
-// season, plus any other competition whose Squadi ids are complete. One
-// competition failing (its draw is not published yet, say) never stops the
-// others: it is listed under `failed` and the rest are applied. Only when
-// every draw fails is the whole sync an error, as it was with one.
+// season (two feeds, for one squad that plays as two teams each round), plus
+// any other competition whose Squadi ids are complete. One draw failing (it is
+// not published yet, say) never stops the others: it is listed under `errors`
+// and the rest are applied. Only when every draw fails is the whole sync an
+// error, as it was with one.
 async function syncTeam(team, ifStale) {
   const sources = squadiSources(team);
   if (!sources.length) return { team: team.slug, skipped: "no squadi config" };
@@ -61,8 +62,12 @@ async function syncTeam(team, ifStale) {
     try { return { ...src, squadi: await fetchSquadi(src.squadi) }; }
     catch (e) { return { ...src, error: String(e?.message || e) }; }
   }));
-  const failed = draws.filter((d) => d.error).map((d) => ({ name: d.comp ? d.comp.name : "Season", error: d.error }));
-  if (failed.length === draws.length) throw new Error(failed[0].error);
+  // Each failure is named for whoever reads it (the side, the competition, or
+  // "Season"), and carries `side` when it is one of a squad's two feeds.
+  const errors = draws.filter((d) => d.error).map((d) => ({
+    name: d.side || (d.comp ? d.comp.name : "Season"), ...(d.side ? { side: d.side } : {}), error: d.error
+  }));
+  if (errors.length === draws.length) throw new Error(errors[0].error);
 
   let data = await getData(team.slug);
   if (!data) return { team: team.slug, skipped: "no team data yet" };
@@ -72,14 +77,14 @@ async function syncTeam(team, ifStale) {
     if (draw.error) continue;
     matchesSeen += draw.squadi.length;
     const had = new Set((data.fixtures || []).map((f) => f.id));
-    const r = applySync(data, draw.squadi, { comp: draw.comp });
+    const r = applySync(data, draw.squadi, { comp: draw.comp, side: draw.side });
     if (!(r.changes.length || r.mutated)) continue;
     dirty = true;
     created += r.created;
     changes.push(...r.changes);
     // A draw arriving for the first time is not news: no "new game" badges on
-    // the games it just added and no email. Other draws in the same run are
-    // judged on their own.
+    // the games it just added and no email. Other draws in the same run (the
+    // squad's other feed, another competition) are judged on their own.
     const isInitialImport = r.created === r.changes.length && r.created > 3;
     if (isInitialImport) {
       initialImport = true;
@@ -98,7 +103,7 @@ async function syncTeam(team, ifStale) {
       : "silent update (e.g. logos) — saved, no email";
   }
   await setMeta(team.slug, { ...(await getMeta(team.slug)), lastSyncAt: Date.now() });
-  return { team: team.slug, matchesSeen, created, changes, emailStatus, ...(failed.length ? { failed } : {}) };
+  return { team: team.slug, matchesSeen, created, changes, emailStatus, ...(errors.length ? { errors } : {}) };
 }
 
 export async function GET(req) {

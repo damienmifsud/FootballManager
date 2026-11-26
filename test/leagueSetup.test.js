@@ -242,6 +242,18 @@ describe("leagueSetupFor — the old default left in another team's saved set-up
 });
 
 describe("isOriginalTeam", () => {
+  it("reads the sync ids through the feeds rule: either of a two-team squad's feeds can be the original team's", () => {
+    const other = { label: "Blue", competitionId: "1439", divisionId: "10662", teamId: 110014 };
+    const original = { label: "White", competitionId: "1439", divisionId: "10661", teamId: 110013 };
+    expect(isOriginalTeam({ slug: "u8", squadi: [other, original] }, "someone-else")).toBe(true);
+    expect(isOriginalTeam({ slug: "u8", squadi: [original, other] }, "someone-else")).toBe(true);
+    expect(isOriginalTeam({ slug: "u8", squadi: [other, { ...other, label: "Red", teamId: 110015 }] }, "someone-else")).toBe(false);
+    // Stored as a string, or with nothing usable, it still reads right.
+    expect(isOriginalTeam({ slug: "u8", squadi: { competitionId: "1439", divisionId: "10661", teamId: "110013" } }, "someone-else")).toBe(true);
+    expect(isOriginalTeam({ slug: "u8", squadi: [] }, "someone-else")).toBe(false);
+    expect(isOriginalTeam({ slug: "u8", squadi: "110013" }, "someone-else")).toBe(false);
+  });
+
   it("the legacy owner is the original team", () => {
     expect(isOriginalTeam({ slug: "kangaroos-white" }, "kangaroos-white")).toBe(true);
     expect(isOriginalTeam({ slug: "default", squadi: { competitionId: "1439", divisionId: "10661", teamId: 110013 } }, "default")).toBe(true);

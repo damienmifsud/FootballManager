@@ -10,7 +10,7 @@ import {
   computeAutoSubs, computeSegments, sanitizeAssignments, diffOnOff,
   autoFillAssignments, minutesFor, rosterForFixture, seedAssignments, timerElapsed
 } from "@/lib/planner";
-import { fmtDate, initials } from "@/lib/dashboardData";
+import { fmtDate, initials, sideOf, roundLabel } from "@/lib/dashboardData";
 
 /* ---------------------------------------------------------------------------
    MATCH DAY — per-fixture lineup + substitution planner.
@@ -1126,7 +1126,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
                 {teamName}
               </div>
               <div className="truncate text-xs" style={{ color: P.dim, marginTop: 1 }}>
-                Round {fixture.round} {fixture.homeAway === "H" ? "vs" : "@"} {fixture.opponent} · {fmtDate(fixture.dateISO)}{tabLabel ? " · " + tabLabel : ""}
+                {roundLabel(fixture) || "Match"} {fixture.homeAway === "H" ? "vs" : "@"} {fixture.opponent}{sideOf(data, fixture) ? " · " + sideOf(data, fixture) : ""} · {fmtDate(fixture.dateISO)}{tabLabel ? " · " + tabLabel : ""}
               </div>
             </div>
           </div>

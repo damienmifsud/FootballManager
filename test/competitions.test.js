@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, knownCompetitions, sanitizeSquad, MAX_COMPETITIONS } from "@/lib/competitions";
+import { sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, squadiFeeds, knownCompetitions, sanitizeSquad, MAX_COMPETITIONS } from "@/lib/competitions";
 
 // lib/competitions: a team's competitions beyond its season (a winter
 // tournament, an invitational league). Each has a permanent id, a name and,
@@ -252,5 +252,60 @@ describe("sanitizeSquad", () => {
     sanitizeSquad(sent, players);
     expect(sent).toEqual(["p3", "p1", "p3"]);
     expect(players.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+  });
+});
+
+// One squad that plays as two teams each round has two season feeds
+// (team.squadi as an array of two labelled feeds). Each is a season source
+// carrying its label as `side`; other competitions follow as before.
+describe("squadiSources — a season with two feeds", () => {
+  const McKay = { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: 133944 };
+  const McKain = { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 };
+  const WINTER = { competitionId: "1750", divisionId: "20001", teamId: 300123 };
+
+  it("each feed is a season source with its side, in the order given, before any other competition", () => {
+    const team = { slug: "u9", squadi: [McKay, McKain], competitions: [{ id: "c1", name: "Winterfest", squadi: WINTER }, { id: "c2", name: "Not published" }] };
+    expect(squadiSources(team)).toEqual([
+      { comp: null, side: "McKay", squadi: McKay },
+      { comp: null, side: "McKain", squadi: McKain },
+      { comp: { id: "c1", name: "Winterfest" }, squadi: WINTER }
+    ]);
+    // A competition's source never carries a side.
+    expect("side" in squadiSources(team)[2]).toBe(false);
+    // Wizard order is the order kept.
+    expect(squadiSources({ squadi: [McKain, McKay] }).map((x) => x.side)).toEqual(["McKain", "McKay"]);
+  });
+
+  it("a single feed has no side, however it is stored and whatever label it carries", () => {
+    const ids = { competitionId: "1439", divisionId: "10661", teamId: 110013 };
+    for (const squadi of [ids, [ids], { label: "McKay", ...ids }, [{ label: "McKay", ...ids }], [{ label: "McKay", ...ids }, null], [{ label: "McKay", ...ids }, {}]]) {
+      const sources = squadiSources({ squadi });
+      expect(sources).toEqual([{ comp: null, squadi: ids }]);
+      expect("side" in sources[0]).toBe(false);
+      expect("label" in sources[0].squadi).toBe(false);
+    }
+  });
+
+  it("a feed is attempted once it has a competition id; a row with only other ids is a feed but not yet a source", () => {
+    // The second row is half filled: the pair still stands (so the first keeps its side), and only the first is pulled.
+    expect(squadiSources({ squadi: [McKay, { label: "McKain", competitionId: "", divisionId: "12960", teamId: 0 }] })).toEqual([{ comp: null, side: "McKay", squadi: McKay }]);
+    // A competition id alone is enough to try (the failure is reported, not hidden).
+    expect(squadiSources({ squadi: [McKay, { label: "McKain", competitionId: "1844", divisionId: "", teamId: 0 }] }).map((x) => x.side)).toEqual(["McKay", "McKain"]);
+  });
+
+  it("one draw is one source: the same ids on both rows, or repeated in a competition row, are pulled once", () => {
+    // Both rows naming the same Squadi team would retag every game on every run: the first row keeps the draw.
+    expect(squadiSources({ squadi: [McKay, { ...McKay, label: "McKain" }] })).toEqual([{ comp: null, side: "McKay", squadi: McKay }]);
+    // A competition row repeating one of the feeds: the games stay the season's.
+    const sources = squadiSources({ squadi: [McKay, McKain], competitions: [{ id: "c1", name: "Copy", squadi: { competitionId: "1844", divisionId: "12960", teamId: "133943" } }] });
+    expect(sources.map((x) => x.side || x.comp?.name)).toEqual(["McKay", "McKain"]);
+  });
+
+  it("squadiFeeds: none, one or two, tidied, and never more than two", () => {
+    expect(squadiFeeds(null)).toEqual([]);
+    expect(squadiFeeds({})).toEqual([]);
+    expect(squadiFeeds({ squadi: { competitionId: " 1439 ", divisionId: 10661, teamId: "110013" } })).toEqual([{ competitionId: "1439", divisionId: "10661", teamId: 110013 }]);
+    expect(squadiFeeds({ squadi: [McKay, McKain, { label: "Third", ...WINTER }] })).toEqual([McKay, McKain]);
+    expect(squadiFeeds({ squadi: [{ ...McKay, label: "  McKay " }, McKain] })[0].label).toBe("McKay");
   });
 });

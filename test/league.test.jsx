@@ -309,17 +309,23 @@ describe("League page", () => {
   });
 
   it("Sync now names a draw that could not be fetched, beside what the others changed", async () => {
-    // A team can have several draws (its season and other competitions): one failing never hides the rest.
+    // A team can have several draws (its season, a second team's feed, other
+    // competitions): one failing never hides the rest.
     render(<LeaguePage />);
     fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
-    syncReply = json(true, 200, { ok: true, changes: ["R5 moved to 09:00"], failed: [{ name: "Winterfest", error: "Squadi responded 404" }] });
+    syncReply = json(true, 200, { ok: true, changes: ["R5 moved to 09:00"], errors: [{ name: "Winterfest", error: "Squadi responded 404" }] });
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
     expect((await screen.findByRole("status")).textContent).toBe("Updated 1 item: R5 moved to 09:00 Could not sync Winterfest (Squadi responded 404).");
-    syncReply = json(true, 200, { ok: true, changes: [], failed: [{ name: "Season", error: "Squadi responded 503" }, { name: "Winterfest", error: "Unexpected Squadi response shape" }] });
+    // Nothing changed elsewhere: it does not claim to be up to date while a draw is missing.
+    syncReply = json(true, 200, { ok: true, changes: [], errors: [{ name: "Season", error: "Squadi responded 503" }, { name: "Winterfest", error: "Unexpected Squadi response shape" }] });
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
-    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Already up to date with Squadi. Could not sync Season (Squadi responded 503); Winterfest (Unexpected Squadi response shape)."));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Could not sync Season (Squadi responded 503); Winterfest (Unexpected Squadi response shape). Everything else is up to date."));
+    // One of a two-team squad's feeds: it is named by its side.
+    syncReply = json(true, 200, { ok: true, changes: ["McKay · Round 7 vs Wests: time a → b"], errors: [{ name: "McKain", side: "McKain", error: "Squadi responded 500" }] });
+    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Updated 1 item: McKay · Round 7 vs Wests: time a → b Could not sync McKain (Squadi responded 500)."));
     // An empty list is no failure at all.
-    syncReply = json(true, 200, { ok: true, changes: [], failed: [] });
+    syncReply = json(true, 200, { ok: true, changes: [], errors: [] });
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Already up to date with Squadi."));
   });

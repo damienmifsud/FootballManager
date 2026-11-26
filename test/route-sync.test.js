@@ -17,7 +17,8 @@ const m = vi.hoisted(() => ({
 vi.mock("@/auth", () => ({ auth: m.auth }));
 vi.mock("@/lib/store", () => ({ getData: m.getData, setData: m.setData, getMeta: m.getMeta, setMeta: m.setMeta }));
 vi.mock("@/lib/squadiSync", () => ({ fetchSquadi: m.fetchSquadi, applySync: m.applySync }));
-vi.mock("@/lib/teams", () => ({ getTeams: m.getTeams, teamBySlug: m.teamBySlug, teamFromCookieHeader: m.teamFromCookieHeader }));
+// squadiFeeds is the real one (pure): the route reads every team's feeds through it.
+vi.mock("@/lib/teams", async (orig) => ({ squadiFeeds: (await orig()).squadiFeeds, getTeams: m.getTeams, teamBySlug: m.teamBySlug, teamFromCookieHeader: m.teamFromCookieHeader }));
 vi.mock("@/lib/directory", () => ({ membershipsForEmail: m.membershipsForEmail, viewingAs: m.viewingAs }));
 
 const TEAM = { slug: "a", name: "Team A", squadi: { competitionId: "1", divisionId: "2", teamId: 3 } };
@@ -193,6 +194,9 @@ describe("account mode — view as blocks any sync", () => {
 describe("a team with more than one draw", () => {
   const SEASON_IDS = TEAM.squadi;
   const WINTER_IDS = { competitionId: "4", divisionId: "5", teamId: 6 };
+  // Which draw a fetch is for. The season's feed reaches the fetch as the
+  // feeds rule returns it (a tidied copy), so draws are told apart by id.
+  const isWinter = (ids) => ids.competitionId === WINTER_IDS.competitionId;
   const MULTI = {
     ...TEAM,
     competitions: [
@@ -214,7 +218,7 @@ describe("a team with more than one draw", () => {
     savedResend = process.env.RESEND_API_KEY; savedNotify = process.env.NOTIFY_EMAILS; realFetch = global.fetch;
     delete process.env.RESEND_API_KEY; delete process.env.NOTIFY_EMAILS;
     m.getTeams.mockReturnValue([MULTI]);
-    m.fetchSquadi.mockImplementation(async (ids) => (ids === SEASON_IDS ? [{ squadiId: "s1" }] : [{ squadiId: "w1" }, { squadiId: "w2" }]));
+    m.fetchSquadi.mockImplementation(async (ids) => (!isWinter(ids) ? [{ squadiId: "s1" }] : [{ squadiId: "w1" }, { squadiId: "w2" }]));
     m.applySync.mockImplementation(applyLikeReal);
   });
   afterEach(() => {
@@ -243,21 +247,23 @@ describe("a team with more than one draw", () => {
     expect(slug).toBe("a");
     expect(saved.fixtures.map((f) => [f.squadiId, f.comp || "season"])).toEqual([["s1", "season"], ["w1", "cw"], ["w2", "cw"]]);
     expect(body.results[0]).toMatchObject({ team: "a", matchesSeen: 3, created: 3, changes: ["NEW — s1", "NEW — Winterfest w1", "NEW — Winterfest w2"] });
-    expect("failed" in body.results[0]).toBe(false);
+    expect("errors" in body.results[0]).toBe(false);
   });
 
-  it("one draw failing does not stop the others: it is named under failed and the rest are saved", async () => {
-    m.fetchSquadi.mockImplementation(async (ids) => { if (ids === WINTER_IDS) throw new Error("Squadi responded 404"); return [{ squadiId: "s1" }]; });
+  it("one draw failing does not stop the others: it is named under errors and the rest are saved", async () => {
+    m.fetchSquadi.mockImplementation(async (ids) => { if (isWinter(ids)) throw new Error("Squadi responded 404"); return [{ squadiId: "s1" }]; });
     const { GET } = await loadRoute({ authOn: true });
     const body = await (await cron(GET)).json();
-    expect(body.results[0]).toMatchObject({ team: "a", created: 1, changes: ["NEW — s1"], failed: [{ name: "Winterfest", error: "Squadi responded 404" }] });
+    expect(body.results[0]).toMatchObject({ team: "a", created: 1, changes: ["NEW — s1"], errors: [{ name: "Winterfest", error: "Squadi responded 404" }] });
     expect(body.results[0].ok).toBeUndefined(); // not an error for the team
     expect(m.setData.mock.calls[0][1].fixtures.map((f) => f.squadiId)).toEqual(["s1"]);
     // The other way round: the season's draw is down, Winterfest still comes in.
     m.setData.mockClear();
-    m.fetchSquadi.mockImplementation(async (ids) => { if (ids === SEASON_IDS) throw new Error("Squadi responded 503"); return [{ squadiId: "w1" }]; });
+    m.fetchSquadi.mockImplementation(async (ids) => { if (!isWinter(ids)) throw new Error("Squadi responded 503"); return [{ squadiId: "w1" }]; });
     const again = await (await cron(GET)).json();
-    expect(again.results[0]).toMatchObject({ created: 1, failed: [{ name: "Season", error: "Squadi responded 503" }] });
+    expect(again.results[0]).toMatchObject({ created: 1, errors: [{ name: "Season", error: "Squadi responded 503" }] });
+    // Neither is one of a squad's two feeds, so neither carries a side.
+    expect(again.results[0].errors.some((e) => "side" in e)).toBe(false);
     expect(m.setData.mock.calls[0][1].fixtures.map((f) => [f.squadiId, f.comp])).toEqual([["w1", "cw"]]);
   });
 
@@ -317,7 +323,7 @@ describe("a team with more than one draw", () => {
     const sent = [];
     global.fetch = vi.fn(async (url, opts) => { sent.push(JSON.parse(opts.body)); return { ok: true }; });
     // The season: one game moved (a change, nothing created). Winterfest: five games arriving for the first time.
-    m.fetchSquadi.mockImplementation(async (ids) => (ids === SEASON_IDS ? [{ squadiId: "s1" }] : ["w1", "w2", "w3", "w4", "w5"].map((squadiId) => ({ squadiId }))));
+    m.fetchSquadi.mockImplementation(async (ids) => (!isWinter(ids) ? [{ squadiId: "s1" }] : ["w1", "w2", "w3", "w4", "w5"].map((squadiId) => ({ squadiId }))));
     m.applySync.mockImplementation((data, squadi, opts) => (opts.comp
       ? applyLikeReal(data, squadi, opts)
       : { data: { ...data, fixtures: (data.fixtures || []).map((f) => (f.id === "old" ? { ...f, schedChanges: [{ field: "Time" }] } : f)) }, changes: ["Round 3 vs Wests: time moved"], created: 0, mutated: true }));
@@ -343,7 +349,7 @@ describe("a team with more than one draw", () => {
     process.env.RESEND_API_KEY = "key";
     process.env.NOTIFY_EMAILS = "coach@a.com";
     global.fetch = vi.fn(async () => ({ ok: true }));
-    m.fetchSquadi.mockImplementation(async (ids) => (ids === SEASON_IDS ? [] : ["w1", "w2", "w3", "w4"].map((squadiId) => ({ squadiId }))));
+    m.fetchSquadi.mockImplementation(async (ids) => (!isWinter(ids) ? [] : ["w1", "w2", "w3", "w4"].map((squadiId) => ({ squadiId }))));
     const { GET } = await loadRoute({ authOn: true });
     const body = await (await cron(GET)).json();
     expect(body.results[0].emailStatus).toBe("initial import — email skipped");
@@ -357,5 +363,168 @@ describe("a team with more than one draw", () => {
     expect(body.results[0]).toMatchObject({ team: "a", matchesSeen: 0, created: 0, changes: [], emailStatus: "no changes" });
     expect(m.setData).not.toHaveBeenCalled();
     expect(m.setMeta).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("two Squadi feeds on one squad", () => {
+  const McKay = { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: 133944 };
+  const McKain = { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 };
+  const TWO = { slug: "a", name: "U9 Academy", squadi: [McKay, McKain] };
+  const cron = async () => {
+    m.getTeams.mockReturnValue([TWO]);
+    const { GET } = await loadRoute({ authOn: true });
+    const res = await GET(fakeRequest({ url: "https://x.test/api/sync", headers: { authorization: "Bearer s3cret" } }));
+    return (await res.json()).results[0];
+  };
+  // applySync stand-in: appends one fixture per call, tagged with the side.
+  const appending = () => m.applySync.mockImplementation((doc, squadi, { side } = {}) => ({
+    data: { ...doc, fixtures: [...doc.fixtures, { id: side, side, schedChanges: [] }] },
+    changes: [`NEW — ${side} · Round 1 vs X`], created: 1, mutated: true
+  }));
+
+  it("applies both feeds in order, threading the document, and saves once", async () => {
+    appending();
+    m.fetchSquadi.mockResolvedValue([{ squadiId: 1 }]);
+    const r = await cron();
+    expect(m.fetchSquadi.mock.calls.map((c) => c[0])).toEqual([McKay, McKain]);
+    expect(m.applySync.mock.calls.map((c) => c[2])).toEqual([{ comp: null, side: "McKay" }, { comp: null, side: "McKain" }]);
+    expect(m.applySync.mock.calls[1][0].fixtures.map((f) => f.id)).toEqual(["McKay"]); // second feed sees the first's result
+    expect(m.setData).toHaveBeenCalledTimes(1);
+    expect(m.setData.mock.calls[0][1].fixtures.map((f) => f.side)).toEqual(["McKay", "McKain"]);
+    expect(m.setMeta).toHaveBeenCalledTimes(1);
+    expect(r).toMatchObject({ team: "a", matchesSeen: 2, created: 2, changes: ["NEW — McKay · Round 1 vs X", "NEW — McKain · Round 1 vs X"] });
+    expect("errors" in r).toBe(false);
+  });
+
+  it("a failing feed leaves the other applied and is reported in errors", async () => {
+    appending();
+    m.fetchSquadi.mockImplementation(async (feed) => { if (feed.label === "McKay") throw new Error("Squadi responded 503"); return [{ squadiId: 2 }]; });
+    const r = await cron();
+    expect(m.setData).toHaveBeenCalledTimes(1);
+    expect(m.setData.mock.calls[0][1].fixtures.map((f) => f.side)).toEqual(["McKain"]);
+    expect(r.errors).toEqual([{ name: "McKay", side: "McKay", error: "Squadi responded 503" }]);
+    expect(r).toMatchObject({ team: "a", created: 1, changes: ["NEW — McKain · Round 1 vs X"] });
+    expect(m.setMeta).toHaveBeenCalledTimes(1);
+  });
+
+  it("when every feed fails it responds as a failed single feed does and writes nothing", async () => {
+    m.fetchSquadi.mockRejectedValue(new Error("Unexpected Squadi response shape"));
+    const r = await cron();
+    expect(r).toMatchObject({ team: "a", ok: false });
+    expect(r.error).toContain("Unexpected Squadi response shape");
+    expect(m.setData).not.toHaveBeenCalled();
+    expect(m.setMeta).not.toHaveBeenCalled();
+  });
+
+  it("judges the first-import email suppression per feed and keeps the other side's change banners", async () => {
+    const news = (n, side) => Array.from({ length: n }, (_, i) => `NEW — ${side} · Round ${i + 1} vs X`);
+    m.getData.mockResolvedValue({ fixtures: [{ id: "old", side: "McKay", schedChanges: [{ field: "Time" }] }] });
+    m.applySync.mockImplementation((doc, squadi, { side }) => side === "McKay"
+      ? { data: doc, changes: ["McKay · Round 3 vs X: time a → b"], created: 0, mutated: true }
+      : { data: { ...doc, fixtures: [...doc.fixtures, ...[1, 2, 3, 4].map((n) => ({ id: "n" + n, side, schedChanges: [{ field: "New game" }] }))] }, changes: news(4, side), created: 4, mutated: true });
+    const r = await cron();
+    const saved = m.setData.mock.calls[0][1].fixtures;
+    expect(saved.find((f) => f.id === "old").schedChanges).toHaveLength(1);
+    expect(saved.filter((f) => f.id !== "old").every((f) => f.schedChanges.length === 0)).toBe(true);
+    expect(r.changes).toHaveLength(5);
+    expect(r.emailStatus).toBe("email not configured"); // the McKay change was sent on; the McKain import was not news
+  });
+
+  it("no changes on either feed: nothing saved, lastSyncAt set once, no errors", async () => {
+    const r = await cron();
+    expect(m.setData).not.toHaveBeenCalled();
+    expect(m.setMeta).toHaveBeenCalledTimes(1);
+    expect(r).toMatchObject({ team: "a", changes: [], created: 0, emailStatus: "no changes" });
+    expect("errors" in r).toBe(false);
+  });
+
+  it("a single-feed team is synced exactly as before: one fetch, no side", async () => {
+    m.getTeams.mockReturnValue([TEAM]);
+    m.applySync.mockReturnValue({ data: { fixtures: [{ id: "x", schedChanges: [] }] }, changes: ["Round 1 vs X: time a → b"], created: 0, mutated: true });
+    const { GET } = await loadRoute({ authOn: true });
+    const r = (await (await GET(fakeRequest({ url: "https://x.test/api/sync", headers: { authorization: "Bearer s3cret" } }))).json()).results[0];
+    expect(m.fetchSquadi).toHaveBeenCalledTimes(1);
+    expect(m.fetchSquadi).toHaveBeenCalledWith(TEAM.squadi);
+    expect(m.applySync.mock.calls[0][2]).toEqual({ comp: null, side: undefined });
+    expect(m.setData).toHaveBeenCalledTimes(1);
+    expect(r).toEqual({ team: "a", matchesSeen: 0, created: 0, changes: ["Round 1 vs X: time a → b"], emailStatus: "email not configured" });
+  });
+});
+
+// Both at once: one squad with two season feeds that also plays another
+// competition. Three draws, one save, and each failure named for what it is.
+describe("a two-team squad that also plays another competition", () => {
+  const McKay = { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: 133944 };
+  const McKain = { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 };
+  const WINTER_IDS = { competitionId: "1750", divisionId: "20001", teamId: 300123 };
+  const SQUAD = { slug: "a", name: "U9 Academy", squadi: [McKay, McKain], competitions: [{ id: "cw", name: "Winterfest", squadi: WINTER_IDS }, { id: "cp", name: "Not published" }] };
+  const run = async () => {
+    m.getTeams.mockReturnValue([SQUAD]);
+    const { GET } = await loadRoute({ authOn: true });
+    return (await (await GET(fakeRequest({ url: "https://x.test/api/sync", headers: { authorization: "Bearer s3cret" } }))).json()).results[0];
+  };
+  // applySync stand-in: one fixture per call, carrying what the call was told.
+  const tagging = () => m.applySync.mockImplementation((doc, squadi, { comp, side } = {}) => ({
+    data: { ...doc, fixtures: [...doc.fixtures, { id: side || comp.id, ...(side ? { side } : {}), ...(comp ? { comp: comp.id } : {}), schedChanges: [] }] },
+    changes: [`NEW — ${side || comp.name}`], created: 1, mutated: true
+  }));
+  const whose = (ids) => (ids.label || "Winterfest");
+
+  it("pulls three draws, each applied as what it is, into one save", async () => {
+    tagging();
+    m.fetchSquadi.mockResolvedValue([{ squadiId: 1 }]);
+    const r = await run();
+    expect(m.fetchSquadi.mock.calls.map((c) => c[0])).toEqual([McKay, McKain, WINTER_IDS]);
+    expect(m.applySync.mock.calls.map((c) => c[2])).toEqual([
+      { comp: null, side: "McKay" }, { comp: null, side: "McKain" }, { comp: { id: "cw", name: "Winterfest" }, side: undefined }
+    ]);
+    // Each is applied on top of the one before.
+    expect(m.applySync.mock.calls.map((c) => c[0].fixtures.length)).toEqual([0, 1, 2]);
+    expect(m.setData).toHaveBeenCalledTimes(1);
+    expect(m.setData.mock.calls[0][1].fixtures.map((f) => [f.side || "", f.comp || ""])).toEqual([["McKay", ""], ["McKain", ""], ["", "cw"]]);
+    expect(m.setMeta).toHaveBeenCalledTimes(1);
+    expect(r).toMatchObject({ team: "a", matchesSeen: 3, created: 3, changes: ["NEW — McKay", "NEW — McKain", "NEW — Winterfest"] });
+    expect("errors" in r).toBe(false);
+  });
+
+  it("names each failure for what it is: a feed by its side, the competition by its name", async () => {
+    tagging();
+    m.fetchSquadi.mockImplementation(async (ids) => { if (whose(ids) !== "McKay") throw new Error(`Squadi responded 50${whose(ids) === "McKain" ? 3 : 4}`); return [{ squadiId: 1 }]; });
+    const r = await run();
+    expect(r.errors).toEqual([
+      { name: "McKain", side: "McKain", error: "Squadi responded 503" },
+      { name: "Winterfest", error: "Squadi responded 504" }
+    ]);
+    expect("side" in r.errors[1]).toBe(false);
+    // McKay's draw is still applied and saved.
+    expect(m.setData.mock.calls[0][1].fixtures.map((f) => f.side)).toEqual(["McKay"]);
+    expect(r).toMatchObject({ created: 1, changes: ["NEW — McKay"] });
+    expect(r.ok).toBeUndefined();
+  });
+
+  it("only when all three fail is the team's sync an error, with nothing written", async () => {
+    m.fetchSquadi.mockRejectedValue(new Error("Squadi responded 500"));
+    const r = await run();
+    expect(r).toMatchObject({ team: "a", ok: false });
+    expect(r.error).toContain("Squadi responded 500");
+    expect(m.setData).not.toHaveBeenCalled();
+    expect(m.setMeta).not.toHaveBeenCalled();
+  });
+
+  it("a draw's first import is judged on its own beside the other two", async () => {
+    // McKay's game moves; McKain's draw arrives for the first time (five games); Winterfest has nothing new.
+    m.getData.mockResolvedValue({ fixtures: [{ id: "old", side: "McKay", schedChanges: [{ field: "Time" }] }] });
+    m.applySync.mockImplementation((doc, squadi, { comp, side } = {}) => {
+      if (side === "McKay") return { data: doc, changes: ["McKay · Round 3 vs X: time a → b"], created: 0, mutated: true };
+      if (comp) return { data: doc, changes: [], created: 0, mutated: false };
+      const fresh = [1, 2, 3, 4, 5].map((n) => ({ id: "n" + n, side, schedChanges: [{ field: "New game" }] }));
+      return { data: { ...doc, fixtures: [...doc.fixtures, ...fresh] }, changes: fresh.map((f) => `NEW — McKain · ${f.id}`), created: 5, mutated: true };
+    });
+    const r = await run();
+    const saved = m.setData.mock.calls[0][1].fixtures;
+    expect(saved.find((f) => f.id === "old").schedChanges).toHaveLength(1); // McKay's real change keeps its badge
+    expect(saved.filter((f) => f.id !== "old").every((f) => f.schedChanges.length === 0)).toBe(true); // McKain's first import has none
+    expect(r.changes).toHaveLength(6);
+    expect(r.created).toBe(5);
   });
 });

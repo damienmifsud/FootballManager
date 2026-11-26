@@ -420,6 +420,25 @@ For a team defined in `TEAMS`, the same list goes on the team entry:
 `"competitions":[{"id":"winterfest","name":"Winterfest","squadi":{"competitionId":"…","divisionId":"…","teamId":0}}]`.
 `id` is permanent (a game is tagged with it) and `name` can change.
 
+#### One squad that plays as two teams
+
+Some squads field two teams every round, in two divisions of the same competition, with
+players moving between them from week to week. That is one team in the app with two
+season rows: in the **Competitions** step, **Add a second team** adds the second row, and
+each row then needs a short label (McKay and McKain, say).
+
+- Each round arrives as two games, one from each row, paired by round number. A game
+  carries its row's label as its side, shown wherever the game is named.
+- One reply covers both games of a round.
+- Home shows the next round once, with a line for each side: kick-off and field.
+- A bye, or a round only one row has, is an ordinary single game.
+- Pairs are made within one competition: the season's Round 1 is never paired with
+  another competition's Round 1.
+
+For a team defined in `TEAMS`, `squadi` becomes an array of the two rows:
+`"squadi":[{"label":"McKay","competitionId":"…","divisionId":"…","teamId":0},{"label":"McKain",…}]`.
+A single row keeps the object shape it always had.
+
 #### A squad for a competition
 
 A competition often takes part of the team. In **Team settings → Competition squads**
