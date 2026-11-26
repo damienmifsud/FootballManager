@@ -39,8 +39,10 @@ async function emailChanges(teamName, changes) {
 }
 
 // One team's sync. A team has one draw or several (lib/competitions.js): its
-// season, plus any other competition whose Squadi ids are complete. One
-// competition failing (its draw is not published yet, say) never stops the
+// season, which is two labelled feeds on a squad that plays as two teams,
+// plus any other competition whose Squadi ids are complete. Each is applied
+// in turn onto the same document, which is saved once. One draw failing (a
+// competition not published yet, one side's feed down) never stops the
 // others: it is listed under `failed` and the rest are applied. Only when
 // every draw fails is the whole sync an error, as it was with one.
 async function syncTeam(team, ifStale) {
@@ -61,7 +63,9 @@ async function syncTeam(team, ifStale) {
     try { return { ...src, squadi: await fetchSquadi(src.squadi) }; }
     catch (e) { return { ...src, error: String(e?.message || e) }; }
   }));
-  const failed = draws.filter((d) => d.error).map((d) => ({ name: d.comp ? d.comp.name : "Season", error: d.error }));
+  // A failed draw is named the way people know it: the competition, the side
+  // of a two-feed squad, or simply the season.
+  const failed = draws.filter((d) => d.error).map((d) => ({ name: d.comp ? d.comp.name : d.side || "Season", ...(d.side ? { side: d.side } : {}), error: d.error }));
   if (failed.length === draws.length) throw new Error(failed[0].error);
 
   let data = await getData(team.slug);
@@ -72,14 +76,15 @@ async function syncTeam(team, ifStale) {
     if (draw.error) continue;
     matchesSeen += draw.squadi.length;
     const had = new Set((data.fixtures || []).map((f) => f.id));
-    const r = applySync(data, draw.squadi, { comp: draw.comp });
+    const r = applySync(data, draw.squadi, { comp: draw.comp, side: draw.side });
     if (!(r.changes.length || r.mutated)) continue;
     dirty = true;
     created += r.created;
     changes.push(...r.changes);
     // A draw arriving for the first time is not news: no "new game" badges on
-    // the games it just added and no email. Other draws in the same run are
-    // judged on their own.
+    // the games it just added and no email. Other draws in the same run (the
+    // other side of a two-feed squad, another competition) are judged on
+    // their own, so their real changes keep their banners.
     const isInitialImport = r.created === r.changes.length && r.created > 3;
     if (isInitialImport) {
       initialImport = true;

@@ -254,6 +254,15 @@ describe("isOriginalTeam", () => {
     expect(isOriginalTeam({ slug: "u8-white", squadi: { teamId: "110013" } }, null)).toBe(true);
   });
 
+  it("reads either shape of the season's ids: a two-team squad's pair of feeds counts when one of them is the original team's", () => {
+    const other = { label: "Reds", competitionId: "1844", divisionId: "12962", teamId: 133944 };
+    const original = { label: "White", competitionId: "1439", divisionId: "10661", teamId: 110013 };
+    expect(isOriginalTeam({ slug: "u8", squadi: [other, original] }, null)).toBe(true);
+    expect(isOriginalTeam({ slug: "u8", squadi: [original, other] }, null)).toBe(true);
+    expect(isOriginalTeam({ slug: "u9", squadi: [other, { ...other, label: "Blues", teamId: 133943 }] }, null)).toBe(false);
+    expect(isOriginalTeam({ slug: "u9", squadi: [] }, null)).toBe(false);
+  });
+
   it("no other team is", () => {
     expect(isOriginalTeam({ slug: "over-35s" }, "kangaroos-white")).toBe(false);
     expect(isOriginalTeam({ slug: "over-35s", squadi: { competitionId: "1251", divisionId: "9000", teamId: 120000 } }, "kangaroos-white")).toBe(false);

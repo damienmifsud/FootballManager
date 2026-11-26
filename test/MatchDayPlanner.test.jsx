@@ -294,3 +294,23 @@ describe("parent view", () => {
     expect(close).toHaveBeenCalled();
   });
 });
+
+describe("two-team squads and missing numbers", () => {
+  const sub = () => document.querySelector(".mdp .truncate.text-xs").textContent;
+  it("the header sub-line names the side on a paired round, and not otherwise", () => {
+    const f = makeFixture({ round: 7, side: "McKay", opponent: "Oxley United" });
+    const twin = makeFixture({ id: "f2", round: 7, side: "McKain", opponent: "Oxley United" });
+    const { unmount } = render(<MatchDayPlanner data={{ ...makeData(), fixtures: [f, twin] }} fixture={f} isCoach onSavePlan={onSavePlan} close={close} />);
+    expect(sub()).toMatch(/^Round 7 vs Oxley United · McKay · /);
+    unmount();
+    render(<MatchDayPlanner data={{ ...makeData(), fixtures: [f] }} fixture={f} isCoach onSavePlan={onSavePlan} close={close} />);
+    expect(sub()).toMatch(/^Round 7 vs Oxley United · (?!McKay)/);
+  });
+  it("a player stored with number 0 shows initials on the disc, never 0", () => {
+    const data = { ...makeData(), players: makeData().players.map((p) => ({ ...p, number: 0 })) };
+    render(<MatchDayPlanner data={data} fixture={makeFixture()} isCoach onSavePlan={onSavePlan} close={close} />);
+    const discs = [...document.querySelectorAll(".mdp *")].filter((el) => el.children.length === 0).map((el) => el.textContent.trim());
+    expect(discs).toContain("SS");
+    expect(discs).not.toContain("0");
+  });
+});

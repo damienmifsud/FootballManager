@@ -423,8 +423,8 @@ fails closed (no writes, error logged) rather than guessing.
 
 A team often plays something alongside its season: a winter tournament with part of the
 squad, an invitational league on other days. In the `/admin` wizard the **Competitions**
-step holds the season's Squadi IDs and a row for each other competition: a name and its
-three IDs. A row can be saved with just its name while its draw is not published yet;
+step holds the season's Squadi IDs (one team, or two: see below) and a row for each
+other competition: a name and its three IDs. A row can be saved with just its name while its draw is not published yet;
 the sync leaves it alone until the IDs are added with Edit.
 
 Every sync pulls each draw that has its IDs. A game from another competition is labelled
@@ -436,6 +436,23 @@ the others are still applied, and the Sync button names the one that failed.
 For a team defined in `TEAMS`, the same list goes on the team entry:
 `"competitions":[{"id":"winterfest","name":"Winterfest","squadi":{"competitionId":"…","divisionId":"…","teamId":0}}]`.
 `id` is permanent (a game is tagged with it) and `name` can change.
+
+### One squad that plays as two teams
+
+Some squads enter the season as two teams and play two games each round. In the
+**Competitions** step, under Season, **Add a second team** gives the season a second
+row; each row then needs a short label (at most 12 characters, and different from the
+other), which names that side on every one of its games.
+
+Each sync applies both feeds onto the same squad. A round with a game on each side is a
+paired round: both games show with their side's label, one reply covers both, and the
+calendar feed has one event per game with the side in the team's name. If one feed
+cannot be fetched the other is still applied, and the Sync button names the side that
+failed. A team with one feed has no sides, and nothing changes for it. Other
+competitions keep a single feed each.
+
+For a team defined in `TEAMS`, `squadi` is then an array of the two labelled feeds:
+`"squadi":[{"label":"Reds","competitionId":"…","divisionId":"…","teamId":0},{"label":"Blues","competitionId":"…","divisionId":"…","teamId":0}]`.
 
 ---
 
