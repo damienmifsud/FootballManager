@@ -15,12 +15,16 @@ import {
   countdown, ytId, videoKind, mapsUrl, activeOn, intlPhone, recentChanges,
   initials, secToClock, clockToSec, occurrences, monthItems, upcomingItems,
   nextBirthdays, isCarnival, carnivalOf, isCarnivalGame, carnivalGameRows, carnivalMeta, carnivalDescription, pitchLabel,
-  playerFullName, competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff
+  playerFullName
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths } from "@/lib/teamSetup";
 import { seasonICS } from "@/lib/ics";
+// Competitions (a team's draws beyond its season): labels, list order and
+// what counts toward the season. On a line of its own so the long import
+// above is not a meeting point for every change to this file.
+import { competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff } from "@/lib/dashboardData";
 import {
   FORMATION_PRESETS, fallbackFormation, defaultFormatForAgeGroup, resolveFormat, parseFormation,
   makePositions, computeAutoSubs, computeSegments, sanitizeAssignments, rosterForFixture
