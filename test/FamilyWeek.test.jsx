@@ -15,7 +15,9 @@ const TODAY = "2026-06-10"; // a Wednesday
 const U9 = { teamSlug: "u9", teamName: "Riverside FC U9 Reds" };
 const U11 = { teamSlug: "u11", teamName: "Riverside FC U11 Blues" };
 const FF = { teamSlug: "ff", teamName: "Fast Fives" };
-const item = (team, over) => ({ ...team, kind: "game", what: "game", id: "f1", dateISO: TODAY, time: "09:00", title: "vs Wests", place: "Perry Park", label: "Round 7", replies: [], ...over });
+const item = (team, over) => ({ ...team, kind: "game", what: "game", id: "f1", dateISO: TODAY, time: "09:00", title: "vs Wests", opponent: "Wests", homeAway: "H", place: "Perry Park", label: "Round 7", replies: [], ...over });
+// Training, an activity or a carnival day has no opponent.
+const session = (team, over) => item(team, { kind: "session", what: "training", opponent: undefined, homeAway: undefined, label: "", ...over });
 const week = (over = {}) => ({
   todayISO: TODAY, days: 14,
   teams: [
@@ -24,9 +26,9 @@ const week = (over = {}) => ({
     { ...FF, players: [{ id: "p7", name: "Sam K.", isSelf: true }] }
   ],
   items: [
-    item(FF, { id: "g0", dateISO: "2026-06-10", time: "19:10", title: "vs Rovers", place: "Court 2", label: "Round 3", replies: [{ playerId: "p7", name: "Sam K.", isSelf: true, status: null }] }),
-    item(U9, { kind: "session", what: "training", id: "s1", occ: "2026-06-11", dateISO: "2026-06-11", time: "17:00", endTime: "18:00", title: "Training", place: "Field 3", label: "", replies: [{ playerId: "p1", name: "Leo K.", status: "in" }] }),
-    item(U11, { id: "g1", dateISO: "2026-06-13", time: "08:15", title: "vs Lions", place: "Lion Park", label: "Round 2", replies: [{ playerId: "p3", name: "Mia K.", status: null }] }),
+    item(FF, { id: "g0", dateISO: "2026-06-10", time: "19:10", title: "vs Rovers", opponent: "Rovers", place: "Court 2", label: "Round 3", replies: [{ playerId: "p7", name: "Sam K.", isSelf: true, status: null }] }),
+    session(U9, { id: "s1", occ: "2026-06-11", dateISO: "2026-06-11", time: "17:00", endTime: "18:00", title: "Training", place: "Field 3", replies: [{ playerId: "p1", name: "Leo K.", status: "in" }] }),
+    item(U11, { id: "g1", dateISO: "2026-06-13", time: "08:15", title: "vs Lions", opponent: "Lions", homeAway: "A", place: "Lion Park", label: "Round 2", replies: [{ playerId: "p3", name: "Mia K.", status: null }] }),
     item(U9, { id: "f1", dateISO: "2026-06-13", time: "09:00", replies: [{ playerId: "p1", name: "Leo K.", status: "out", reason: "Away" }] })
   ],
   ...over
@@ -89,12 +91,34 @@ describe("Both teams together", () => {
     expect(ev("Training").querySelector(".auth-ev-ic").className).toBe("auth-ev-ic training");
   });
 
+  it("a game shows the opposition's crest: the club's artwork when we have it, its initials when we do not; training keeps its icon", async () => {
+    await show();
+    const lions = ev("vs Lions").querySelector(".auth-ev-ic.opp img.auth-opp");
+    expect(lions.getAttribute("src")).toBe("/crests/lions-fc.png"); // a file of ours, never a link to someone else's site
+    expect(lions.getAttribute("alt")).toBe("");                    // the name is in words beside it
+    const wests = ev("vs Wests").querySelector(".auth-ev-ic.opp .auth-opp.ph");
+    expect(wests.textContent).toBe("W");
+    expect(wests.getAttribute("aria-hidden")).toBe("true");
+    expect(ev("vs Wests").querySelector("img")).toBeNull();
+    expect(ev("vs Wests").querySelector("svg")).toBeNull();         // the crest stands where the trophy was
+    expect(ev("Training").querySelector(".auth-opp")).toBeNull();
+    expect(ev("Training").querySelector(".auth-ev-ic svg")).toBeTruthy();
+  });
+
   it("a reply names its team and its player, and the list is read again from the server", async () => {
     onReply = (body) => { current.items[2].replies[0].status = body.status; };
     await show();
     fireEvent.click(within(replyRow("vs Lions", "Mia")).getByRole("button"));
     expect(sheet().getByText("Reply for Mia")).toBeTruthy();
-    expect(sheet().getByText("vs Lions · Sat 13 Jun · 08:15 · U11 Blues")).toBeTruthy();
+    // The sheet says what the reply is for: who, when, which team, home or away, and where, with the way there.
+    const brief = document.querySelector(".auth-brief");
+    expect(brief.querySelector(".auth-ev-title").textContent).toBe("vs Lions");
+    expect(brief.querySelector(".auth-ev-meta").textContent).toBe("Sat 13 Jun · 08:15 · U11 Blues · Away");
+    expect(brief.querySelector("img.auth-opp").getAttribute("src")).toBe("/crests/lions-fc.png");
+    expect(brief.querySelector(".auth-brief-place > span").textContent).toBe("Lion Park");
+    const way = sheet().getByRole("link", { name: "Directions" });
+    expect(way.getAttribute("href")).toBe("https://www.google.com/maps/search/?api=1&query=Lion%20Park");
+    expect([way.getAttribute("target"), way.getAttribute("rel")]).toEqual(["_blank", "noopener noreferrer"]);
     expect(sheet().getByText(/You can change it any time before kick-off\./)).toBeTruthy();
     fireEvent.click(sheet().getByRole("button", { name: "In" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -156,14 +180,14 @@ describe("Both teams together", () => {
     const from = within(replyRow("vs Lions", "Mia")).getByRole("button");
     fireEvent.click(from);
     expect(document.activeElement).toBe(screen.getByRole("dialog"));
-    const yes = sheet().getByRole("button", { name: "In" });
+    const first = sheet().getByRole("link", { name: "Directions" }); // the way to the ground is the sheet's first stop
     const note = sheet().getByLabelText("Note for coach");
     const cancel = sheet().getByRole("button", { name: "Cancel" });
     // Tab from the last control comes round to the first, and Shift+Tab goes back the other way.
     cancel.focus();
     expect(fireEvent.keyDown(cancel, { key: "Tab" })).toBe(false);
-    expect(document.activeElement).toBe(yes);
-    expect(fireEvent.keyDown(yes, { key: "Tab", shiftKey: true })).toBe(false);
+    expect(document.activeElement).toBe(first);
+    expect(fireEvent.keyDown(first, { key: "Tab", shiftKey: true })).toBe(false);
     expect(document.activeElement).toBe(cancel);
     // In between, Tab is the browser's own.
     note.focus();
@@ -210,19 +234,69 @@ describe("Both teams together", () => {
 
   it("a paired round says one reply covers both games; a cancelled game asks nobody; an event that needs no reply says so", async () => {
     current = week({ items: [
-      item(U9, { id: "r", time: "09:00", title: "vs Wests", label: "Round 4 · Red", paired: true, replies: [{ playerId: "p1", name: "Leo K.", status: null }] }),
+      item(U9, { id: "r", time: "09:00", title: "vs Wests", label: "Round 4 · Red", paired: true,
+        sides: [{ side: "Red", time: "09:00", place: "Perry Park – Field 4C" }, { side: "White", time: "", place: "" }],
+        replies: [{ playerId: "p1", name: "Leo K.", status: null }] }),
       item(U9, { id: "c", time: "11:00", title: "vs Rained off", cancelled: true, replies: [] }),
       item(U11, { id: "w", time: "12:00", title: "vs Winter", label: "Winterfest · Round 1", replies: [] })
     ] });
     await show();
     fireEvent.click(within(replyRow("vs Wests", "Leo")).getByRole("button"));
     expect(sheet().getByText("Your reply covers both games this round.")).toBeTruthy();
+    // One reply, two games: each side's kick-off and ground is on the sheet, and the line above them leaves the time out.
+    expect(document.querySelector(".auth-brief .auth-ev-meta").textContent).toBe("Wed 10 Jun · U9 Reds · Home");
+    expect([...document.querySelectorAll(".auth-brief-side")].map((r) => [...r.children].map((c) => c.textContent)))
+      .toEqual([["Red", "09:00", "Perry Park – Field 4C"], ["White", "TBC", "Venue to be confirmed"]]);
+    expect(document.querySelector(".auth-brief-place")).toBeNull(); // no one ground to point at
+    expect(document.querySelector(".auth-brief-sides").className).toBe("auth-brief-sides first");
+    expect(sheet().queryByRole("link")).toBeNull();
     fireEvent.click(sheet().getByRole("button", { name: "Cancel" }));
     expect([...ev("vs Rained off").querySelectorAll(".auth-ev-tags > *")].map((t) => t.textContent)).toEqual(["U9 Reds", "Round 7", "Cancelled"]);
     expect(ev("vs Rained off").querySelector(".auth-reply")).toBeNull();
     expect(ev("vs Rained off").querySelector(".auth-ev-note")).toBeNull();
     expect(ev("vs Winter").querySelector(".auth-ev-note").textContent).toBe("No reply needed for this one.");
     expect(screen.getByRole("status").textContent).toBe("1 reply to give");
+  });
+
+  it("a paired round at one ground names the ground once, with the way there, and each side's field under it", async () => {
+    current = week({ items: [item(U9, { id: "r", title: "vs Lions", opponent: "Lions", label: "Round 4 · Red", paired: true, place: "Lion Park – Field 1",
+      sides: [{ side: "Red", time: "09:00", place: "Lion Park – Field 1" }, { side: "White", time: "09:50", place: "Lion Park – Field 2" }],
+      replies: [{ playerId: "p1", name: "Leo K.", status: null }] })] });
+    await show();
+    fireEvent.click(within(replyRow("vs Lions", "Leo")).getByRole("button"));
+    expect(document.querySelector(".auth-brief-place > span").textContent).toBe("Lion Park");
+    expect(sheet().getByRole("link", { name: "Directions" }).getAttribute("href")).toBe("https://www.google.com/maps/search/?api=1&query=Lion%20Park");
+    expect([...document.querySelectorAll(".auth-brief-side")].map((r) => [...r.children].map((c) => c.textContent)))
+      .toEqual([["Red", "09:00", "Field 1"], ["White", "09:50", "Field 2"]]);
+    expect(document.querySelector(".auth-brief-sides").className).toBe("auth-brief-sides");
+  });
+
+  it("the sheet says where: a game with no venue yet says so and offers no directions; training names its place when it has one", async () => {
+    current = week({ items: [
+      item(U11, { id: "g", title: "vs Lions", opponent: "Lions", homeAway: undefined, place: "", replies: [{ playerId: "p3", name: "Mia K.", status: null }] }),
+      session(U9, { id: "s1", occ: TODAY, time: "17:00", endTime: "18:00", title: "Training", place: "Field 3", replies: [{ playerId: "p1", name: "Leo K.", status: null }] }),
+      session(U9, { id: "s2", occ: TODAY, time: "19:00", title: "Team photo", what: "event", place: "", replies: [{ playerId: "p1", name: "Leo K.", status: null }] })
+    ] });
+    await show();
+    fireEvent.click(within(replyRow("vs Lions", "Mia")).getByRole("button"));
+    expect(document.querySelector(".auth-brief .auth-ev-meta").textContent).toBe("Wed 10 Jun · 09:00 · U11 Blues"); // neither home nor away is known
+    expect(document.querySelector(".auth-brief-place > span").textContent).toBe("Venue to be confirmed");
+    expect(sheet().queryByRole("link")).toBeNull();
+    fireEvent.click(sheet().getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(within(replyRow("Training", "Leo")).getByRole("button"));
+    expect(document.querySelector(".auth-brief .auth-ev-title").textContent).toBe("Training");
+    expect(document.querySelector(".auth-brief .auth-ev-meta").textContent).toBe("Wed 10 Jun · 17:00–18:00 · U9 Reds");
+    expect(document.querySelector(".auth-brief .auth-ev-ic.training svg")).toBeTruthy();
+    expect(document.querySelector(".auth-brief .auth-opp")).toBeNull();
+    expect(document.querySelector(".auth-brief-place > span").textContent).toBe("Field 3");
+    expect(sheet().getByRole("link", { name: "Directions" }).getAttribute("href")).toContain("query=Field%203");
+    fireEvent.click(sheet().getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(within(replyRow("Team photo", "Leo")).getByRole("button"));
+    expect(document.querySelector(".auth-brief .auth-ev-ic.event svg")).toBeTruthy();
+    expect(document.querySelector(".auth-brief-place")).toBeNull(); // nothing to say about where, so nothing is said
+    expect(sheet().queryByRole("link")).toBeNull();
   });
 
   it("an event with no time yet says so; with every reply given the count says All replied; nothing on is said plainly", async () => {

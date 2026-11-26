@@ -75,6 +75,7 @@ describe("familyItems — one team's fortnight for one family", () => {
     expect(items[1]).toEqual({
       teamSlug: "u9", teamName: "U9 Reds", kind: "game", what: "game", id: "f1",
       dateISO: day(3), time: "09:00", title: "vs Wests", place: "Perry Park", label: "Round 7",
+      opponent: "Wests", homeAway: "H", // who the crest is for, and whether it is at home
       replies: [{ playerId: "p1", name: "Leo K.", status: "in" }, { playerId: "p2", name: "Ana K.", status: "out", reason: "Away" }]
     });
     expect(items[0]).toEqual({
@@ -140,6 +141,31 @@ describe("familyItems — one team's fortnight for one family", () => {
     expect(items.map((i) => [i.id, i.label, i.paired, i.replies[0].status])).toEqual([["r", "Round 4 · Red", true, "in"], ["b", "Round 4 · Blue", true, "in"]]);
   });
 
+  it("a paired round's game lists both games, in the team's own side order, so one reply shows where each is", () => {
+    const fixtures = [
+      // Stored Blue first; the team's order is Red then Blue.
+      { id: "b", round: 4, side: "Blue", status: "upcoming", dateISO: day(3), time: "10:00", opponent: "Wests", homeAway: "A", venue: " Perry Park – Field 4D ", availability: {} },
+      { id: "r", round: 4, side: "Red", status: "upcoming", dateISO: day(3), time: "09:00", opponent: "Wests", homeAway: "A", availability: {} },
+      { id: "solo", round: 5, side: "Red", status: "upcoming", dateISO: day(5), time: "09:00", opponent: "Easts", homeAway: "somewhere", venue: "Easts Oval", availability: {} }
+    ];
+    const items = familyItems(team, doc({ team: { name: "U9", sides: ["Red", "Blue"] }, sessions: [], fixtures }), TODAY);
+    const both = [{ side: "Red", time: "09:00", place: "" }, { side: "Blue", time: "10:00", place: "Perry Park – Field 4D" }];
+    expect(items.map((i) => [i.id, i.sides])).toEqual([["r", both], ["b", both], ["solo", undefined]]);
+    // A round with one game is an ordinary game: no sides, and home or away only when the fixture says which.
+    expect(items[2]).toMatchObject({ opponent: "Easts", place: "Easts Oval" });
+    expect("paired" in items[2] || "homeAway" in items[2]).toBe(false);
+    expect(items[0].homeAway).toBe("A");
+    // One reply covers both games, so home or away is only said when both are the same.
+    const split = familyItems(team, doc({ team: { name: "U9", sides: ["Red", "Blue"] }, sessions: [], fixtures: [fixtures[0], { ...fixtures[1], homeAway: "H" }] }), TODAY);
+    expect(split.map((i) => "homeAway" in i)).toEqual([false, false]);
+  });
+
+  it("training, an activity or a carnival day names no opponent", () => {
+    const items = familyItems(team, doc({ fixtures: [] }), TODAY);
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((i) => !("opponent" in i) && !("homeAway" in i) && !("sides" in i))).toBe(true);
+  });
+
   it("a carnival or other event is a session to reply to; birthdays are not events", () => {
     const items = familyItems(team, doc({
       players: [{ id: "p1", name: "Leo K.", dob: `2017-${day(2).slice(5)}` }, { id: "p2", name: "Ana K." }],
@@ -163,7 +189,7 @@ describe("familyItems — one team's fortnight for one family", () => {
     expect(familyItems(team, null, TODAY)).toEqual([]);
     expect(familyItems(team, {}, TODAY)).toEqual([]);
     expect(familyItems(team, { players: [null], fixtures: [null, { id: "f", status: "upcoming", dateISO: day(1), opponent: "X" }], sessions: "nope" }, TODAY)).toEqual([
-      { teamSlug: "u9", teamName: "U9 Reds", kind: "game", what: "game", id: "f", dateISO: day(1), time: "", title: "vs X", place: "", label: "", replies: [] }
+      { teamSlug: "u9", teamName: "U9 Reds", kind: "game", what: "game", id: "f", dateISO: day(1), time: "", title: "vs X", place: "", label: "", opponent: "X", replies: [] }
     ]);
     expect(familyItems(null, doc(), TODAY)).toEqual([]);
   });
