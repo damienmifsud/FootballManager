@@ -490,3 +490,96 @@ describe("TeamWizard — removing a team", () => {
     await waitFor(() => expect(calls).toEqual([{ method: "DELETE", body: { slug: "u8-white", purgeData: false } }]));
   });
 });
+
+describe("TeamWizard — two Squadi teams on one squad", () => {
+  const fill = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  const NOTE = "Two rows make one squad that plays as two teams each round, like McKay and McKain.";
+  const startCreate = async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    fill("Team name", "U9 Academy");
+  };
+  const fillBoth = () => {
+    fill("Squadi competition ID", "1844"); fill("Squadi division ID", "12962"); fill("Squadi team ID", "133944");
+    fill("Second Squadi competition ID", "1844"); fill("Second Squadi division ID", "12960"); fill("Second Squadi team ID", "133943");
+  };
+
+  it("one row with a label input and an Add a second team link; the link reveals a second row and the note", async () => {
+    await startCreate();
+    expect(screen.getByLabelText("Squadi team label")).toBeTruthy();
+    expect(screen.queryByLabelText("Second Squadi team label")).toBeNull();
+    expect(screen.queryByText(NOTE)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add a second team" }));
+    expect(screen.getByLabelText("Second Squadi team label")).toBeTruthy();
+    expect(screen.getByText(NOTE)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add a second team" })).toBeNull();
+    expect(screen.getByLabelText("Squadi team label").required).toBe(true);
+    expect(screen.getByLabelText("Squadi team label").maxLength).toBe(12);
+    // The season's rows sit under Competitions, ahead of any other competition.
+    const inputs = [...step("Competitions").getAllByRole("textbox")].map((i) => i.getAttribute("aria-label"));
+    expect(inputs.slice(0, 4)).toEqual(["Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID"]);
+    expect(inputs.slice(4, 8)).toEqual(["Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID"]);
+    expect(step("Competitions").getAllByRole("textbox").every((i) => i.className.includes("adm-inp"))).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Remove the second team" }));
+    expect(screen.queryByLabelText("Second Squadi team label")).toBeNull();
+  });
+
+  it("two rows need both labels, and different ones, before anything is sent", async () => {
+    await startCreate();
+    fireEvent.click(screen.getByRole("button", { name: "Add a second team" }));
+    fillBoth();
+    fill("Squadi team label", "McKay");
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Give each Squadi team a label, like McKay and McKain.");
+    fill("Second Squadi team label", "mckay");
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("The two Squadi team labels must be different.");
+    expect(calls).toEqual([]);
+  });
+
+  it("posts two labelled feeds in row order; a lone row is still sent as the single object", async () => {
+    await startCreate();
+    fireEvent.click(screen.getByRole("button", { name: "Add a second team" }));
+    fillBoth();
+    fill("Squadi team label", " McKay "); fill("Second Squadi team label", "McKain");
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.squadi).toEqual([
+      { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: "133944" },
+      { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: "133943" }
+    ]);
+    cleanup(); calls = [];
+    // A second row left empty, and a label typed on the only filled row: one feed, no label.
+    await startCreate();
+    fireEvent.click(screen.getByRole("button", { name: "Add a second team" }));
+    fill("Squadi competition ID", "1439"); fill("Squadi division ID", "10661"); fill("Squadi team ID", "110013");
+    fill("Squadi team label", "White");
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.squadi).toEqual({ competitionId: "1439", divisionId: "10661", teamId: "110013" });
+  });
+
+  it("edit loads both rows back and saves them; a single-feed team opens with one row", async () => {
+    teams = [{ ...U8, slug: "u9-academy", name: "U9 Academy", squadi: [
+      { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: 133944 },
+      { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 }
+    ] }, U8];
+    render(<TeamWizard />);
+    await screen.findByText("U9 Academy");
+    fireEvent.click(screen.getByRole("button", { name: "Edit U9 Academy" }));
+    expect(screen.getByLabelText("Squadi team label").value).toBe("McKay");
+    expect(String(screen.getByLabelText("Squadi team ID").value)).toBe("133944");
+    expect(screen.getByLabelText("Second Squadi team label").value).toBe("McKain");
+    expect(screen.getByLabelText("Second Squadi division ID").value).toBe("12960");
+    expect(screen.getByText(NOTE)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].method).toBe("PATCH");
+    expect(calls[0].body.squadi.map((f) => f.label)).toEqual(["McKay", "McKain"]);
+    cleanup();
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Olympic FC U8 White" }));
+    expect(screen.queryByLabelText("Second Squadi team label")).toBeNull();
+    expect(screen.getByRole("button", { name: "Add a second team" })).toBeTruthy();
+  });
+});
