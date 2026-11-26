@@ -353,3 +353,69 @@ describe("Player logins — the same person as coach, and an ordinary parent", (
     expect(await screen.findByText("Reply for Leo and see the team")).toBeTruthy();
   });
 });
+
+// A game in a competition with a picked squad (data.competitionSquads) is for
+// those players only. A signed-in player left out of one is told so as "You".
+describe("Player logins — a competition squad they are, or are not, in", () => {
+  const WINTER = { comp: "cwinter", compName: "Winterfest" };
+  // The season game is in five days; the Winterfest game is sooner.
+  const winter = (over = {}) => game({ id: "w2", round: 2, dateISO: daysFromNow(3), time: "10:30", opponent: "Lions", homeAway: "A", venue: "Lion Park", ...WINTER, ...over });
+  const withSquad = (ids) => makeData({ fixtures: [game(), winter()], competitionSquads: { cwinter: ids } });
+  const squadNote = () => document.querySelector(".squadnote")?.textContent || null;
+  const homeRows = () => replyRows().map((r) => r.querySelector(".rr-name").textContent);
+  const openGame = async (opponent, title) => {
+    nav("Results");
+    const card = screen.getByText("Fixtures", { selector: ".label" }).closest(".card");
+    fireEvent.click([...card.querySelectorAll(".mrow")].find((r) => r.textContent.includes(opponent)));
+    await waitFor(() => expect(headerTitle()).toBe(title));
+  };
+  const whosInFoot = async () => {
+    fireEvent.click(screen.getByText("See everyone's replies"));
+    await waitFor(() => expect(headerTitle()).toBe("Who's in"));
+    return document.querySelector(".wi-foot").textContent;
+  };
+
+  it("left out themselves: Home moves on to their own next game, and the Winterfest game says You aren't in the squad", async () => {
+    await load(PLAYER, withSquad(["p2", "p3"]));
+    await screen.findByText("Next game · Round 7 · Home");
+    expect(homeRows()).toEqual(["You"]);
+    expect(squadNote()).toBeNull();
+    await openGame("Lions", "Winterfest · Round 2");
+    expect(document.querySelector(".whosin .replyrow")).toBeNull();
+    expect(squadNote()).toBe("You aren't in the Winterfest squad.");
+    expect(await whosInFoot()).toBe("You aren't in the Winterfest squad.");
+    expect(document.querySelector(".av-row .rr-btn")).toBeNull();
+  });
+
+  it("in it themselves, their child not: they reply as You and the child is named as left out", async () => {
+    await load(PLAYER_AND_PARENT, withSquad(["p1", "p3"]));
+    await screen.findByText("Next game · Winterfest · Round 2 · Away");
+    expect(homeRows()).toEqual(["You"]);
+    expect(squadNote()).toBe("Leo isn't in the Winterfest squad.");
+    await openGame("Lions", "Winterfest · Round 2");
+    expect(await whosInFoot()).toBe("You can reply for yourself. Coaches can reply for anyone.");
+    expect(document.querySelectorAll(".av-row .rr-btn")).toHaveLength(1);
+  });
+
+  it("their child in it, themselves not: they reply for the child and are told You aren't in it", async () => {
+    await load(PLAYER_AND_PARENT, withSquad(["p2", "p3"]));
+    await screen.findByText("Next game · Winterfest · Round 2 · Away");
+    expect(homeRows()).toEqual(["Leo P."]);
+    expect(squadNote()).toBe("You aren't in the Winterfest squad.");
+    await openGame("Lions", "Winterfest · Round 2");
+    expect(await whosInFoot()).toBe("You can reply for Leo. Coaches can reply for anyone.");
+  });
+
+  it("neither of them in it: both are named, You first; the season game still asks them both", async () => {
+    await load(PLAYER_AND_PARENT, withSquad(["p3"]));
+    await screen.findByText("Next game · Round 7 · Home");
+    expect(homeRows()).toEqual(["You", "Leo P."]);
+    await openGame("Lions", "Winterfest · Round 2");
+    expect(squadNote()).toBe("You and Leo aren't in the Winterfest squad.");
+    expect(await whosInFoot()).toBe("You and Leo aren't in the Winterfest squad.");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await openGame("Wests", "Round 7");
+    expect(await whosInFoot()).toBe("You can reply for yourself and Leo. Coaches can reply for anyone.");
+  });
+});
