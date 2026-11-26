@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, MAX_COMPETITIONS } from "@/lib/competitions";
+import { sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, knownCompetitions, sanitizeSquad, MAX_COMPETITIONS } from "@/lib/competitions";
 
 // lib/competitions: a team's competitions beyond its season (a winter
 // tournament, an invitational league). Each has a permanent id, a name and,
@@ -168,5 +168,89 @@ describe("squadiSources", () => {
 
   it("falls back to a plain label when a stored entry has no name", () => {
     expect(squadiSources({ competitions: [{ id: "c1", squadi: WINTER }] })[0].comp).toEqual({ id: "c1", name: "Competition" });
+  });
+});
+
+// ---- Squads ----------------------------------------------------------------
+// A competition's squad is the coach's pick of who is going to it
+// (data.competitionSquads[competitionId]); /api/competition-squad lists a team's competitions with
+// knownCompetitions and stores a pick through sanitizeSquad.
+
+describe("knownCompetitions", () => {
+  const team = { slug: "a", competitions: [{ id: "c1", name: "Winterfest", squadi: { competitionId: "1", divisionId: "2", teamId: 3 } }, { id: "c2", name: "Premier Invitational" }] };
+
+  it("the registry's competitions in order, with or without a draw yet, and nothing but id and name", () => {
+    expect(knownCompetitions(team, { fixtures: [] })).toEqual([{ id: "c1", name: "Winterfest" }, { id: "c2", name: "Premier Invitational" }]);
+    // The document is not needed to know them.
+    expect(knownCompetitions(team, null)).toEqual([{ id: "c1", name: "Winterfest" }, { id: "c2", name: "Premier Invitational" }]);
+    expect(knownCompetitions(team, undefined)).toHaveLength(2);
+  });
+
+  it("a competition that only survives on the team's games is still known, after the registry's, once", () => {
+    const data = { fixtures: [
+      { id: "f1", round: 1 }, // a season game adds nothing
+      { id: "f2", comp: "cold", compName: "Summer Cup" },
+      { id: "f3", comp: "cold", compName: "Summer Cup (renamed)" },
+      { id: "f4", comp: "c1", compName: "Winterfest as the game remembers it" }
+    ] };
+    expect(knownCompetitions(team, data)).toEqual([
+      { id: "c1", name: "Winterfest" }, // the registry's name wins
+      { id: "c2", name: "Premier Invitational" },
+      { id: "cold", name: "Summer Cup" } // the first game's name
+    ]);
+    // With no registry list at all, the games are all there is to go on.
+    expect(knownCompetitions({ slug: "a" }, data)).toEqual([{ id: "cold", name: "Summer Cup" }, { id: "c1", name: "Winterfest as the game remembers it" }]);
+    expect(knownCompetitions(null, data)).toHaveLength(2);
+  });
+
+  it("falls back to a plain label for an unnamed competition, and skips anything without a usable id", () => {
+    expect(knownCompetitions({ competitions: [{ id: "c1" }, { id: "c2", name: "" }] }, null)).toEqual([{ id: "c1", name: "Competition" }, { id: "c2", name: "Competition" }]);
+    expect(knownCompetitions(null, { fixtures: [{ comp: "cx" }, { comp: "cy", compName: "   " }, { comp: "cz", compName: 7 }] }))
+      .toEqual([{ id: "cx", name: "Competition" }, { id: "cy", name: "Competition" }, { id: "cz", name: "7" }]);
+    const junk = { competitions: [null, "c9", { name: "No id" }, { id: "", name: "Blank" }, { id: 5, name: "Number" }, { id: "c1", name: "Kept" }, { id: "c1", name: "Repeat" }] };
+    expect(knownCompetitions(junk, { fixtures: [null, "x", { comp: "" }, { comp: 5 }, { compName: "Name only" }] })).toEqual([{ id: "c1", name: "Kept" }]);
+    expect(knownCompetitions({ competitions: "Winterfest" }, { fixtures: "nope" })).toEqual([]);
+    expect(knownCompetitions(null, null)).toEqual([]);
+    expect(knownCompetitions(undefined, undefined)).toEqual([]);
+  });
+});
+
+describe("sanitizeSquad", () => {
+  const players = [{ id: "p1", name: "Sam" }, { id: "p2", name: "Alex" }, { id: "p3", name: "Kim" }];
+
+  it("null means everyone, and comes back as null", () => {
+    expect(sanitizeSquad(null, players)).toBeNull();
+    expect(sanitizeSquad(undefined, players)).toBeNull();
+  });
+
+  it("a list is cut to the team's own players, each once, in the team's order", () => {
+    expect(sanitizeSquad(["p3", "p1"], players)).toEqual(["p1", "p3"]);
+    expect(sanitizeSquad(["p2", "p2", "p2"], players)).toEqual(["p2"]);
+    expect(sanitizeSquad(["p1", "p2", "p3"], players)).toEqual(["p1", "p2", "p3"]);
+    // A player who is not on this team (another team's id, a deleted player) is dropped.
+    expect(sanitizeSquad(["p1", "other-team-player", "gone"], players)).toEqual(["p1"]);
+    // Only strings are ids: nothing is coerced into matching one.
+    expect(sanitizeSquad([1, null, { id: "p1" }, ["p2"], true, "p3"], [{ id: 1 }, ...players])).toEqual(["p3"]);
+  });
+
+  it("a list that leaves nobody is everyone: a competition is never for no one", () => {
+    expect(sanitizeSquad([], players)).toBeNull();
+    expect(sanitizeSquad(["gone"], players)).toBeNull();
+    expect(sanitizeSquad([7, null], players)).toBeNull();
+    expect(sanitizeSquad(["p1"], [])).toBeNull();
+    expect(sanitizeSquad(["p1"], undefined)).toBeNull();
+    expect(sanitizeSquad(["p1"], "nope")).toBeNull();
+    expect(sanitizeSquad(["p1"], [null, undefined, players[0]])).toEqual(["p1"]);
+  });
+
+  it("anything that is neither a list nor null is not a squad", () => {
+    for (const bad of ["p1", "everyone", 0, 3, true, false, {}, { p1: true }, { length: 1, 0: "p1" }]) expect(sanitizeSquad(bad, players)).toBeUndefined();
+  });
+
+  it("never changes what it was given", () => {
+    const sent = ["p3", "p1", "p3"];
+    sanitizeSquad(sent, players);
+    expect(sent).toEqual(["p3", "p1", "p3"]);
+    expect(players.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
   });
 });

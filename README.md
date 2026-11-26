@@ -420,6 +420,24 @@ For a team defined in `TEAMS`, the same list goes on the team entry:
 `"competitions":[{"id":"winterfest","name":"Winterfest","squadi":{"competitionId":"…","divisionId":"…","teamId":0}}]`.
 `id` is permanent (a game is tagged with it) and `name` can change.
 
+#### A squad for a competition
+
+A competition often takes part of the team. In **Team settings → Competition squads**
+the coach turns **Everyone** off for a competition and switches off the players who are
+not going. From then on its games are for that squad:
+
+- only those players are counted on Home, the match screen and Who's in, listed for
+  duties and put in the game manager's roster;
+- only their families are asked to reply. A family whose child is not going is told so on
+  that game ("Alex isn't in the Winterfest squad.") and their Home card moves on to the
+  next game their child is part of;
+- everyone still sees the game in Results and on the calendar.
+
+The season is always everyone. A squad is kept per competition on the team document
+(`competitionSquads`) and saved through its own route, `/api/competition-squad` (coach
+only), so no other save can undo it. If every player in a squad has since left the team,
+the competition goes back to everyone.
+
 ---
 
 ## Honest limits (unchanged by going to a website)
