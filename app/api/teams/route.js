@@ -7,7 +7,7 @@ import { isAdminEmail, isClubAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
 import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE, sanitizeSeason } from "@/lib/teamSetup";
-import { sanitizeCompetitions, squadiFeeds, websiteLinksError } from "@/lib/competitions";
+import { sanitizeCompetitions, competitionsError, squadiFeeds, websiteLinksError } from "@/lib/competitions";
 
 export const dynamic = "force-dynamic";
 
@@ -152,6 +152,10 @@ export async function POST(req) {
 
   const squadiBad = body?.squadi != null ? squadiError(body.squadi) : null;
   if (squadiBad) return NextResponse.json({ error: squadiBad }, { status: 400 });
+  // A competition's Dribl link must be a Dribl fixtures request, and a
+  // competition has one source: said plainly rather than dropped.
+  const compsBad = competitionsError(body?.competitions);
+  if (compsBad) return NextResponse.json({ error: compsBad }, { status: 400 });
   // A draw's website link is shown as a link: one that is not a plain https
   // address is refused, naming its row, rather than dropped.
   const linksBad = websiteLinksError(body || {});
@@ -228,6 +232,8 @@ export async function PATCH(req) {
   }
   const squadiBad = body.squadi != null ? squadiError(body.squadi) : null;
   if (squadiBad) return NextResponse.json({ error: squadiBad }, { status: 400 });
+  const compsBad = competitionsError(body.competitions);
+  if (compsBad) return NextResponse.json({ error: compsBad }, { status: 400 });
   const linksBad = websiteLinksError(body);
   if (linksBad) return NextResponse.json({ error: linksBad }, { status: 400 });
 

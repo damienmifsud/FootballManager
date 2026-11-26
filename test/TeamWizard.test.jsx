@@ -599,8 +599,8 @@ describe("TeamWizard — two season feeds and another competition together", () 
     const labels = s.getAllByRole("textbox").map((i) => i.getAttribute("aria-label"));
     expect(labels).toEqual([
       "Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID", "Squadi website link",
-      "Competition 1 name", "Winterfest competition ID", "Winterfest division ID", "Winterfest team ID", "Winterfest website link",
-      "Competition 2 name", "Premier Invitational competition ID", "Premier Invitational division ID", "Premier Invitational team ID", "Premier Invitational website link"
+      "Competition 1 name", "Winterfest competition ID", "Winterfest division ID", "Winterfest team ID", "Winterfest Dribl fixtures request", "Winterfest website link",
+      "Competition 2 name", "Premier Invitational competition ID", "Premier Invitational division ID", "Premier Invitational team ID", "Premier Invitational Dribl fixtures request", "Premier Invitational website link"
     ]);
     // The second team's row goes between the season's first row and the competitions.
     fireEvent.click(s.getByRole("button", { name: "Add a second team" }));
@@ -817,5 +817,98 @@ describe("TeamWizard — a website link beside each draw", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("Winterfest: A website link should be a full address starting with https://");
     expect(screen.getByLabelText("Winterfest website link").value).toBe("footballqueensland.com.au/winterfest");
     expect(calls[0].body.competitions[0].link).toBe("footballqueensland.com.au/winterfest");
+  });
+});
+
+// A competition whose draw is on Dribl takes its fixtures request instead of
+// Squadi ids, with the team's name as Dribl shows it.
+describe("TeamWizard — a competition on Dribl", () => {
+  const fill = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  const REQUEST = "https://mc-api.dribl.com/api/fixtures?date_range=all&season=S1&competition=C1&league=L1&club=CL1&tenant=T1&timezone=Australia%2FBrisbane";
+  const startCreate = async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    fill("Team name", "U9 Academy");
+    fireEvent.click(screen.getByRole("button", { name: "Add a competition" }));
+    fill("Competition 1 name", "Premier Invitational");
+  };
+
+  it("each competition has a field for its Dribl request; the team-name field appears once there is one", async () => {
+    await startCreate();
+    const request = screen.getByLabelText("Premier Invitational Dribl fixtures request");
+    expect(request.className).toContain("adm-inp");
+    expect(request.getAttribute("placeholder")).toBe("Or, for a draw on Dribl, its fixtures request (https://mc-api.dribl.com/api/fixtures?…)");
+    expect(screen.queryByLabelText("Premier Invitational team name on Dribl")).toBeNull();
+    fill("Premier Invitational Dribl fixtures request", REQUEST);
+    expect(screen.getByLabelText("Premier Invitational team name on Dribl").getAttribute("placeholder")).toBe("Your team's name as Dribl shows it");
+    // The step explains where the request comes from and what happens with it.
+    expect(screen.getByText(/A competition on Dribl takes its fixtures request instead of Squadi IDs/).textContent)
+      .toMatch(/copy the address of the request that starts with https:\/\/mc-api\.dribl\.com\/api\/fixtures\. Add your\s+team's name as Dribl shows it, so the app knows which side of each game is yours\. Its games are then kept in step\s+whenever a coach opens the team\.$/);
+  });
+
+  it("sends the request, trimmed, with the team's name; no Squadi ids are invented for it", async () => {
+    await startCreate();
+    fill("Premier Invitational Dribl fixtures request", "  " + REQUEST + "  ");
+    fill("Premier Invitational team name on Dribl", " Olympic FC U9 White ");
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.competitions).toEqual([{ name: "Premier Invitational", dribl: { url: REQUEST, team: "Olympic FC U9 White" } }]);
+  });
+
+  it("a row with only its Dribl request is still a row; one with Squadi ids and no request sends no dribl at all", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    fill("Team name", "U9 Academy");
+    fireEvent.click(screen.getByRole("button", { name: "Add a competition" }));
+    fill("Competition 1 Dribl fixtures request", REQUEST);
+    fireEvent.click(screen.getByRole("button", { name: "Add a competition" }));
+    fill("Competition 2 name", "Winterfest");
+    fill("Winterfest competition ID", "1750");
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.competitions).toEqual([
+      { name: "", dribl: { url: REQUEST, team: "" } },
+      { name: "Winterfest", squadi: { competitionId: "1750", divisionId: "", teamId: "" } }
+    ]);
+  });
+
+  it("shows the server's sentence when the link is not a Dribl request, and keeps the form as it was", async () => {
+    reply = (method) => (method === "POST" ? { ok: false, status: 400, json: async () => ({ error: "Premier Invitational: That is not a Dribl fixtures request. It should start with https://mc-api.dribl.com/api/fixtures?" }) } : null);
+    await startCreate();
+    fill("Premier Invitational Dribl fixtures request", "https://premierinvitational.dribl.com/fixtures?season=S1");
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Premier Invitational: That is not a Dribl fixtures request. It should start with https://mc-api.dribl.com/api/fixtures?");
+    expect(screen.getByLabelText("Premier Invitational Dribl fixtures request").value).toBe("https://premierinvitational.dribl.com/fixtures?season=S1");
+  });
+
+  it("edit loads the request and the team's name back, and a save keeps the competition's id", async () => {
+    teams = [{ ...U8, competitions: [
+      { id: "cprem0001", name: "Premier Invitational", dribl: { url: REQUEST, team: "Olympic FC U9 White" } },
+      { id: "c1a2b3c4d", name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: 300123 } }
+    ] }];
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Olympic FC U8 White" }));
+    expect(screen.getByLabelText("Premier Invitational Dribl fixtures request").value).toBe(REQUEST);
+    expect(screen.getByLabelText("Premier Invitational team name on Dribl").value).toBe("Olympic FC U9 White");
+    // The Squadi competition beside it has an empty Dribl field and no team-name field.
+    expect(screen.getByLabelText("Winterfest Dribl fixtures request").value).toBe("");
+    expect(screen.queryByLabelText("Winterfest team name on Dribl")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.competitions).toEqual([
+      { id: "cprem0001", name: "Premier Invitational", dribl: { url: REQUEST, team: "Olympic FC U9 White" } },
+      { id: "c1a2b3c4d", name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: 300123 } }
+    ]);
+  });
+
+  it("clearing the request on edit sends the competition with no source, so the server drops it", async () => {
+    teams = [{ ...U8, competitions: [{ id: "cprem0001", name: "Premier Invitational", dribl: { url: REQUEST, team: "Olympic FC U9 White" } }] }];
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Olympic FC U8 White" }));
+    fill("Premier Invitational Dribl fixtures request", "");
+    expect(screen.queryByLabelText("Premier Invitational team name on Dribl")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.competitions).toEqual([{ id: "cprem0001", name: "Premier Invitational" }]);
   });
 });

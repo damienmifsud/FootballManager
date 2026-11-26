@@ -23,6 +23,8 @@ const LEGACY = { mode: "builder", url: "", org: FQ_METRO, yearId: "8", comp: "58
 const OTHER_TEAM = /Kangaroos|MiniRoos|Under 8|110013|10661|58ec2bda|b63aa285/;
 
 let me, meStatus, meGate, league, leagueStatus, leagueGate, saveReply, saveGate, syncReply, posts, calls, failing;
+// Dribl: no competition takes its draw from there unless a test says so.
+let driblAsk, driblPosts, driblSaveReply, driblAnswer;
 const json = (ok, status, body) => ({ ok, status, json: async () => body });
 // A promise the test settles by hand, to hold one answer back.
 const gate = () => { let open; const p = new Promise((r) => { open = r; }); p.open = open; return p; };
@@ -31,6 +33,9 @@ beforeEach(() => {
   league = { teamSlug: "u8-white", squadi: SAVED, saved: true };
   meStatus = 200; meGate = null; leagueStatus = 200; leagueGate = null; saveReply = null; saveGate = null;
   syncReply = json(true, 200, { ok: true, changes: [] }); posts = []; calls = []; failing = "";
+  driblAsk = { sources: [], due: false }; driblPosts = [];
+  driblSaveReply = json(true, 200, { ok: true, matchesSeen: 0, created: 0, changes: [], emailStatus: "no changes" });
+  driblAnswer = () => json(true, 200, { data: [] });
   global.fetch = vi.fn(async (url, opts = {}) => {
     const u = String(url);
     const call = (opts.method || "GET") + " " + u;
@@ -41,6 +46,12 @@ beforeEach(() => {
       return meStatus === 200 ? json(true, 200, me) : json(false, meStatus, { error: "unauthorized" });
     }
     if (u.includes("/api/sync")) return syncReply;
+    // The Dribl half of the sync: what this browser should fetch, then the games it posts back.
+    if (u.includes("/api/dribl")) {
+      if (opts.method === "POST") { driblPosts.push(JSON.parse(opts.body)); return driblSaveReply; }
+      return json(true, 200, driblAsk);
+    }
+    if (u.startsWith("https://mc-api.dribl.com/")) return driblAnswer(u);
     if (u.includes("/api/league")) {
       if (opts.method === "POST") {
         const body = JSON.parse(opts.body);
@@ -343,15 +354,15 @@ describe("League page", () => {
   it("Sync now reports what changed, or that nothing did", async () => {
     render(<LeaguePage />);
     fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
-    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures now" }));
     // The status line reads "Syncing…" until the answer arrives, so each of
     // these waits for the text rather than for the line to appear.
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Already up to date with Squadi."));
     syncReply = json(true, 200, { ok: true, changes: ["R5 moved to 09:00", "R6 venue changed"] });
-    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures now" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Updated 2 items: R5 moved to 09:00 · R6 venue changed"));
     syncReply = json(false, 500, { ok: false, error: "squadi down" });
-    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures now" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Sync failed: squadi down"));
   });
 
@@ -360,14 +371,14 @@ describe("League page", () => {
     render(<LeaguePage />);
     fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
     syncReply = json(true, 200, { ok: true, changes: ["R5 moved to 09:00"], failed: [{ name: "Winterfest", error: "Squadi responded 404" }] });
-    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures now" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Updated 1 item: R5 moved to 09:00 Could not sync Winterfest (Squadi responded 404)."));
     syncReply = json(true, 200, { ok: true, changes: [], failed: [{ name: "Season", error: "Squadi responded 503" }, { name: "Winterfest", error: "Unexpected Squadi response shape" }] });
-    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures now" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Already up to date with Squadi. Could not sync Season (Squadi responded 503); Winterfest (Unexpected Squadi response shape)."));
     // An empty list is no failure at all.
     syncReply = json(true, 200, { ok: true, changes: [], failed: [] });
-    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures now" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Already up to date with Squadi."));
   });
 
@@ -375,8 +386,8 @@ describe("League page", () => {
     render(<LeaguePage />);
     fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
     syncReply = json(true, 200, { ok: true, changes: [], team: "u8-white", skipped: "no squadi config" });
-    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
-    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("No Squadi draw is set up for this team yet."));
+    fireEvent.click(screen.getByRole("button", { name: "Sync fixtures now" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("No draw is set up for this team yet."));
   });
 
   it("no team linked: says so instead of bouncing to login, and shows no draw", async () => {
@@ -441,5 +452,115 @@ describe("League page", () => {
     expect(await screen.findByText("Not configured yet.")).toBeTruthy();
     expect(screen.getByText("The coach has not linked the Squadi fixtures for this team yet.")).toBeTruthy();
     expect(frame()).toBeNull();
+  });
+
+  // A draw on Dribl is fetched here in the browser (Dribl turns servers away)
+  // and posted back; the one button covers it and Squadi's.
+  describe("Sync now with a draw on Dribl", () => {
+    const REQUEST = "https://mc-api.dribl.com/api/fixtures?date_range=all&season=S1&competition=C1&league=L1&club=CL1&tenant=T1&timezone=Australia%2FBrisbane";
+    const press = async () => {
+      render(<LeaguePage />);
+      fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
+      fireEvent.click(screen.getByRole("button", { name: "Sync fixtures now" }));
+    };
+    const status = (text) => waitFor(() => expect(screen.getByRole("status").textContent).toBe(text));
+    beforeEach(() => { driblAsk = { sources: [{ comp: "cprem", name: "Premier Invitational", url: REQUEST, team: "" }], due: false }; });
+
+    it("fetches the draw from Dribl in this browser, posts the games, and reports both halves together", async () => {
+      syncReply = json(true, 200, { ok: true, changes: ["Round 5 vs Wests: time a → b"] });
+      driblSaveReply = json(true, 200, { ok: true, matchesSeen: 2, created: 1, changes: ["NEW — Premier Invitational Round 1 vs Lions: Sat 13 Mar 09:00 @ Lions Park"], emailStatus: "emailed" });
+      await press();
+      await status("Updated 2 items: Round 5 vs Wests: time a → b · NEW — Premier Invitational Round 1 vs Lions: Sat 13 Mar 09:00 @ Lions Park");
+      // The button does not wait its turn (due was false), the draw was asked of Dribl itself, with no cookies...
+      const toDribl = global.fetch.mock.calls.filter((c) => String(c[0]).startsWith("https://mc-api.dribl.com/"));
+      expect(toDribl.map((c) => c[0])).toEqual([REQUEST]);
+      expect(toDribl[0][1]).toMatchObject({ credentials: "omit", headers: { Accept: "application/json" } });
+      // ...and what it gave was posted for that competition.
+      expect(driblPosts).toEqual([{ draws: [{ comp: "cprem", records: [] }] }]);
+    });
+
+    it("says where everything is up to date", async () => {
+      await press();
+      await status("Already up to date with Squadi and Dribl.");
+    });
+
+    it("a team whose only draw is on Dribl is not told nothing is set up", async () => {
+      syncReply = json(true, 200, { ok: true, changes: [], team: "u8-white", skipped: "no squadi config" });
+      await press();
+      await status("Already up to date with Dribl.");
+    });
+
+    it("names a draw Dribl would not give, beside what Squadi changed", async () => {
+      syncReply = json(true, 200, { ok: true, changes: ["Round 5 vs Wests: time a → b"], failed: [{ name: "Winterfest", error: "Squadi responded 404" }] });
+      driblAnswer = () => json(false, 503, {});
+      await press();
+      await status("Updated 1 item: Round 5 vs Wests: time a → b Could not sync Winterfest (Squadi responded 404); Premier Invitational (Dribl responded 503).");
+      expect(driblPosts).toEqual([]);
+    });
+
+    it("says so when the server will not take the games, and does not call Dribl up to date", async () => {
+      driblSaveReply = json(false, 403, { error: "Only coaches can sync a draw." });
+      await press();
+      await status("Already up to date with Squadi. Could not sync Dribl (Only coaches can sync a draw).");
+    });
+
+    it("when Dribl would not give the only draw there is, that is all it says", async () => {
+      syncReply = json(true, 200, { ok: true, changes: [], team: "u8-white", skipped: "no squadi config" });
+      driblAnswer = () => json(false, 503, {});
+      await press();
+      await status("Could not sync Premier Invitational (Dribl responded 503).");
+    });
+
+    it("Squadi being down does not stop the draw on Dribl: it is synced, and Squadi is named as what was missed", async () => {
+      syncReply = json(false, 502, { ok: false, error: "squadi down" });
+      driblSaveReply = json(true, 200, { ok: true, matchesSeen: 1, created: 1, changes: ["NEW — Premier Invitational Round 1 vs Lions: Sat 13 Mar 09:00 @ Lions Park"], emailStatus: "emailed" });
+      await press();
+      await status("Updated 1 item: NEW — Premier Invitational Round 1 vs Lions: Sat 13 Mar 09:00 @ Lions Park Could not sync Squadi (squadi down).");
+      expect(driblPosts).toHaveLength(1);
+    });
+
+    it("with nothing new on Dribl and Squadi down, says which is up to date and which was missed", async () => {
+      syncReply = json(false, 502, { ok: false, error: "squadi down" });
+      await press();
+      await status("Already up to date with Dribl. Could not sync Squadi (squadi down).");
+    });
+
+    it("when neither would answer, names both and calls nothing up to date", async () => {
+      syncReply = json(false, 502, { ok: false, error: "squadi down" });
+      driblAnswer = () => json(false, 503, {});
+      await press();
+      await status("Could not sync Squadi (squadi down); Premier Invitational (Dribl responded 503).");
+      expect(driblPosts).toEqual([]);
+    });
+
+    it("a failed sync with no draw on Dribl reads as it always has", async () => {
+      driblAsk = { sources: [], due: false };
+      syncReply = json(false, 502, { ok: false, error: "squadi down" });
+      await press();
+      await status("Sync failed: squadi down");
+      // Nothing was asked of Dribl itself.
+      expect(global.fetch.mock.calls.some((c) => String(c[0]).startsWith("https://mc-api.dribl.com/"))).toBe(false);
+    });
+
+    it("a reason that is a sentence loses its full stop inside the brackets", async () => {
+      driblAnswer = () => json(true, 200, { data: [{ id: 7, match: {} }] });
+      await press();
+      await status("Already up to date with Squadi. Could not sync Premier Invitational (Dribl's answer was not in the form this app reads. A game there has: id, match).");
+    });
+
+    it("Squadi goes first and Dribl only once it has answered: the two never write at once", async () => {
+      let release;
+      const held = new Promise((r) => { release = r; });
+      const inner = global.fetch.getMockImplementation();
+      global.fetch.mockImplementation(async (url, opts) => {
+        if (String(url).startsWith("/api/sync")) { await held; }
+        return inner(url, opts);
+      });
+      await press();
+      await new Promise((r) => setTimeout(r, 30));
+      expect(global.fetch.mock.calls.some((c) => String(c[0]).includes("dribl"))).toBe(false);
+      release();
+      await status("Already up to date with Squadi and Dribl.");
+    });
   });
 });
