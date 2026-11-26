@@ -43,6 +43,15 @@ crest ring and 800 weight; the other side 600 muted. Hairline between rows.
   team name to a local file, and an unknown club renders an initials disc.
 - Sizes: 84 sign-in · 48 match-ups (2 px red ring on ours) · 30 rows and header · 22
   calendar grid · 18 week strip · 34 initials avatars.
+- Wherever a game is written "vs Somebody" the opposition's crest is beside it
+  (`components/Crest.jsx`, `OppCrest`): 30 in place of the icon square on a game's event
+  row (hub and My teams), 30 beside the back button on a game's own screens, 22 in the
+  duties list, 14 inline in the planner's header line. Decorative: empty `alt`, initials
+  disc `aria-hidden`, because the name is always there in words.
+- A sheet that asks for an answer (reply, duty) and the player screen's reply card carry
+  the game summary: crest, "vs Somebody", date · time · Home or Away, then a hairline
+  and the ground with a pin and a **Directions** pill. "Venue to be confirmed" when
+  there is none; a paired round lists each side's kick-off and field.
 - Club logos are the clubs' property: use them as supplied, never restyled or
   recoloured.
 

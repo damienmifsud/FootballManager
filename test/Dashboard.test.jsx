@@ -1462,7 +1462,13 @@ describe("S2 Home — Direction C cards", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Reply" })[0]);
     expect(await screen.findByText("Reply for Sam", { selector: ".rs-title" })).toBeTruthy();
-    expect(sheet().getByText(/vs Wests · .* · 09:00/)).toBeTruthy();
+    // The sheet says what the reply is for: the opposition with its crest, when, and where.
+    const brief = document.querySelector(".sheet .gb");
+    expect(brief.querySelector(".gb-title").textContent).toBe("vs Wests");
+    expect(brief.querySelector(".gb-meta").textContent).toMatch(/ · 09:00 · Home$/);
+    expect(brief.querySelector(".mcrest.ph").textContent).toBe("W"); // no artwork for Wests: an initials disc
+    expect(brief.querySelector(".ng-place").textContent).toBe("Perry Park");
+    expect(within(brief).getByRole("link", { name: "Directions" }).getAttribute("href")).toBe("https://www.google.com/maps/search/?api=1&query=Perry%20Park");
     expect(sheet().getByText(/Coach Byron sees replies straight away/)).toBeTruthy();
     fireEvent.click(sheet().getByRole("button", { name: "In" }));
 
@@ -2928,7 +2934,9 @@ describe("S6 Availability — Direction C", () => {
     expect(screen.getByText("You can reply for Sam. Coaches can reply for anyone.").className).toBe("wi-foot");
     fireEvent.click(within(sam()).getByRole("button", { name: "Reply" }));
     expect(await screen.findByText("Reply for Sam", { selector: ".rs-title" })).toBeTruthy();
-    expect(document.querySelector(".rs-sub").textContent).toBe(`vs Wests · ${fmt(gameISO)} · 09:00`);
+    expect(document.querySelector(".sheet .gb-title").textContent).toBe("vs Wests");
+    expect(document.querySelector(".sheet .gb-meta").textContent).toBe(`${fmt(gameISO)} · 09:00 · Home`);
+    expect(document.querySelector(".sheet .gb .ng-place").textContent).toBe("Perry Park");
     fireEvent.click(within(document.querySelector(".sheet")).getByRole("button", { name: "In" }));
     await waitFor(() => expect(document.querySelector(".sheet")).toBeNull());
     expect(within(sam()).getByRole("button", { name: "In" }).className).toBe("rr-btn in");
@@ -2993,7 +3001,10 @@ describe("S6 Availability — Direction C", () => {
     expect(screen.getByText("You can reply for Sam. Coaches can reply for anyone.")).toBeTruthy();
     fireEvent.click(within(rowOf("Sam Smith")).getByRole("button", { name: "Reply" }));
     expect(await screen.findByText("Reply for Sam", { selector: ".rs-title" })).toBeTruthy();
-    expect(document.querySelector(".rs-sub").textContent).toBe(`Training · ${fmt(trainISO)} · 16:30`);
+    expect(document.querySelector(".sheet .gb-title").textContent).toBe("Training");
+    expect(document.querySelector(".sheet .gb-meta").textContent).toBe(`${fmt(trainISO)} · 16:30`);
+    expect(document.querySelector(".sheet .gb .ng-place").textContent).toBe(training().location); // where training is
+    expect(document.querySelector(".sheet .gb .wk-ic.training svg")).toBeTruthy(); // training has no crest: its icon
     fireEvent.click(within(document.querySelector(".sheet")).getByRole("button", { name: "In" }));
     await waitFor(() => expect(lastRsvp()).toEqual({ kind: "session", id: "s1", occ: trainISO, playerId: "p1", status: "in" }));
     expect(toast()).toBe("Sam's in for training");
@@ -3060,7 +3071,10 @@ describe("S6 Availability — Direction C", () => {
     expect(screen.queryByText(/chase non-responders/)).toBeNull();
     fireEvent.click(within(card).getByRole("button", { name: "Reply" }));
     expect(await screen.findByText("Reply for Sam", { selector: ".rs-title" })).toBeTruthy();
-    expect(document.querySelector(".rs-sub").textContent).toBe(`Training · ${fmt(trainISO)} · 16:30`);
+    expect(document.querySelector(".sheet .gb-title").textContent).toBe("Training");
+    expect(document.querySelector(".sheet .gb-meta").textContent).toBe(`${fmt(trainISO)} · 16:30`);
+    expect(document.querySelector(".sheet .gb .ng-place").textContent).toBe(training().location); // where training is
+    expect(document.querySelector(".sheet .gb .wk-ic.training svg")).toBeTruthy(); // training has no crest: its icon
     fireEvent.click(within(document.querySelector(".sheet")).getByRole("button", { name: "In" }));
     // Back on the session sheet, with the reply on the row and in the count.
     const card2 = (await screen.findByText("Who's training?", { selector: ".label" })).closest(".card");
@@ -3258,7 +3272,9 @@ describe("S7 Duties — Direction C", () => {
     await toDuties();
     fireEvent.click(slotOf(cardOf(7), "Fruit duty")); // the row, not the pill
     expect(sheet().getByText("Fruit duty · Round 7")).toBeTruthy();
-    expect(sheet().getByText(`vs Wests · ${fmt(r7ISO)}`)).toBeTruthy();
+    expect(sheet().getByText("vs Wests", { selector: ".gb-title" })).toBeTruthy();
+    expect(document.querySelector(".sheet .gb-meta").textContent).toBe(`${fmt(r7ISO)} · 09:00 · Home`);
+    expect(document.querySelector(".sheet .gb .ng-place").textContent).toBe("Perry Park"); // where the fruit, or the jerseys, are going
     expect(sheet().getByText("Half-time fruit for 3 kids — oranges or watermelon go down well. We'll let Coach Byron know it's sorted.")).toBeTruthy();
     const chips = sheet().getAllByRole("radio");
     expect(chips.map((c) => c.textContent)).toEqual(["Sam S.'s family", "Alex S.'s family"]);
@@ -3356,7 +3372,9 @@ describe("S7 Duties — Direction C", () => {
     expect(within(fruit).getByText("Tap to assign")).toBeTruthy();
     fireEvent.click(within(fruit).getByText("Assign"));
     expect(sheet().getByText("Fruit duty · Round 7")).toBeTruthy();
-    expect(sheet().getByText(`vs Wests · ${fmt(r7ISO)}`)).toBeTruthy();
+    expect(sheet().getByText("vs Wests", { selector: ".gb-title" })).toBeTruthy();
+    expect(document.querySelector(".sheet .gb-meta").textContent).toBe(`${fmt(r7ISO)} · 09:00 · Home`);
+    expect(document.querySelector(".sheet .gb .ng-place").textContent).toBe("Perry Park"); // where the fruit, or the jerseys, are going
     const rows = () => [...document.querySelectorAll(".ds-row")];
     expect(rows().map((r) => r.querySelector(".ds-name").textContent)).toEqual(["Sam Smith's family", "Alex Smith's family", "Milo Park's family"]);
     expect(rows().map((r) => r.querySelector(".ds-sub").textContent)).toEqual(["Jo", "No contact", "No contact"]);
@@ -4073,7 +4091,10 @@ describe("Carnivals", () => {
     // Reply → the session reply sheet for the carnival date.
     fireEvent.click(within(card).getByRole("button", { name: "Reply" }));
     expect(await screen.findByText("Reply for Sam", { selector: ".rs-title" })).toBeTruthy();
-    expect(document.querySelector(".rs-sub").textContent).toBe(`Winter carnival · ${fmtDate(iso)} · 08:00`);
+    expect(document.querySelector(".sheet .gb-title").textContent).toBe("Winter carnival");
+    expect(document.querySelector(".sheet .gb-meta").textContent).toBe(`${fmtDate(iso)} · 08:00–14:00`);
+    expect(document.querySelector(".sheet .gb .ng-place").textContent).toBe("Perry Park");
+    expect(document.querySelector(".sheet .gb .wk-ic.carnival svg")).toBeTruthy();
     fireEvent.click(within(document.querySelector(".sheet")).getByRole("button", { name: "In" }));
     await waitFor(() => expect(rsvpBodies().at(-1)).toEqual({ kind: "session", id: "c1", occ: iso, playerId: "p1", status: "in" }));
     expect(toast()).toBe("Sam's in for the carnival");

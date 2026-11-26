@@ -549,6 +549,33 @@ competitions keep a single feed each.
 For a team defined in `TEAMS`, `squadi` is then an array of the two labelled feeds:
 `"squadi":[{"label":"Reds","competitionId":"…","divisionId":"…","teamId":0},{"label":"Blues","competitionId":"…","divisionId":"…","teamId":0}]`.
 
+## Opposition crests, and where the game is
+
+Wherever a game is written "vs Somebody" the opposition's crest is beside it: the Next
+game card, every game row (Home's next 7 days, the calendar list and a day's sheet,
+where it stands in place of the trophy icon), Results, the duties list, the header of
+a game's own screens (match detail, and Who's in for the game), the match day planner,
+and **My teams** for a family on two or more teams.
+
+Wherever someone is asked to answer, the sheet says what for and where. The **reply
+sheet** (in a team and on My teams), the sheet for taking a **duty**, and the reply card
+on a player's own screen all show the opposition and its crest, the date and time, home
+or away, the ground, and a **Directions** button that opens the ground in Google Maps.
+A game with no ground yet says "Venue to be confirmed". A reply on a paired round
+covers both games, so its sheet gives each side's kick-off and field, with the ground
+named once when the two share it. Training says where it is too.
+
+A crest is always one of the site's own files, found by the opponent's name; the logo
+address that comes with a Squadi draw is kept but never shown, so nothing is loaded from
+another club's website. The set is in `public/crests` (512 px PNGs, padded so a round
+crop clips nothing) and `lib/clubs.js` maps a team name to its file by the words in it
+("Oxley United U9 Eagles" is Oxley United). A club that is not in the set shows a disc
+with its initials. To add one, put its PNG in `public/crests` and add a line for it to
+`lib/clubs.js`.
+
+Messages that leave the site (the WhatsApp reminder, a shared game, the calendar feed)
+and the Ask tab's answers are plain text, so they name the opposition without a crest.
+
 ---
 
 ## Honest limits (unchanged by going to a website)

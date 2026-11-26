@@ -44,7 +44,8 @@ const docs = (today) => ({
     team: { name: "U9 Reds", rules: [{ id: "r1" }], coachPin: "9999" },
     players: [{ id: "p1", name: "Leo K.", coach: { note: "Left foot only" } }, { id: "p8", name: "Team mate", parentEmails: ["other@example.com"] }],
     sessions: [],
-    fixtures: [{ id: "f1", round: 7, status: "upcoming", dateISO: day(today, 3), time: "09:00", opponent: "Wests", venue: "Perry Park",
+    fixtures: [{ id: "f1", round: 7, status: "upcoming", dateISO: day(today, 3), time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park",
+      opponentLogo: "https://images.example.com/wests.png", ourLogo: "https://images.example.com/us.png", // kept from the draw, never passed on
       availability: { p1: { status: "in", by: "Leo K." }, p8: { status: "out", reason: "Away" } }, plan: { assignments: [{ GK: "p8" }] } }]
   },
   u11: {
@@ -88,9 +89,9 @@ describe("GET /api/family", () => {
     ]);
     expect(body.items).toEqual([
       { teamSlug: "u11", teamName: "U11 Blues", kind: "game", what: "game", id: "g1", dateISO: day(today, 1), time: "10:30", title: "vs Lions", place: "Lion Park", label: "Round 2",
-        replies: [{ playerId: "p3", name: "Mia K.", status: null }] },
+        opponent: "Lions", replies: [{ playerId: "p3", name: "Mia K.", status: null }] },
       { teamSlug: "u9", teamName: "U9 Reds", kind: "game", what: "game", id: "f1", dateISO: day(today, 3), time: "09:00", title: "vs Wests", place: "Perry Park", label: "Round 7",
-        replies: [{ playerId: "p1", name: "Leo K.", status: "in" }] }
+        opponent: "Wests", homeAway: "H", replies: [{ playerId: "p1", name: "Leo K.", status: "in" }] }
     ]);
   });
 
@@ -101,6 +102,8 @@ describe("GET /api/family", () => {
     expect(getData.mock.calls.map((c) => c[0]).sort()).toEqual(["u11", "u9"]); // the team they only coach is not opened
     expect(raw).not.toMatch(/u13|Golds|Secret|Not theirs/);
     expect(raw).not.toMatch(/p8|Team mate|other@example|Left foot|9999|assignments|rules/);
+    // The crest is found by the opponent's name among our own files: a logo address from the draw never leaves the server.
+    expect(raw).not.toMatch(/https?:|images\.example|Logo/);
   });
 
   it("is the family's view whatever the session is acting as, and whichever team it has open", async () => {

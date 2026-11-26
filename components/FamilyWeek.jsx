@@ -13,9 +13,10 @@
 // /api/rsvp naming its team; the route answers it as the family there and
 // refuses anything else, whatever this page offers.
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Trophy, ClipboardList, Star, Medal, Check, X } from "lucide-react";
-import { initials } from "@/lib/dashboardData";
+import { ClipboardList, Star, Medal, Check, X, MapPin, Navigation } from "lucide-react";
+import { initials, mapsUrl, fieldOf, sharedGround } from "@/lib/dashboardData";
 import { shortTeamNames } from "@/lib/people";
+import { OppCrest } from "@/components/Crest";
 
 const MAX_AGE = 60 * 60 * 24 * 180; // 180 days, like the team and role cookies
 const readChoice = () => {
@@ -35,7 +36,52 @@ const nearDay = (iso, todayISO) => {
   return gap === 0 ? "Today" : gap === 1 ? "Tomorrow" : "";
 };
 const firstName = (name) => String(name || "").trim().split(/\s+/)[0] || "";
-const ICONS = { game: Trophy, training: ClipboardList, event: Star, carnival: Medal };
+// A game shows the opposition's crest; the other kinds an icon.
+const ICONS = { training: ClipboardList, event: Star, carnival: Medal };
+const EventMark = ({ item }) => {
+  if (item.what === "game") return <span className="auth-ev-ic opp"><OppCrest name={item.opponent} className="auth-opp" discClass="auth-opp ph" /></span>;
+  const Icon = ICONS[item.what] || Star;
+  return <span className={"auth-ev-ic " + item.what}><Icon size={16} aria-hidden="true" /></span>;
+};
+const homeAway = (item) => (item.homeAway === "H" ? "Home" : item.homeAway === "A" ? "Away" : "");
+// Where it is, with the way there when there is a place to find.
+const PlaceLine = ({ text, link }) => (
+  <div className="auth-brief-place">
+    <span><MapPin size={12} aria-hidden="true" /><span>{text}</span></span>
+    {link && <a className="auth-dir" href={mapsUrl(link)} target="_blank" rel="noopener noreferrer"><Navigation size={13} aria-hidden="true" />Directions</a>}
+  </div>
+);
+// What a reply is for, said in full on the sheet that asks: the opposition's
+// crest and name (or the event's icon and title), when, for which team, and
+// where. A paired round's reply covers both games, so each side has its own
+// line; a ground the two share is named once, with the way there.
+function Brief({ item, teamName }) {
+  const sides = Array.isArray(item.sides) && item.sides.length === 2 ? item.sides : null;
+  const shared = sides ? sharedGround(sides[0].place, sides[1].place) : "";
+  return (
+    <div className="auth-brief">
+      <div className="auth-ev-top">
+        <EventMark item={item} />
+        <div className="auth-ev-body">
+          <div className="auth-ev-title">{item.title}</div>
+          <div className="auth-ev-meta">{[shortDay(item.dateISO), sides ? "" : whenText(item), teamName, homeAway(item)].filter(Boolean).join(" · ")}</div>
+        </div>
+      </div>
+      {sides ? (<>
+        {shared && <PlaceLine text={shared} link={shared} />}
+        <div className={"auth-brief-sides" + (shared ? "" : " first")}>
+          {sides.map((g) => (
+            <div className="auth-brief-side" key={g.side}>
+              <span className="auth-pill">{g.side}</span>
+              <b>{g.time || "TBC"}</b>
+              <span>{(shared ? fieldOf(g.place) : g.place) || "Venue to be confirmed"}</span>
+            </div>
+          ))}
+        </div>
+      </>) : (item.place || item.what === "game") && <PlaceLine text={item.place || "Venue to be confirmed"} link={item.place} />}
+    </div>
+  );
+}
 const whenText = (item) => (item.time ? (item.endTime ? `${item.time}–${item.endTime}` : item.time) : "Time to come");
 const statusWord = (status) => (status === "in" ? "In" : status === "out" ? "Out" : "Reply");
 
@@ -99,7 +145,7 @@ export default function FamilyWeek() {
     const onKey = (e) => {
       if (e.key === "Escape") { if (!busy) setOpen(null); return; }
       if (e.key !== "Tab" || !sheetRef.current) return;
-      const stops = [...sheetRef.current.querySelectorAll("button:not([disabled]), input")];
+      const stops = [...sheetRef.current.querySelectorAll("a[href], button:not([disabled]), input")];
       if (!stops.length) return;
       const at = document.activeElement;
       if (e.shiftKey && (at === stops[0] || at === sheetRef.current)) { e.preventDefault(); stops[stops.length - 1].focus(); }
@@ -162,11 +208,10 @@ export default function FamilyWeek() {
               {nearDay(day.iso, data.todayISO) && <span>{nearDay(day.iso, data.todayISO)}</span>}{shortDay(day.iso)}
             </div>
             {day.items.map((item) => {
-              const Icon = ICONS[item.what] || Star;
               return (
                 <div className="auth-ev" key={item.teamSlug + ":" + item.id + ":" + (item.occ || "")}>
                   <div className="auth-ev-top">
-                    <span className={"auth-ev-ic " + item.what}><Icon size={16} aria-hidden="true" /></span>
+                    <EventMark item={item} />
                     <div className="auth-ev-body">
                       <div className="auth-ev-title">{item.title}</div>
                       <div className="auth-ev-meta"><b>{whenText(item)}</b>{item.place ? " · " + item.place : ""}</div>
@@ -204,7 +249,7 @@ export default function FamilyWeek() {
           <div className="auth-sheet" role="dialog" aria-modal="true" aria-labelledby="fw-sheet-title" tabIndex={-1} ref={sheetRef} onClick={(e) => e.stopPropagation()}>
             <div className="grab" />
             <div className="auth-sheet-title" id="fw-sheet-title">{open.reply.isSelf ? "Your reply" : `Reply for ${firstName(open.reply.name)}`}</div>
-            <div className="auth-sheet-sub">{[open.item.title, shortDay(open.item.dateISO), open.item.time, short(open.item.teamName)].filter(Boolean).join(" · ")}</div>
+            <Brief item={open.item} teamName={short(open.item.teamName)} />
             <div className="auth-rs-grid">
               <button type="button" className={"auth-rs in" + (open.reply.status === "in" ? " sel" : "")} aria-pressed={open.reply.status === "in"} disabled={busy} onClick={() => send("in")}><Check size={18} aria-hidden="true" />In</button>
               <button type="button" className={"auth-rs out" + (open.reply.status === "out" ? " sel" : "")} aria-pressed={open.reply.status === "out"} disabled={busy} onClick={() => send("out")}><X size={18} aria-hidden="true" />Out</button>
