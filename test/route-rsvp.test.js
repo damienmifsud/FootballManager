@@ -331,6 +331,59 @@ describe("one reply per round on a two-team squad", () => {
   });
 });
 
+// A player with their own email on their record signs in as themselves: the
+// directory gives a "player" membership, which sits under the same family hat
+// a parent wears, limited to their own record.
+describe("account mode — a player signed in with their own email", () => {
+  const PLAYER_M = (playerId = "p1", playerName = "Sam") => ({ teamSlug: "a", teamName: "Team A", role: "player", playerId, playerName });
+  beforeEach(() => { viewingAs.mockReset(); }); // earlier blocks leave an impersonation behind
+  afterEach(() => { viewingAs.mockReset(); });
+
+  it("replies for themselves, stamped with their own name", async () => {
+    happyPath({ email: "sam@example.com", memberships: [PLAYER_M()] });
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest(rsvp("p1")));
+    expect(res.status).toBe(200);
+    expect(setData.mock.calls[0][1].fixtures[0].availability.p1).toMatchObject({ status: "in", by: "Sam" });
+  });
+
+  it("cannot reply for a team-mate", async () => {
+    happyPath({ email: "sam@example.com", memberships: [PLAYER_M()] });
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest(rsvp("p2")));
+    expect(res.status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("replies for their child in the same team too, without switching role", async () => {
+    happyPath({ email: "sam@example.com", memberships: [PLAYER_M("p1", "Sam"), PARENT_M("p2", "Other")] });
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await POST(fakeRequest(rsvp("p1")))).status).toBe(200);
+    expect((await POST(fakeRequest(rsvp("p2")))).status).toBe(200);
+    expect(setData.mock.calls[1][1].fixtures[0].availability.p2).toMatchObject({ by: "Other" });
+  });
+
+  it("a player who also coaches is limited to their own record once they act as the player", async () => {
+    happyPath({ email: "sam@example.com", memberships: [COACH_M, PLAYER_M()] });
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await POST(fakeRequest(rsvp("p2", { cookies: { act_as: "parent" } })))).status).toBe(403);
+    expect((await POST(fakeRequest(rsvp("p1", { cookies: { act_as: "parent" } })))).status).toBe(200);
+    expect(setData.mock.calls[0][1].fixtures[0].availability.p1).toMatchObject({ by: "Sam" });
+    // As coach (the default hat) they reply for anyone.
+    expect((await POST(fakeRequest(rsvp("p2")))).status).toBe(200);
+    expect(setData.mock.calls[1][1].fixtures[0].availability.p2).toMatchObject({ by: "Coach" });
+  });
+
+  it("is read only while a super admin views as them", async () => {
+    happyPath({ email: "admin@club.com", memberships: [PLAYER_M()] });
+    viewingAs.mockReturnValue("sam@example.com");
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest(rsvp("p1")));
+    expect(res.status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
+  });
+});
+
 // Rounds are numbered per draw: a reply on a paired season game is never
 // copied onto another competition's game that happens to share the round
 // number, and a competition's own pair still shares its replies.

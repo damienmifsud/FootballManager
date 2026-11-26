@@ -5,8 +5,9 @@ import { AuthPage, AuthHeader, SignOutButton } from "@/components/AuthShell";
 
 // My teams (account mode, /teams): the teams the signed-in person is on
 // themselves, one card each, with the roles they hold there as pills. A
-// coach's own team, a parent's children's teams, a team the super admin gave
-// them a role on. Tapping a card opens that team in the strongest role held
+// coach's own team, a parent's children's teams, a team they play in (signed
+// in with their own email as a player), a team the super admin gave them a
+// role on. Tapping a card opens that team in the strongest role held
 // there; the Viewing-as sheet inside the team switches between roles.
 //
 // Running the club is not the same as being on every team in it, so a super
@@ -70,7 +71,7 @@ export default function MyTeams({ teams = [], email, admin = null, viewingAs = f
           <div className="auth-card auth-none">
             <div className="auth-card-title">{admin ? "You're not on a team yourself" : "No team is linked to this login yet"}</div>
             <div className="auth-body">
-              {admin ? "Open any team from club admin." : "Ask your coach to add this email to your child's record, then sign in again."}
+              {admin ? "Open any team from club admin." : "Ask your coach to add this email to your child's record, or to your own if you play, then sign in again."}
             </div>
           </div>
         )}

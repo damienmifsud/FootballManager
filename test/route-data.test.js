@@ -496,6 +496,23 @@ describe("account mode — visibility layer on GET", () => {
     expect(JSON.stringify(body)).not.toMatch(/dad@b\.com|0400 000 002|2222/);
   });
 
+  it("a player signed in with their own email receives their own record in full and no team-mate's email", async () => {
+    parentSession({ memberships: [{ teamSlug: "a", role: "player", playerId: "p1", playerName: "Sam" }] });
+    getData.mockResolvedValue({
+      team: { name: "A", rules: [{ id: "r1" }], coachPin: "9999" },
+      players: [
+        { id: "p1", name: "Sam", email: "sam@example.com", coach: { note: "Left foot only" } },
+        { id: "p2", name: "Ava", email: "ava@example.com", guardians: [{ name: "Dad", mobile: "0400 000 002", email: "dad@example.com" }], parentEmails: ["dad@example.com"] }
+      ],
+      fixtures: []
+    });
+    const body = await get();
+    expect(body.players[0]).toEqual({ id: "p1", name: "Sam", email: "sam@example.com" }); // their own email, never the coach's note
+    expect(body.players[1]).toEqual({ id: "p2", name: "Ava" });
+    expect(JSON.stringify(body)).not.toMatch(/ava@example\.com|dad@example\.com|0400 000 002|Left foot|9999/);
+    expect("rules" in body.team).toBe(false);
+  });
+
   it("never mutates the stored document while redacting", async () => {
     const stored = parentSession({ parentsSee: { ownChildMinutes: true } });
     const before = JSON.parse(JSON.stringify(stored));

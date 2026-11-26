@@ -248,6 +248,20 @@ describe("mergeImportedPlayers", () => {
     expect(res.updated).toEqual(["Leo K.", "Ana v."]);
   });
 
+  it("a player's own email (their login) survives an import, and an import never gives anyone one", () => {
+    const { players: parsed } = parsePlayerImport(NAMES_CSV);
+    const res = mergeImportedPlayers([
+      { id: "a", name: "Leo K.", email: "leo@example.com" },
+      { id: "b", name: "Ana v.", surname: "van Dyk", dob: "2017-09-11", parentEmails: ["rita@example.com"], email: "ana@example.com" }
+    ], parsed);
+    expect(res.players[0]).toMatchObject({ id: "a", surname: "Kelly", email: "leo@example.com" }); // updated, login kept
+    expect(res.players[1]).toMatchObject({ id: "b", email: "ana@example.com" });                    // nothing to add, login kept
+    expect("email" in res.players[2]).toBe(false);                                                    // Billie, added from the file
+    // The export has no column for a player's own address, and the roster guard keeps none either.
+    expect(parsed.every((p) => !("email" in p))).toBe(true);
+    expect(sanitizePlayers([{ name: "Jo", email: "jo@example.com" }])[0]).not.toHaveProperty("email");
+  });
+
   it("a second paste of an already-complete squad changes nothing", () => {
     const { players: parsed } = parsePlayerImport(NAMES_CSV);
     const once = mergeImportedPlayers([], parsed);

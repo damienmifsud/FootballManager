@@ -237,3 +237,49 @@ describe("account mode — view as (super admin impersonation)", () => {
     });
   });
 });
+
+describe("account mode — a player signed in with their own email", () => {
+  const SELF = { teamSlug: "a", teamName: "Team A", role: "player", playerId: "p7", playerName: "Jo Park" };
+  const KID = { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p8", playerName: "Leo Park" };
+
+  it("wears the family hat over their own record, and the dashboard is told which record is theirs", async () => {
+    auth.mockResolvedValue({ user: { email: "jo@example.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships: [SELF] });
+    const { GET } = await loadRoute({ authOn: true });
+    const me = await (await GET(fakeRequest())).json();
+    expect(me).toMatchObject({ role: "parent", playerIds: ["p7"], playerNames: ["Jo Park"], selfIds: ["p7"], canSwitch: false, admin: false });
+    expect(me.hats).toEqual([{ role: "parent", playerIds: ["p7"], playerNames: ["Jo Park"], selfIds: ["p7"] }]);
+    expect(me.teams).toEqual([{ teamSlug: "a", teamName: "Team A", hats: me.hats, mine: true }]);
+    expect(me.memberships).toEqual([{ teamSlug: "a", teamName: "Team A", role: "player", playerId: "p7", playerName: "Jo Park" }]);
+  });
+
+  it("their child's record rides on the same hat, marked apart from their own", async () => {
+    auth.mockResolvedValue({ user: { email: "jo@example.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships: [SELF, KID] });
+    const { GET } = await loadRoute({ authOn: true });
+    const me = await (await GET(fakeRequest())).json();
+    expect(me).toMatchObject({ role: "parent", playerIds: ["p7", "p8"], selfIds: ["p7"] });
+    expect(me.hats).toHaveLength(1);
+  });
+
+  it("a parent's answer has no selfIds key", async () => {
+    auth.mockResolvedValue({ user: { email: "mum@example.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships: [KID] });
+    const { GET } = await loadRoute({ authOn: true });
+    const me = await (await GET(fakeRequest())).json();
+    expect(me.role).toBe("parent");
+    expect(me).not.toHaveProperty("selfIds");
+  });
+
+  it("a player who also coaches opens as coach, with no selfIds until they act as the player", async () => {
+    auth.mockResolvedValue({ user: { email: "jo@example.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", teamName: "Team A", role: "coach" }, SELF] });
+    const { GET } = await loadRoute({ authOn: true });
+    const asCoach = await (await GET(fakeRequest())).json();
+    expect(asCoach.role).toBe("coach");
+    expect(asCoach).not.toHaveProperty("selfIds");
+    expect(asCoach.canSwitch).toBe(true);
+    const asPlayer = await (await GET(fakeRequest({ cookies: { act_as: "parent" } }))).json();
+    expect(asPlayer).toMatchObject({ role: "parent", selfIds: ["p7"] });
+  });
+});

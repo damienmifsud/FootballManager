@@ -69,6 +69,15 @@ describe("lib/roleMatrix — facts the code enforces", () => {
     }
   });
 
+  it("a player with their own login is the parent column, and the table says so", () => {
+    const column = ROLES.find((r) => r.key === "parent");
+    expect(column.label).toBe("Parent or player");
+    expect(column.note).toMatch(/the player's own/);
+    expect(ROLES.map((r) => r.key)).toEqual(["admin", "club", "coach", "parent", "code"]); // no second set of rules
+    expect(MARKS.own.label).toBe("Own family");
+    expect(ROLE_MATRIX_NOTES.some((n) => /Own family means a parent's children, and for a player signed in with their own email, themselves/.test(n))).toBe(true);
+  });
+
   it("coach-level rows are identical for coach and super admin, and the team code matches the coach outside /admin", () => {
     for (const r of allRows.filter((r) => r.group !== "Club")) {
       expect(r.coach, r.feature).toBe(r.admin);
@@ -82,7 +91,7 @@ describe("<RoleMatrix />", () => {
     render(<RoleMatrix />);
     for (const r of ROLES) expect(screen.getByText(r.label)).toBeTruthy();
     for (const row of allRows) expect(screen.getByText(row.feature)).toBeTruthy();
-    expect(screen.getAllByText("Own children").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Own family").length).toBeGreaterThan(0);
     expect(screen.getAllByText("If the coach allows").length).toBeGreaterThan(0);
     expect(screen.getByText(ROLE_MATRIX_NOTES[0])).toBeTruthy();
   });

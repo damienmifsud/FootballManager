@@ -168,7 +168,7 @@ describe("app/page (account mode)", () => {
     const Page = await loadPage();
     const text = textOf(await Page());
     expect(text).toContain("No team linked to me@a.com");
-    expect(text).toContain("Ask your coach to add this email");
+    expect(text).toContain("Ask your coach to add this email to your child's record, or to your own if you play, then sign in again.");
     expect(text).not.toContain("Open club admin");
   });
 

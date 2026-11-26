@@ -63,6 +63,31 @@ describe("My teams", () => {
     expect(document.cookie).toContain("act_as=parent");
   });
 
+  it("a team they play in is theirs: a Player pill in the family tint, opened in that role", () => {
+    const player = (slug, name, playerId, playerName) => ({ teamSlug: slug, teamName: name, role: "player", playerId, playerName });
+    show([
+      player("ff", "Fast Fives", "p7", "Jo Park"),
+      player("u9", "Under 9 Reds", "p1", "Jo Park"), parent("u9", "Under 9 Reds", "p2", "Leo Park"),
+      coach("u11", "Under 11 Blues", { staffRole: "Manager" }), player("u11", "Under 11 Blues", "p4", "Jo Park")
+    ]);
+    expect(cards().map((c) => [c.querySelector(".auth-team-name").textContent, pills(c)])).toEqual([
+      ["Fast Fives", ["Player"]],
+      ["Under 11 Blues", ["Manager", "Player"]],
+      ["Under 9 Reds", ["Player and parent of Leo"]]
+    ]);
+    expect(cards()[0].querySelector(".auth-pill.family").textContent).toBe("Player");
+    expect(screen.getByRole("button", { name: "Fast Fives: Player" })).toBe(cards()[0]);
+    fireEvent.click(cards()[0]);
+    expect(document.cookie).toContain("team_slug=ff");
+    expect(document.cookie).toContain("act_as=parent"); // the family hat: there is no separate player hat to ask for
+  });
+
+  it("someone on no team is told how a login gets linked, as a parent or as a player", () => {
+    show([]);
+    expect(screen.getByText("No team is linked to this login yet")).toBeTruthy();
+    expect(screen.getByText("Ask your coach to add this email to your child's record, or to your own if you play, then sign in again.")).toBeTruthy();
+  });
+
   it("a plain member sees no club section", () => {
     show([coach("a", "Team A"), parent("b", "Team B", "p1", "Leo")]);
     expect(screen.queryByText("Club")).toBeNull();

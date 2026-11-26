@@ -29,7 +29,7 @@ Rotate the code any time by changing the env var.
 
 **Account mode (`AUTH_SECRET` set + at least one sign-in provider).** People sign in
 with Google, Microsoft or a magic link, and what they can see and do depends on their
-role: super admin, club admin, coach or parent, with optional per-person overrides. The
+role: super admin, club admin, coach, parent or player, with optional per-person overrides. The
 full ladder, how each role is assigned and what it can do is in
 [Account login and roles](#account-login-and-roles-google--microsoft--magic-link)
 below. **Set `ADMIN_EMAILS` before you enable `AUTH_SECRET`** — it is the only way to
@@ -111,7 +111,7 @@ Both are built in; `AUTH_SECRET` picks between them.
 | | Team-code mode | Account mode |
 |---|---|---|
 | Parent effort | type one code | sign in with Google / Microsoft, or click a magic link |
-| Roles | none — everyone reads and writes everything | super admin, club admin, coach, parent, plus per-person overrides |
+| Roles | none — everyone reads and writes everything | super admin, club admin, coach, parent, player, plus per-person overrides |
 | Revoking access | rotate the code (everyone re-enters it) | remove the email from the roster, staff list or `/admin`; or block it with an override |
 | Per-parent features | no | yes — bound to their own children for RSVPs, redacted view, "Viewing as" hats |
 | Club-wide view | no | yes — club admins see every team, super admins coach every team |
@@ -221,21 +221,31 @@ Roles exist only in account mode. They are resolved from the signed-in email in
   rules, coach notes or other families' contacts, and game plans / match records only
   as far as the coach's **Parents can see** switches allow — and write only their own
   children's RSVPs.
+- **Player** — the player's *own* email on their own record (Squad tab, player editor,
+  **Player's own email**). A player signs in as themselves and gets exactly what a parent
+  gets, for their own record: they read the team with the same redactions and reply for
+  themselves. It is meant for adult teams and older players; leave it blank for a young
+  player, whose parents reply for them. Someone who plays alongside their child holds one
+  role there for both ("Player and parent of Leo"). See
+  [Player logins](#player-logins) below.
 - **Overrides** (`/admin`) — per email, per team, force coach, parent, viewer or
-  blocked. Overrides never apply to super admins.
+  blocked. Overrides never apply to super admins. The parent override keeps a player to
+  their own record in the same way it keeps a parent to their children.
 
 ### Who can do what
 
 The same table is shown on `/admin` (data in `lib/roleMatrix.js`). "Coach" covers
-assistant coaches and managers on the staff list too. The last column is team-code
-mode, where there are no accounts.
+assistant coaches and managers on the staff list too. A player signed in with their own
+email is the same column as a parent, for their own record: "Own family" means a
+parent's children and, for a player, themselves. The last column is team-code mode,
+where there are no accounts.
 
-| Feature | Super admin | Club admin | Coach | Parent | Team code |
+| Feature | Super admin | Club admin | Coach | Parent or player | Team code |
 |---|---|---|---|---|---|
 | **See** | | | | | |
 | Fixtures, results, calendar, training, duties | Yes | Yes | Yes | Yes | Yes |
 | Squad list, positions, photos, goals and assists | Yes | Yes | Yes | Yes | Yes |
-| Parents' contact details and family PINs | Yes | No | Yes | Own children | Yes |
+| Parents' contact details and family PINs | Yes | No | Yes | Own family | Yes |
 | Player ratings and coach notes | Yes | No | Yes | No | Yes |
 | Lineup rules and the coach PIN | Yes | No | Yes | No | Yes |
 | Game plan before kick-off | Yes | If the coach allows | Yes | If the coach allows | Yes |
@@ -244,8 +254,8 @@ mode, where there are no accounts.
 | Ask the team assistant | Yes | Yes | Yes | Yes | Yes |
 | Calendar subscribe link | Yes | Yes | Yes | Yes | Yes |
 | **Do** | | | | | |
-| Reply In or Out for games and training | Anyone | No | Anyone | Own children | Anyone |
-| Duties: fruit, jerseys and the goalkeeper | Yes | No | Yes | Own children | Yes |
+| Reply In or Out for games and training | Anyone | No | Anyone | Own family | Anyone |
+| Duties: fruit, jerseys and the goalkeeper | Yes | No | Yes | Own family | Yes |
 | Edit fixtures, scores, squad, staff, team details | Yes | No | Yes | No | Yes |
 | Set the game plan and run the live match | Yes | No | Yes | No | Yes |
 | Settings: parents can see, match format, home shape, lineup rules | Yes | No | Yes | No | Yes |
@@ -263,10 +273,11 @@ mode, where there are no accounts.
 | View as any user (read only) | Yes | No | No | No | Not available |
 
 "If the coach allows" follows the team's **Parents can see** switches in Settings. A
-coach who is also a parent gets exactly the Parent column while wearing the parent hat.
+coach who is also a parent gets exactly the Parent or player column while wearing the
+parent hat.
 Every visit still refreshes fixtures quietly for everyone; only the manual "sync now" is
-coach-level. Duties: coaches assign or clear any duty; parents claim fruit or jersey duty
-for their own family (never the goalkeeper) and can hand it back. Every duty write goes
+coach-level. Duties: coaches assign or clear any duty; parents and players claim fruit or
+jersey duty for their own family (never the goalkeeper) and can hand it back. Every duty write goes
 through its own narrow route (`/api/duty`), so a claim never touches the rest of the fixture.
 
 ### My teams, roles, and running the club
@@ -278,11 +289,12 @@ them at once:
 - **Club**: the super admin and club admins. They create teams and manage access, and
   can open any team when they need to.
 - **Team**: the staff (head coach, assistant coach, manager). They run their own team.
-- **Squad**: players and their families. A parent replies for their own child.
+- **Squad**: players and their families. A parent replies for their own child, and a
+  player with their own login replies for themselves.
 
 **My teams** (`/teams`) lists the teams a person is on *themselves*, each with their
-roles there as pills ("Assistant coach", "Parent of Leo"). Someone on one team goes
-straight into it; someone on several lands on My teams and picks.
+roles there as pills ("Assistant coach", "Parent of Leo", "Player"). Someone on one team
+goes straight into it; someone on several lands on My teams and picks.
 
 Running the club is not the same as being on every team in it. A super admin's coach
 access to a team they hold no role on, and a club admin's view of it, are **club-level**:
@@ -302,10 +314,10 @@ role held there.
 - **Teams**: the team wizard (create, edit, open any team) and the league page link.
 - **People**: everyone with a login and everything each is attached to, one card per
   person with their roles as pills ("Assistant coach · U9 Reds", "Parent of Leo · U9
-  Reds", "Club admin"). Search by name, email, role or team. Open a card to set that
-  person's role on a team (Coach, Parent only, View only, No access, or **As listed**
-  to go back to the team's own lists), add them to another team, make them a club
-  admin, or view the site as them. Roles themselves come from each team's staff list
+  Reds", "Player · Fast Fives", "Club admin"). Search by name, email, role or team. Open
+  a card to set that person's role on a team (Coach, Parent or player only, View only,
+  No access, or **As listed** to go back to the team's own lists), add them to another
+  team, make them a club admin, or view the site as them. Roles themselves come from each team's staff list
   and the emails on its players' records; nothing on a roster is edited from this
   page. It holds every family's email address, so club admins do not get it.
 - **Access**: view as a user, the club admins list, every per-team override in one
@@ -318,10 +330,42 @@ request: a cookie can only narrow what the person is entitled to, never widen it
 home page and every API route resolve the team with the same rule (`resolveTeamSlug` in
 `lib/hats.js`), so what a page shows and what its data routes serve cannot differ.
 
+### Player logins
+
+A player gets a login of their own when a coach puts the player's own email on their
+record: Squad tab, open the player, **Edit**, **Player's own email**. Nothing else is
+needed. The next time that address signs in, it lands in the team as **Player**.
+
+- **What they can do** is what a parent can do, for themselves only: see the team, reply
+  In or Out for their own games and training, take or hand back fruit or jersey duty in
+  their own name, and see their own contact details. They never see a team-mate's email,
+  another family's contacts, ratings or coach notes.
+- **Who it is for:** adult teams and older players. For a young player leave the field
+  blank and keep the parents' emails under Parents / guardians; the parents reply for
+  them. Adding a child's own address is the club's decision to make with the family.
+- **One login, one player.** An address that is already another player's own email in the
+  team is refused. An address a family shares belongs under Parents / guardians.
+- **Who sees the address:** the coaches, the player, and that player's parents. It is
+  removed from the team document before it is sent to anyone else.
+- **A player who is also a parent or a coach.** A child in the same team rides on the same
+  role ("Player and parent of Leo"), so there is nothing to switch to reply for both. A
+  player on the staff list holds two roles, Coach and Player, and opens the team as coach.
+- **Taking it away:** clear the field and save. That address is refused from its next
+  request on.
+- The words change with the role: a signed-in player reads "You", "Your reply" and
+  "You're in for Saturday" where a parent reads their child's name.
+
+Under the hood a player's own email gives a `player` membership (`lib/directory.js`),
+which sits under the same family hat a parent wears (`lib/hats.js`, `selfIds` marks the
+record that is the person themselves). Every rule written for a parent keys on that
+hat's player ids, so there is no second set of checks to keep in step.
+
 ### Prerequisites and notes
 
 - Parent emails must be on the player records (the Majestri import captures them; or
   add them in the wizard roster or the Squad tab).
+- A player's own email is typed in by a coach, one player at a time (the Majestri file
+  has no column for it). See Player logins above.
 - Coaches need an email in `coachEmails` or on the team's staff list.
 - **Player names:** the Majestri import keeps each player's full name. The whole team
   sees it in the squad list and on the player's page; tight spots (replies, duties, the
@@ -488,3 +532,8 @@ off the open web, but anyone with the code (or the calendar key) can see everyth
 both to the team, don't index the site publicly, and align with your club's consent policy.
 For revocable per-person access and parent redactions, use account mode (see
 "Account login and roles" above).
+
+In account mode a child can be given a login of their own (see "Player logins"). It is
+off unless a coach types the child's own email onto their record, it shows the child
+nothing a parent would not see, and clearing the field removes it. Decide with the
+family before adding one.
