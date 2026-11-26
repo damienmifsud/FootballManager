@@ -103,8 +103,9 @@ describe("App — coach-mode PIN gate", () => {
     render(<App />);
     await expectChip("Parent");
     await openChip();
-    expect(screen.getByText("Switch team, open settings or sign out.")).toBeTruthy();
+    expect(screen.getByText("Coach mode, and who replies from this device.")).toBeTruthy();
     expect(screen.queryByText("Team settings")).toBeNull(); // coach-only row hidden in the parent view
+    expect(document.querySelectorAll(".hs-label").length).toBe(0); // no "This team" / "You" sections without their rows
     expect(screen.getByText("Sign in to respond")).toBeTruthy();
     fireEvent.click(screen.getByText("Coach mode"));
     // Now in coach mode: the chip reads Coach and the sheet has closed.
@@ -148,7 +149,7 @@ describe("App — account-mode roles (/api/me)", () => {
     return {
       mode: "account", email: "x@a.com", admin: false, clubAdmin: false, teamSlug: "a", teamName: "Test FC", role: "coach",
       playerIds: worn.playerIds, playerNames: worn.playerNames, hats,
-      teams: [{ teamSlug: "a", teamName: "Test FC", hats }], canSwitch: false, memberships: [], ...over
+      teams: [{ teamSlug: "a", teamName: "Test FC", hats, mine: hats.some((h) => !h.club) }], canSwitch: false, memberships: [], ...over
     };
   };
   const threeKids = [
@@ -167,6 +168,14 @@ describe("App — account-mode roles (/api/me)", () => {
     if (k) document.cookie = `${k}=; path=/; max-age=0`;
   });
   const hatRow = (label) => screen.getByText(label, { selector: ".hs-row b" }).closest(".hs-row");
+  // The sheet top to bottom: its row titles, and its section labels.
+  const sheetRows = () => [...document.querySelectorAll(".hs-list .hs-row b")].map((b) => b.textContent);
+  const sheetLabels = () => [...document.querySelectorAll(".hs-list .hs-label")].map((l) => l.textContent);
+  const rowSub = (label) => hatRow(label).querySelector(".txt span")?.textContent;
+  // Club-level hats: what a super admin or club admin wears on a team they hold no role on.
+  const superHat = { role: "coach", playerIds: [], playerNames: [], admin: true, club: true };
+  const clubHat = { role: "viewer", playerIds: [], playerNames: [], clubAdmin: true, club: true };
+  const team = (slug, name, hats) => ({ teamSlug: slug, teamName: name, hats, mine: hats.some((h) => !h.club) });
 
   it("a parent gets the parent chip and a sheet with no coach mode, no settings and no legacy sign-in", async () => {
     meFetch(account({ email: "mum@a.com", role: "parent", hats: [parentHat(["p1"], ["Sam Smith"])] }));
@@ -175,7 +184,10 @@ describe("App — account-mode roles (/api/me)", () => {
     await screen.findByText(/Div 1 · U8/);
     await expectChip("Parent of Sam");
     await openChip();
-    expect(screen.getByText("Switch team, open settings or sign out.")).toBeTruthy();
+    expect(screen.getByText("Your role on this team.")).toBeTruthy();
+    // One team, nothing to manage: just the role and Sign out.
+    expect(sheetRows()).toEqual(["Parent of Sam"]);
+    expect(sheetLabels()).toEqual([]);
     expect(hatRow("Parent of Sam").querySelector(".disc.on").textContent).toBe("SS");
     expect(screen.getByText("Reply for Sam and see the team")).toBeTruthy();
     expect(screen.queryByText("Coach mode")).toBeNull();
@@ -192,7 +204,8 @@ describe("App — account-mode roles (/api/me)", () => {
     await expectChip("Club admin (view only)");
     await openChip();
     expect(screen.getByText("Read everything, change nothing")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Club admin/ }).getAttribute("href")).toBe("/admin");
+    expect(screen.getByRole("link", { name: /^Club admin/ }).getAttribute("href")).toBe("/admin");
+    expect(rowSub("Club admin")).toBe("Every team");
     expect(screen.queryByText("Coach mode")).toBeNull();
     expect(screen.queryByText("Team settings")).toBeNull();
     expect(screen.queryByText(/Sign in to respond/)).toBeNull();
@@ -214,39 +227,44 @@ describe("App — account-mode roles (/api/me)", () => {
     expect(headerKicker()).toBe("Test FC");
   });
 
-  it("one hat, one team: the sheet shows the worn coach hat with a check and no Other teams section", async () => {
+  it("one role, one team: the sheet shows the worn coach role with a check, Team settings, and nothing to switch to", async () => {
     meFetch(account({ email: "coach@a.com" }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await expectChip("Coach");
     await openChip();
-    expect(screen.getByText("Switch team, open settings or sign out.")).toBeTruthy();
+    expect(screen.getByText("Your role on this team.")).toBeTruthy();
     const row = hatRow("Coach");
     expect(row.querySelector(".disc.on").textContent).toBe("C");
-    expect(row.querySelector('[aria-label="Current hat"]')).toBeTruthy();
+    expect(row.querySelector('[aria-label="Current role"]')).toBeTruthy();
     expect(screen.getByText("Edit fixtures, scores and duties")).toBeTruthy();
+    // One team of their own: nowhere to switch to, so no Switch team and no "You" section.
+    expect(sheetRows()).toEqual(["Coach", "Team settings"]);
+    expect(sheetLabels()).toEqual(["This team"]);
     expect(screen.queryByText("Other teams")).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(document.querySelector(".whoami")).toBeNull();
   });
 
-  it("two hats: the sheet lists both; tapping the parent hat sets the team_slug and act_as cookies", async () => {
+  it("two roles: the sheet lists both; tapping the parent role sets the team_slug and act_as cookies", async () => {
     clearCookies();
     const hats = [coachHat, parentHat(["p1"], ["Sam Smith"])];
     meFetch(account({
       email: "both@a.com", hats, canSwitch: true,
-      teams: [{ teamSlug: "a", teamName: "Test FC", hats }, { teamSlug: "bees", teamName: "Bees FC", hats: [coachHat] }]
+      teams: [team("a", "Test FC", hats), team("bees", "Bees FC", [coachHat])]
     }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await expectChip("Coach");
     await openChip();
-    expect(screen.getByText("You're both a coach and a parent here. Pick a hat.")).toBeTruthy();
-    const labels = [...document.querySelectorAll(".hs-list .hs-row b")].map((b) => b.textContent);
-    expect(labels).toEqual(["Coach", "Parent of Sam", "Bees FC", "Team settings"]);
+    expect(screen.getByText("Your roles on this team. Tap one to switch.")).toBeTruthy();
+    // Roles, then this team, then you. The other team is not listed: it is on My teams.
+    expect(sheetRows()).toEqual(["Coach", "Parent of Sam", "Team settings", "Switch team"]);
+    expect(sheetLabels()).toEqual(["This team", "You"]);
     expect(hatRow("Coach").querySelector(".disc.on")).toBeTruthy();
     expect(hatRow("Parent of Sam").querySelector(".disc.on")).toBeNull();
-    expect(screen.getByText("Other teams")).toBeTruthy();
+    expect(screen.queryByText("Other teams")).toBeNull();
+    expect(screen.queryByText("Bees FC")).toBeNull();
 
     fireEvent.click(hatRow("Parent of Sam"));
     expect(document.cookie).toContain("team_slug=a");
@@ -254,56 +272,111 @@ describe("App — account-mode roles (/api/me)", () => {
     clearCookies();
   });
 
-  it("Other teams: switching lands in that team's strongest hat and drops its legacy identity cookie", async () => {
-    clearCookies();
-    document.cookie = "whoami_b=parent-device; path=/";
+  it("Switch team leads to My teams and counts only the person's own teams", async () => {
     const hats = [coachHat, parentHat(["p1"], ["Sam Smith"])];
     meFetch(account({
       email: "both@a.com", hats, canSwitch: true,
-      teams: [{ teamSlug: "a", teamName: "Test FC", hats }, { teamSlug: "b", teamName: "Bees FC", hats: [parentHat(["p9"], ["Kai Lee"]), { role: "viewer", playerIds: [], playerNames: [] }] }]
+      teams: [team("a", "Test FC", hats), team("b", "Bees FC", [parentHat(["p9"], ["Kai Lee"])]), team("c", "Cats FC", [parentHat(["p4"], ["Mia Lee"])])]
     }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await expectChip("Coach");
     await openChip();
-    const bees = hatRow("Bees FC");
-    expect(bees.querySelector(".txt span").textContent).toBe("Parent of Kai"); // strongest hat there
-    expect(screen.queryByText("Test FC", { selector: ".hs-row b" })).toBeNull(); // the current team isn't an "other"
-    expect(document.cookie).toContain("whoami_b=parent-device");
-
-    fireEvent.click(bees);
-    expect(document.cookie).toContain("team_slug=b");
-    expect(document.cookie).toContain("act_as=parent"); // strongest hat on Bees FC is parent, not viewer
-    expect(document.cookie).not.toContain("whoami_b=");
-    clearCookies();
+    const link = screen.getByRole("link", { name: /^Switch team/ });
+    expect(link.getAttribute("href")).toBe("/teams");
+    expect(rowSub("Switch team")).toBe("My teams: 3");
+    // No team is switched to from here, so no cookie is written by the sheet for another team.
+    expect(screen.queryByText("Bees FC")).toBeNull();
+    expect(screen.queryByText("Cats FC")).toBeNull();
   });
 
-  it("admins see Create a team and a Club admin link in the sheet, plus Sign out", async () => {
+  it("a super admin on their own team reads as their role there, with the club one tap away", async () => {
+    // Assistant coach and parent on this team; two more teams they can only open as the super admin.
+    const hats = [{ role: "coach", playerIds: [], playerNames: [], staffRole: "Assistant coach", admin: true }, parentHat(["p1"], ["Sam Smith"])];
+    meFetch(account({
+      email: "owner@example.com", admin: true, staffRole: "Assistant coach", hats, canSwitch: true,
+      teams: [team("a", "Test FC", hats), team("b", "Bees FC", [superHat]), team("c", "Cats FC", [superHat])]
+    }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await expectChip("Assistant coach");
+    await openChip();
+    expect(screen.getByText("Your roles on this team. Tap one to switch.")).toBeTruthy();
+    // One team of their own, so nothing to switch to: the other teams are reached through club admin.
+    expect(sheetRows()).toEqual(["Assistant coach", "Parent of Sam", "Team settings", "Club admin"]);
+    expect(sheetLabels()).toEqual(["This team", "You"]);
+    expect(rowSub("Club admin")).toBe("Every team, and who can do what");
+    expect(document.querySelector(".sheet").textContent).not.toContain("Super admin");
+    expect(screen.queryByText("Bees FC")).toBeNull();
+  });
+
+  it("a super admin in a team opened from club admin is told so, and can get back to their own teams", async () => {
+    meFetch(account({
+      email: "owner@example.com", admin: true, hats: [superHat], canSwitch: true, teamSlug: "b", teamName: "Bees FC",
+      teams: [team("a", "Test FC", [parentHat(["p1"], ["Sam Smith"])]), team("b", "Bees FC", [superHat]), team("c", "Cats FC", [superHat])]
+    }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await expectChip("Super admin");
+    await openChip();
+    expect(screen.getByText("You're not on this team yourself. You're here as the club's super admin.")).toBeTruthy();
+    expect(sheetRows()).toEqual(["Super admin", "Team settings", "Switch team", "Club admin"]);
+    expect(rowSub("Switch team")).toBe("My teams: 1");
+    expect(hatRow("Super admin").querySelector('[aria-label="Current role"]')).toBeTruthy();
+  });
+
+  it("a super admin on no team themselves gets Club admin and no Switch team", async () => {
+    meFetch(account({
+      email: "owner@example.com", admin: true, hats: [superHat], canSwitch: true,
+      teams: [team("a", "Test FC", [superHat]), team("b", "Bees FC", [superHat])]
+    }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await expectChip("Super admin");
+    await openChip();
+    expect(sheetRows()).toEqual(["Super admin", "Team settings", "Club admin"]);
+    expect(screen.queryByRole("link", { name: /^Switch team/ })).toBeNull();
+  });
+
+  it("a club admin in a team they are not on is told it is view only", async () => {
+    meFetch(account({
+      email: "td@example.com", role: "viewer", clubAdmin: true, hats: [clubHat],
+      teams: [team("a", "Test FC", [clubHat]), team("b", "Bees FC", [clubHat])]
+    }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await expectChip("Club admin (view only)");
+    await openChip();
+    expect(screen.getByText("You're not on this team yourself. You're here as a club admin, view only.")).toBeTruthy();
+    expect(sheetRows()).toEqual(["Club admin (view only)", "Club admin"]);
+    expect(sheetLabels()).toEqual(["You"]);
+  });
+
+  it("admins get a Club admin link in the sheet (creating a team lives there), plus Sign out", async () => {
     meFetch(account({ email: "admin@club.com", admin: true }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await expectChip("Coach");
     await openChip();
-    const create = screen.getByRole("link", { name: /Create a team/ });
-    expect(create.getAttribute("href")).toBe("/admin");
-    expect(create.closest(".hs-list")).toBeTruthy();
-    const link = screen.getByRole("link", { name: /Club admin/ });
+    expect(screen.queryByText(/Create a team/)).toBeNull();
+    const link = screen.getByRole("link", { name: /^Club admin/ });
     expect(link.getAttribute("href")).toBe("/admin");
+    expect(link.closest(".hs-list")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Sign out/ }).closest(".sheet")).toBeTruthy();
     // The header carries nothing but crest, team and chip.
     expect(document.querySelector(".head").textContent).not.toContain("Club admin");
   });
 
-  it("a club admin (not super admin) also gets Create a team and the Club admin link", async () => {
+  it("a club admin (not super admin) also gets the Club admin link", async () => {
     meFetch(account({ email: "club@club.com", clubAdmin: true }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await openChip();
-    expect(screen.getByRole("link", { name: /Create a team/ }).getAttribute("href")).toBe("/admin");
-    expect(screen.getByRole("link", { name: /Club admin/ }).getAttribute("href")).toBe("/admin");
+    expect(screen.queryByText(/Create a team/)).toBeNull();
+    expect(screen.getByRole("link", { name: /^Club admin/ }).getAttribute("href")).toBe("/admin");
   });
 
-  it("a plain coach sees neither Create a team nor the Club admin link", async () => {
+  it("a plain coach sees no Club admin link", async () => {
     meFetch(account({ email: "coach@a.com" }));
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
@@ -413,6 +486,30 @@ describe("App — account-mode roles (/api/me)", () => {
     expect(screen.queryByText("Team settings")).toBeNull();
     expect(screen.queryByText(/Sign in to respond/)).toBeNull();
     expect(screen.getByRole("button", { name: /Sign out/ })).toBeTruthy();
+  });
+
+  it("viewingAs: the read-only bar sits above the header, not over it, so the role chip and its sheet still work", async () => {
+    meFetch(account({ email: "mum@example.com", role: "parent", hats: [parentHat(["p1"], ["Sam Smith"])], realAdmin: true, viewingAs: "mum@example.com" }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await expectChip("Parent of Sam");
+    const bar = document.querySelector(".vabar");
+    expect(bar.textContent).toBe("Viewing as mum@example.com — read onlyExit");
+    // In the page's flow ahead of the header (which is told to stick below it), never laid over the top.
+    expect(bar.style.position).toBe("");
+    expect(bar.compareDocumentPosition(document.querySelector(".head")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector(".fqd").classList.contains("va")).toBe(true);
+    await openChip();
+    expect(sheetRows()).toEqual(["Parent of Sam"]);
+  });
+
+  it("no view-as, no bar", async () => {
+    meFetch(account({ email: "coach@a.com" }));
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
+    render(<App />);
+    await expectChip("Coach");
+    expect(document.querySelector(".vabar")).toBeNull();
+    expect(document.querySelector(".fqd").classList.contains("va")).toBe(false);
   });
 
   it("viewingAs: a coach edit writes nothing and shows the read-only notice as a toast", async () => {

@@ -127,8 +127,21 @@ The switch is one env var and is reversible — until `AUTH_SECRET` is set nothi
 ## League fixtures (Squadi embed)
 
 `/league` embeds the same Squadi widget the FQ website uses, pre-filtered via URL
-parameters — the page has a **Set up** panel (saved for everyone) where you either build
-the link from filters or paste the full embed URL.
+parameters — the page has a **Set up** panel (saved for everyone on that team) where you
+either build the link from filters or paste the full embed URL.
+
+Each team has its own setup. A team that has not saved one shows "Not configured yet."
+rather than any draw. Only the original team falls back to the U8 Kangaroos White draw it
+has always shown: the legacy owner (`legacyOwnerSlug` in `lib/store.js`), or the team
+whose own Squadi sync IDs are that team's. If another team saved that default under the
+old page, those ids are ignored when its setup is read.
+
+The setup is read and saved only through its own narrow route (`/api/league`): coaches
+only, it writes just that one key on the team document, it accepts a pasted link only if
+it is an `https://` link on `squadi.com`, and it refuses a save from a page that was
+opened for a different team. Whole-document saves never change it. The quickest way to
+get the link is the panel's **Open the Squadi fixtures page**: choose the filters there
+and copy the address bar URL.
 
 Parameters Squadi accepts: `organisationKey` (FQ Metro is prefilled), `yearId`
 (**2025 = 7, 2026 = 8**), `competitionUniqueKey` (changes each season), `divisionId`
@@ -187,14 +200,16 @@ Roles exist only in account mode. They are resolved from the signed-in email in
 `lib/directory.js`, from most to least access:
 
 - **Super admin** — the emails in `ADMIN_EMAILS` (comma-separated, no quotes). A super
-  admin is a coach on every team, including teams added later, and is the only role
+  admin has coach access to every team, including teams added later (opened from club
+  admin when it is not one of their own: see My teams below), and is the only role
   that can open `/admin`: club access control, the team wizard, league sync, managing
   club admins, setting per-person per-team overrides, and **View as** any user
   (read-only, marked by an orange banner). Super admins are immune to overrides.
   **Set this before enabling `AUTH_SECRET`** — with no `ADMIN_EMAILS` nobody can
   reach `/admin`.
 - **Club admin** — the emails in `CLUB_ADMIN_EMAILS`, or added at `/admin`. View-only
-  on every team: reads everything, writes nothing to team data. Can open `/admin` to
+  on every team (opened from club admin): reads everything, writes nothing to team
+  data. Can open `/admin` to
   create and edit teams in the wizard (not delete them, and no access control). Typical
   use: the club's technical director.
 - **Coach** — either listed in the team's `coachEmails` (in the `TEAMS` JSON or set in
@@ -253,18 +268,38 @@ coach-level. Duties: coaches assign or clear any duty; parents claim fruit or je
 for their own family (never the goalkeeper) and can hand it back. Every duty write goes
 through its own narrow route (`/api/duty`), so a claim never touches the rest of the fixture.
 
-### Hats: several roles, several teams
+### My teams, roles, and running the club
 
 One email can hold more than one role on the same team (a coach whose child plays
-there) and belong to several teams. On first sign-in, a person with a real choice picks
-the team and the hat — "Viewing as Coach" or "Viewing as Parent of Leo" — and a header
-chip shows the current hat and switches it. The choice is stored in the `team_slug` and
-`act_as` cookies and re-validated on every request: a cookie can only narrow what the
-person is entitled to, never widen it. Someone with a single team and a single hat never
-sees the picker.
+there) and be on several teams. There are three levels, and a person can be at any of
+them at once:
 
-**Sign out** is the bottom-left button (in both modes). **Switch team or role** is also
-bottom-left, shown only when there is a choice.
+- **Club**: the super admin and club admins. They create teams and manage access, and
+  can open any team when they need to.
+- **Team**: the staff (head coach, assistant coach, manager). They run their own team.
+- **Squad**: players and their families. A parent replies for their own child.
+
+**My teams** (`/teams`) lists the teams a person is on *themselves*, each with their
+roles there as pills ("Assistant coach", "Parent of Leo"). Someone on one team goes
+straight into it; someone on several lands on My teams and picks.
+
+Running the club is not the same as being on every team in it. A super admin's coach
+access to a team they hold no role on, and a club admin's view of it, are **club-level**:
+the access is exactly as described above, but those teams are not listed under My teams.
+They are opened from **Club admin** (Teams, then Open), which My teams links to. A super
+admin who is on a team's staff reads as that role there ("Assistant coach"); "Super
+admin" is the label only where they hold no role of their own.
+
+Inside a team, the chip in the header shows the current role. Tapping it opens **Viewing
+as**: the person's roles on this team (tap one to switch), **Team settings** for a coach,
+**Switch team** back to My teams, **Club admin** for the people who run the club, and
+**Sign out**. Nobody is asked to choose a role up front: a team opens in the strongest
+role held there.
+
+The choice is stored in the `team_slug` and `act_as` cookies and re-validated on every
+request: a cookie can only narrow what the person is entitled to, never widen it. The
+home page and every API route resolve the team with the same rule (`resolveTeamSlug` in
+`lib/hats.js`), so what a page shows and what its data routes serve cannot differ.
 
 ### Prerequisites and notes
 
@@ -366,6 +401,41 @@ deliberately not emailed.
 
 Caveat: this is an undocumented endpoint — it may change shape without notice. The sync
 fails closed (no writes, error logged) rather than guessing.
+
+### More than one competition
+
+A team often plays something alongside its season: a winter tournament with part of the
+squad, an invitational league on other days. In the `/admin` wizard the **Competitions**
+step holds the season's Squadi IDs (one team, or two: see below) and a row for each
+other competition: a name and its three IDs. A row can be saved with just its name while its draw is not published yet;
+the sync leaves it alone until the IDs are added with Edit.
+
+Every sync pulls each draw that has its IDs. A game from another competition is labelled
+with that competition's name wherever its round shows (Results, the match screen, Home,
+Duties, the calendar feed), keeps its own round numbers, and does not count toward the
+season record or the stats, the same as a carnival game. If one draw cannot be fetched
+the others are still applied, and the Sync button names the one that failed.
+
+For a team defined in `TEAMS`, the same list goes on the team entry:
+`"competitions":[{"id":"winterfest","name":"Winterfest","squadi":{"competitionId":"…","divisionId":"…","teamId":0}}]`.
+`id` is permanent (a game is tagged with it) and `name` can change.
+
+### One squad that plays as two teams
+
+Some squads enter the season as two teams and play two games each round. In the
+**Competitions** step, under Season, **Add a second team** gives the season a second
+row; each row then needs a short label (at most 12 characters, and different from the
+other), which names that side on every one of its games.
+
+Each sync applies both feeds onto the same squad. A round with a game on each side is a
+paired round: both games show with their side's label, one reply covers both, and the
+calendar feed has one event per game with the side in the team's name. If one feed
+cannot be fetched the other is still applied, and the Sync button names the side that
+failed. A team with one feed has no sides, and nothing changes for it. Other
+competitions keep a single feed each.
+
+For a team defined in `TEAMS`, `squadi` is then an array of the two labelled feeds:
+`"squadi":[{"label":"Reds","competitionId":"…","divisionId":"…","teamId":0},{"label":"Blues","competitionId":"…","divisionId":"…","teamId":0}]`.
 
 ---
 

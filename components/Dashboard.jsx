@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon, Star, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, Download,
   Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt, GripVertical,
-  Eye, User, LogOut, Navigation, Video, MessageCircle, Medal, Upload
+  Eye, User, LogOut, Navigation, Video, MessageCircle, Medal, Upload, ArrowLeftRight
 } from "lucide-react";
 // Pure data/display helpers live in lib/dashboardData.js so they can be unit
 // tested; everything below (ICS export, components) uses them from here.
@@ -22,6 +22,10 @@ import { parsePlayerImport, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/l
 import { parseScheduleImport, onlyGroups, mergeSchedule, scheduleTemplate, stampImport, importBatches, removeImport } from "@/lib/scheduleImport";
 import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths } from "@/lib/teamSetup";
 import { seasonICS } from "@/lib/ics";
+// Competitions (a team's draws beyond its season): labels, list order and
+// what counts toward the season. On a line of its own so the long import
+// above is not a meeting point for every change to this file.
+import { competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff } from "@/lib/dashboardData";
 import {
   FORMATION_PRESETS, fallbackFormation, defaultFormatForAgeGroup, resolveFormat, parseFormation,
   makePositions, computeAutoSubs, computeSegments, sanitizeAssignments, rosterForFixture
@@ -184,7 +188,7 @@ const BYDAY = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
 function gameEv(f, team) {
   const title = `${f.homeAway === "H" ? team : f.opponent} v ${f.homeAway === "H" ? f.opponent : team}`;
   const res = f.status === "played" && f.us != null ? ` (${f.us}-${f.them})` : "";
-  return { uid: f.id, title: "⚽ " + title, dateISO: f.dateISO, time: f.time, endTime: f.time ? addMin(f.time, 105) : null, location: f.venue, desc: `${f.round ? `Round ${f.round}` : ""}${res}`.trim(), allDay: !f.time };
+  return { uid: f.id, title: "⚽ " + title, dateISO: f.dateISO, time: f.time, endTime: f.time ? addMin(f.time, 105) : null, location: f.venue, desc: `${roundLabel(f)}${res}`.trim(), allDay: !f.time };
 }
 // A carnival is ONE timed event across its whole window (six hours when no end
 // is set), "Carnival: …", with its linked games listed in the description —
@@ -301,6 +305,14 @@ const CSS = `
 /* header — white 96% + blur, hairline below, sticky. Root variant: crest + team
    name + kicker; sub variant: back button + title + kicker. Condenses (kicker
    hidden) after 24px of window scroll. */
+/* view-as bar: one fixed-height line pinned above the header, which then sticks just below it */
+.vabar{position:sticky;top:0;z-index:400;height:36px;background:#E07B1F;color:#fff;font-weight:700;font-size:12.5px;padding:0 12px;
+  display:flex;justify-content:center;align-items:center;gap:12px;box-shadow:0 2px 10px rgba(0,0,0,.25);}
+.vabar-who{display:flex;align-items:center;gap:6px;min-width:0;}
+.vabar-who span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.vabar-who svg{flex-shrink:0;}
+.vabar button{flex-shrink:0;background:#fff;color:#E07B1F;border:none;border-radius:999px;padding:3px 12px;font:inherit;font-weight:800;font-size:12px;cursor:pointer;}
+.fqd.va .head{top:36px;}
 .head{position:sticky;top:0;z-index:20;background:var(--header-bg);color:var(--ink);
   backdrop-filter:blur(var(--header-blur));-webkit-backdrop-filter:blur(var(--header-blur));
   border-bottom:1px solid var(--line);padding:12px 16px 10px;display:flex;align-items:center;gap:10px;}
@@ -1218,8 +1230,6 @@ export default function App() {
     document.cookie = `whoami_${slug}=; path=/; max-age=0; samesite=lax`;
     window.location.href = "/";
   };
-  // Hats are strongest-first, so switching team lands straight in the best hat there.
-  const strongestRoleOf = (team) => team?.hats?.[0]?.role;
   const signOutEverywhere = async () => {
     const expire = (k) => { document.cookie = `${k}=; path=/; max-age=0; samesite=lax`; };
     expire("team_slug"); expire("act_as");
@@ -1250,7 +1260,7 @@ export default function App() {
   const setWhosInShow = (show) => setStack((s) => s.length ? [...s.slice(0, -1), { ...s[s.length - 1], payload: { ...(s[s.length - 1].payload || {}), show } }] : s);
   // The player behind a pushed player screen, read live from data (S5).
   const screenPlayer = screen === "player" ? (data.players || []).find((p) => p.id === screenPayload?.playerId) || null : null;
-  const roundOf = (f) => (f?.round ? `Round ${f.round}` : "");
+  const roundOf = (f) => roundLabel(f);
   // The team's season window drives the Calendar range, the Stats kicker and
   // the ICS export; the shown calendar month is resolved against it.
   const season = teamSeason(data.team);
@@ -1277,7 +1287,7 @@ export default function App() {
   const rootKicker = tab === "calendar" ? monthYearLabel(calMonth) : tab === "squad" ? squadKicker() : `${data.team.division} · ${data.team.ageGroup}`;
   // Everything the Viewing-as sheet needs from here.
   const hatSheet = {
-    isAdmin, wear, strongestRoleOf, signOut: signOutEverywhere, toggleCoach,
+    isAdmin, wear, signOut: signOutEverywhere, toggleCoach,
     openSettings: () => { setModal(null); push("settings"); },
     openSignin: () => setModal({ type: "signin" })
   };
@@ -1288,13 +1298,15 @@ export default function App() {
   };
 
   return (
-    <div className="fqd" onFocus={onFocusIn} onBlur={onFocusOut}>
+    <div className={"fqd" + (me?.viewingAs ? " va" : "")} onFocus={onFocusIn} onBlur={onFocusOut}>
       <style>{CSS}</style>
 
+      {/* Sits above the header rather than over it, so the team, the role chip
+          and its sheet stay usable while a super admin views as someone. */}
       {me?.viewingAs && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 400, background: "#E07B1F", color: "#fff", fontFamily: "system-ui,sans-serif", fontWeight: 700, fontSize: 12.5, padding: "8px 12px", display: "flex", justifyContent: "center", alignItems: "center", gap: 12, boxShadow: "0 2px 10px rgba(0,0,0,.25)" }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Eye size={14} />Viewing as {me.viewingAs} — read only</span>
-          <button onClick={exitViewAs} style={{ background: "#fff", color: "#E07B1F", border: "none", borderRadius: 999, padding: "3px 12px", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>Exit</button>
+        <div className="vabar">
+          <span className="vabar-who"><Eye size={14} aria-hidden="true" /><span>Viewing as {me.viewingAs} — read only</span></span>
+          <button onClick={exitViewAs}>Exit</button>
         </div>
       )}
 
@@ -1595,7 +1607,7 @@ const dutyWho = (data, key, id) => {
   const s = shortName(p.name);
   return DUTY_DEFS[key].family ? `${s}'s family` : s;
 };
-const roundText = (f) => (f?.round ? `Round ${f.round}` : "this game");
+const roundText = (f) => roundLabel(f) || "this game";
 // Optimistic duty write through /api/duty. D4 on the client too: a newly set
 // keeper also fills the plan's block-1 GK slot when the plan has one, exactly
 // as the server does, so the planner opens on the same keeper.
@@ -1732,7 +1744,7 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
       {next ? (
         <div className="card nextgame">
           <div className="ng-head">
-            <span className="ng-label">Next game{next.round ? ` · Round ${next.round}` : ""} · {next.homeAway === "H" ? "Home" : "Away"}</span>
+            <span className="ng-label">Next game{roundLabel(next) ? ` · ${roundLabel(next)}` : ""} · {next.homeAway === "H" ? "Home" : "Away"}</span>
             {next.dateISO && <span className="ng-cd"><Clock size={12} />{countdown(next.dateISO, next.time)}</span>}
           </div>
           <div className="matchup">
@@ -2085,6 +2097,10 @@ function MatchRow({ data, f, onTap }) {
   // A carnival game: the carnival's name on a tag line, and a medal in the
   // round column when the game has no round (most don't).
   const carnival = carnivalOf(data, f);
+  // A game in another competition (not the season): that competition's name
+  // on the same tag line. The round column keeps its own round number.
+  const comp = carnival ? null : competitionOf(f);
+  // On a two-team squad's paired round: which of the two sides this game is.
   const sideTag = sideOf(data, f);
   const hs = home ? f.us : f.them, as = home ? f.them : f.us;
   const side = (ours, away) => (
@@ -2105,6 +2121,7 @@ function MatchRow({ data, f, onTap }) {
       <div className="mr-centre">{centre}</div>
       {side(!home, true)}
       {carnival && <div className="mrow-tag"><span className="mtag"><Medal size={10} /><span>{carnival.title}</span></span></div>}
+      {comp && <div className="mrow-tag"><span className="mtag"><Trophy size={10} /><span>{comp.name}</span></span></div>}
       {sideTag && <div className="mrow-tag"><span className="sidetag">{sideTag}</span></div>}
     </div>
   );
@@ -2112,12 +2129,15 @@ function MatchRow({ data, f, onTap }) {
 
 function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
   // By round, then date; a game without a round (a carnival game) slots in by date.
+  // With more than one draw (the season and another competition) round numbers
+  // no longer order the list, so it runs by date and kick-off.
   const byRound = (a, b) => (a.round && b.round && a.round !== b.round) ? a.round - b.round
     : String(a.dateISO || "").localeCompare(String(b.dateISO || "")) || (a.round || 0) - (b.round || 0);
-  const sorted = [...data.fixtures].sort(byRound);
+  const sorted = [...data.fixtures].sort(hasSeveralDraws(data.fixtures) ? byKickOff : byRound);
   const results = sorted.filter(f => fixtureState(f).past);
   const upcoming = sorted.filter(f => !fixtureState(f).past);
   const hasCarnivalGame = data.fixtures.some(f => isCarnivalGame(data, f));
+  const hasCompetitionGame = data.fixtures.some(f => competitionOf(f) && !isCarnivalGame(data, f));
   return (
     <>
       <div className="card season-mini">
@@ -2153,6 +2173,9 @@ function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
 
       {hasCarnivalGame && (
         <div className="footnote res-foot">Carnival games are tagged with their carnival and don't count toward the season record.</div>
+      )}
+      {hasCompetitionGame && (
+        <div className="footnote res-foot">Games in another competition are tagged with its name and don't count toward the season record.</div>
       )}
       {isMiniRoos(data.team) && (
         <div className="footnote res-foot">MiniRoos doesn't publish ladders at {String(data.team.ageGroup).toUpperCase()} — results only help grade the leagues. These are just our own numbers.</div>
@@ -2285,7 +2308,9 @@ function DutiesTab({ data, isCoach, viewer, me, setModal, patchLocal, showToast 
       <div className="card"><div className="empty"><div className="disp">Duties are turned off</div><div className="note">Fruit, jersey and goalkeeper duty can be switched on for this team from the club admin page.</div></div></div>
     );
   }
-  const fixtures = data.fixtures.filter((f) => f.dateISO && f.status !== "cancelled").sort((a, b) => (a.round || 0) - (b.round || 0));
+  // By round for a single draw; by date and kick-off once there is another competition's draw too.
+  const fixtures = data.fixtures.filter((f) => f.dateISO && f.status !== "cancelled")
+    .sort(hasSeveralDraws(data.fixtures) ? byKickOff : (a, b) => (a.round || 0) - (b.round || 0));
   const own = ownPlayers(data, { isCoach, me, viewer });
   const openSheet = (f, duty) => setModal({ type: "duty", payload: { fixtureId: f.id, duty } });
 
@@ -2336,7 +2361,7 @@ function DutiesTab({ data, isCoach, viewer, me, setModal, patchLocal, showToast 
           <div key={f.id} className={"card ducard" + (past ? " past" : "")}>
             <div className="du-head">
               <span className="du-round">{f.round ? `R${f.round}` : "—"}</span>
-              <span className="du-opp">vs {f.opponent}</span>
+              <span className="du-opp">vs {f.opponent}{competitionOf(f) ? ` · ${competitionOf(f).name}` : ""}</span>
               {sideOf(data, f) && <span className="sidetag">{sideOf(data, f)}</span>}
               <span className="du-date">{fmtDate(f.dateISO)}</span>
             </div>
@@ -2367,7 +2392,7 @@ function DutySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast, 
   const head = staff.find((s) => /head coach/i.test(s.role || "")) || staff[0];
   const coachFirst = head?.name ? firstName(head.name) : null;
   const write = (playerId) => { saveDuty({ fixture: f, duty: key, playerId, data, patchLocal, showToast }); close(); };
-  const title = `${def.label} · ${f.round ? `Round ${f.round}` : "this game"}`;
+  const title = `${def.label} · ${roundLabel(f) || "this game"}`;
   const sub = `vs ${f.opponent} · ${fmtDate(f.dateISO)}`;
   const sorted = coachFirst ? `We'll let Coach ${coachFirst} know it's sorted.` : "We'll let the coach know it's sorted.";
 
@@ -2443,7 +2468,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 function StatsTab({ data, stats, openMatch, openPlayer }) {
   // Played fixtures in date order — the same set computeStats counts (so no carnival games).
   const rounds = useMemo(() => data.fixtures
-    .filter(f => f.status === "played" && f.us != null && f.them != null && !isCarnivalGame(data, f))
+    .filter(f => f.status === "played" && f.us != null && f.them != null && countsForSeason(data, f))
     .sort((a, b) => a.dateISO.localeCompare(b.dateISO)), [data]);
   const diff = stats.gf - stats.ga;
   const scorers = stats.scorers.filter(p => p.goals > 0);
@@ -3222,13 +3247,15 @@ function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach
   );
 }
 
-// Viewing-as sheet (header hat chip). Account mode: this team's hats, other
-// teams, Create a team (admins), Team settings (coach), Club admin, Sign out.
+// Viewing-as sheet (header hat chip). Account mode: the person's roles on
+// this team (tap one to wear it), then "This team" (Team settings, for a
+// coach) and "You" (Switch team back to My teams, Club admin for the people
+// who run the club), and Sign out. Other teams are not listed here: My teams
+// is the one place for that, and it shows only the teams the person is on.
 // Legacy team-code mode: Coach mode / Leave coach mode and the per-device
-// "who's responding" identity instead of hats.
-function HatsSheet({ data, me, isCoach, viewer, isAdmin, wear, strongestRoleOf, signOut, openSettings, toggleCoach, openSignin }) {
+// "who's responding" identity instead of roles.
+function HatsSheet({ data, me, isCoach, viewer, isAdmin, wear, signOut, openSettings, toggleCoach, openSignin }) {
   const hats = me ? (me.hats || []) : [];
-  const others = me ? (me.teams || []).filter((t) => t.teamSlug !== me.teamSlug) : [];
   const hatInitials = (h) => {
     if (h.role === "coach") return "C";
     if (h.role !== "parent") return "V";
@@ -3238,20 +3265,30 @@ function HatsSheet({ data, me, isCoach, viewer, isAdmin, wear, strongestRoleOf, 
   const hatSub = (h) => h.role === "coach" ? "Edit fixtures, scores and duties"
     : h.role === "parent" ? `Reply for ${joinKidNames(h.playerNames)} and see the team`
     : "Read everything, change nothing";
-  const Row = ({ href, onClick, lead, title, sub, right }) => {
-    const inner = <>{lead}<span className="txt"><b>{title}</b>{sub && <span>{sub}</span>}</span>{right}</>;
+  // Switch team leads to My teams, so it is offered when there is another team
+  // of the person's own to go to (or any, when this one was opened from club admin).
+  const mine = me ? (me.teams || []).filter((t) => t.mine) : [];
+  const onOwnTeam = mine.some((t) => t.teamSlug === me?.teamSlug);
+  const canSwitch = onOwnTeam ? mine.length > 1 : mine.length > 0;
+  const sub = !me ? "Coach mode, and who replies from this device."
+    : hats.some((h) => !h.club) ? (hats.length > 1 ? "Your roles on this team. Tap one to switch." : "Your role on this team.")
+    : me.admin ? "You're not on this team yourself. You're here as the club's super admin."
+    : "You're not on this team yourself. You're here as a club admin, view only.";
+  const Row = ({ href, onClick, lead, title, sub: line, right }) => {
+    const inner = <>{lead}<span className="txt"><b>{title}</b>{line && <span>{line}</span>}</span>{right}</>;
     return href ? <a className="hs-row" href={href}>{inner}</a> : <button className="hs-row" onClick={onClick}>{inner}</button>;
   };
+  const chevron = <ChevronRight size={18} color="#9AA3A6" aria-hidden="true" style={{ flexShrink: 0 }} />;
   return (<>
     <div className="hs-title">Viewing as</div>
-    <div className="hs-sub">{hats.length > 1 ? "You're both a coach and a parent here. Pick a hat." : "Switch team, open settings or sign out."}</div>
+    <div className="hs-sub">{sub}</div>
     <div className="hs-list">
       {hats.map((h) => {
         const worn = h.role === me.role;
         return <Row key={h.role} onClick={() => wear(me.teamSlug, h.role)}
           lead={<span className={"disc" + (worn ? " on" : "")}>{hatInitials(h)}</span>}
           title={hatLabel(h)} sub={hatSub(h)}
-          right={worn ? <Check size={18} color="var(--pitch)" strokeWidth={2.5} aria-label="Current hat" /> : null} />;
+          right={worn ? <Check size={18} color="var(--pitch)" strokeWidth={2.5} aria-label="Current role" /> : null} />;
       })}
       {me === null && (<>
         <Row onClick={toggleCoach} lead={<span className="ico">{isCoach ? <Unlock size={16} /> : <Lock size={16} />}</span>}
@@ -3261,14 +3298,18 @@ function HatsSheet({ data, me, isCoach, viewer, isAdmin, wear, strongestRoleOf, 
           title={viewer.kind === "parent" ? `Responding as ${viewer.label}` : "Sign in to respond"}
           sub={viewer.kind === "parent" ? "Tap to change who replies from this device" : "Pick your child so replies are recorded as you"} />}
       </>)}
-      {others.length > 0 && (<>
-        <div className="label hs-label">Other teams</div>
-        {others.map((t) => <Row key={t.teamSlug} onClick={() => wear(t.teamSlug, strongestRoleOf(t) || me.role)}
-          lead={<span className="disc">{initials(t.teamName)}</span>} title={t.teamName} sub={hatLabel(t.hats?.[0])} />)}
+      {isCoach && (<>
+        <div className="label hs-label">This team</div>
+        <Row onClick={openSettings} lead={<span className="ico"><SettingsIcon size={16} /></span>} title="Team settings"
+          sub="Details, match format, duties and what parents can see" right={chevron} />
       </>)}
-      {isAdmin && <Row href="/admin" lead={<span className="ico"><Plus size={16} /></span>} title="Create a team" />}
-      {isCoach && <Row onClick={openSettings} lead={<span className="ico"><SettingsIcon size={16} /></span>} title="Team settings" sub="Details, match format, duties and what parents can see" />}
-      {isAdmin && <Row href="/admin" lead={<span className="ico"><SettingsIcon size={16} /></span>} title="Club admin" />}
+      {(canSwitch || isAdmin) && (<>
+        <div className="label hs-label">You</div>
+        {canSwitch && <Row href="/teams" lead={<span className="ico"><ArrowLeftRight size={16} /></span>} title="Switch team"
+          sub={`My teams: ${mine.length}`} right={chevron} />}
+        {isAdmin && <Row href="/admin" lead={<span className="ico"><ShieldCheck size={16} /></span>} title="Club admin"
+          sub={me.admin ? "Every team, and who can do what" : "Every team"} right={chevron} />}
+      </>)}
     </div>
     <button className="hs-out" onClick={signOut}><LogOut size={15} />Sign out</button>
   </>);
@@ -3611,7 +3652,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
   return (<>
     <div className="card mhero">
       <div className="mh-head">
-        <span className="mh-label">{carnival ? `Carnival · ${carnival.title} · ${fmtDate(f.dateISO) || "Date TBC"}` : `${f.round ? `Round ${f.round} · ` : ""}${sideOf(data, f) ? `${sideOf(data, f)} · ` : ""}${home ? "Home" : "Away"} · ${fmtDate(f.dateISO) || "Date TBC"}`}</span>
+        <span className="mh-label">{carnival ? `Carnival · ${carnival.title} · ${fmtDate(f.dateISO) || "Date TBC"}` : `${roundLabel(f) ? `${roundLabel(f)} · ` : ""}${sideOf(data, f) ? `${sideOf(data, f)} · ` : ""}${home ? "Home" : "Away"} · ${fmtDate(f.dateISO) || "Date TBC"}`}</span>
         {isCoach && <button className="mh-edit" onClick={() => setModal({ type: "fixture", payload: f })}><Pencil size={13} />Edit</button>}
       </div>
       <div className="matchup">
@@ -3778,7 +3819,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
       {f.dateISO && !carnival && <CalAdd ev={gameEv(f, sideName(data, f))} style={{ marginBottom: 12 }} />}
       <a className="washare" target="_blank" rel="noopener noreferrer"
         href={"https://wa.me/?text=" + encodeURIComponent(
-          `⚽ ${sideName(data, f)} — ${carnival ? carnival.title : f.round ? `Round ${f.round}` : "Match"} vs ${f.opponent}\n` +
+          `⚽ ${sideName(data, f)} — ${carnival ? carnival.title : roundLabel(f) || "Match"} vs ${f.opponent}\n` +
           (f.status === "played" && f.us != null
             ? `Result: ${f.us}–${f.them}` +
               ((f.goals || []).length ? `\nGoals: ${(f.goals || []).map(g => `${pname(g.pid)}${g.n > 1 ? " ×" + g.n : ""}`).join(", ")}` : "")
@@ -3827,7 +3868,7 @@ function WhosInScreen({ data, events, setShow, isCoach, viewer, me, setModal, pa
 
   // D7: nothing is sent from here. The reminder is copied and WhatsApp opened
   // with it; the toast says exactly that.
-  const eventName = isSession ? s.title : `${f.round ? `Round ${f.round} ` : ""}vs ${f.opponent}`;
+  const eventName = isSession ? s.title : `${roundLabel(f) ? `${roundLabel(f)} ` : ""}vs ${f.opponent}`;
   const reminder = `${eventName}, ${nudgeDate(dateISO)}${time ? " " + time : ""}. Still need In or Out from ${listNames(noReply)}. Reply on the team page please.`;
   const nudge = () => {
     try { const c = navigator.clipboard; if (c?.writeText) Promise.resolve(c.writeText(reminder)).catch(() => {}); } catch {}
@@ -4177,7 +4218,7 @@ function PlayerScreen({ data, p, next, persist, patchLocal, isCoach, viewer, me,
 
     {canReply && (
       <div className="card preply">
-        <div className="label">{[next.round ? `Round ${next.round}` : "", fmtDate(next.dateISO), next.time || ""].filter(Boolean).join(" · ")}</div>
+        <div className="label">{[roundLabel(next), fmtDate(next.dateISO), next.time || ""].filter(Boolean).join(" · ")}</div>
         <div className="replyrows">
           <ReplyRow p={p} name={`Is ${first} playing?`} status={next.availability?.[p.id]?.status || null} onTap={openReply} />
         </div>

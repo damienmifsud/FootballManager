@@ -289,3 +289,29 @@ describe("seasonICS — a two-team squad's paired round (U4)", () => {
     expect(find(events(seasonICS({ team: { name: "Olympic" }, fixtures: [plain] }))[0], "SUMMARY:")).toBe("SUMMARY:⚽ Olympic v Oxley United");
   });
 });
+
+// A game in another of the team's competitions (lib/competitions.js) says so
+// in its event, so a family reading their calendar knows which draw it is.
+describe("seasonICS — games in another competition", () => {
+  const base = { id: "f1", dateISO: "2026-07-04", time: "09:00", opponent: "Lions", homeAway: "H", venue: "Perry Park", status: "upcoming" };
+  const feed = (fixtures) => events(seasonICS({ team: { name: "Olympic FC" }, fixtures }));
+
+  it("the description names the competition with the round", () => {
+    const [ev] = feed([{ ...base, round: 2, comp: "cwinter", compName: "Winterfest" }]);
+    expect(find(ev, "DESCRIPTION:")).toBe("DESCRIPTION:Winterfest · Round 2");
+    expect(find(ev, "SUMMARY:")).toBe("SUMMARY:⚽ Olympic FC v Lions"); // the title is the match-up, as ever
+  });
+
+  it("carries the score once played, and stands alone when the game has no round", () => {
+    const [played] = feed([{ ...base, round: 2, comp: "cwinter", compName: "Winterfest", status: "played", us: 4, them: 2 }]);
+    expect(find(played, "DESCRIPTION:")).toBe("DESCRIPTION:Winterfest · Round 2 (4-2)");
+    const [noRound] = feed([{ ...base, comp: "cwinter", compName: "Winterfest" }]);
+    expect(find(noRound, "DESCRIPTION:")).toBe("DESCRIPTION:Winterfest");
+  });
+
+  it("a season game reads as it always did, and both sit in the one feed", () => {
+    const evs = feed([{ ...base, id: "s5", round: 5 }, { ...base, id: "w2", round: 2, dateISO: "2026-07-05", comp: "cwinter", compName: "Winterfest" }]);
+    expect(evs).toHaveLength(2);
+    expect(evs.map((e) => find(e, "DESCRIPTION:"))).toEqual(["DESCRIPTION:Round 5", "DESCRIPTION:Winterfest · Round 2"]);
+  });
+});

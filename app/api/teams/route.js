@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getStoredTeams, setStoredTeams, getData, setData, deleteData } from "@/lib/store";
-import { getTeams, clearTeamsCache, squadiFeeds } from "@/lib/teams";
+import { getTeams, clearTeamsCache } from "@/lib/teams";
 import { auth } from "@/auth";
 import { isAdminEmail, isClubAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
 import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE, sanitizeSeason } from "@/lib/teamSetup";
+import { sanitizeCompetitions, squadiFeeds } from "@/lib/competitions";
 
 export const dynamic = "force-dynamic";
 
@@ -53,16 +54,25 @@ function sanitizeTeam(input, existing = {}) {
     t.coachEmails = (Array.isArray(input.coachEmails) ? input.coachEmails : String(input.coachEmails).split(","))
       .map(norm).filter((e) => e.includes("@"));
   }
+  // The season's Squadi ids. One feed keeps the stored object shape; two
+  // feeds are stored as an array of labelled feeds (squadiError has already
+  // checked the labels).
   if (input.squadi != null) {
-    // One feed keeps the stored object shape; two feeds are stored as an
-    // array of labelled feeds (squadiError has already checked the labels).
     const feeds = squadiFeeds({ squadi: input.squadi });
     if (feeds.length === 2) t.squadi = feeds;
     else if (feeds.length === 1) t.squadi = feeds[0];
     else delete t.squadi;
   }
+  // Every other competition the team plays in (lib/competitions.js). The list
+  // is replaced whole: a row left out has been removed. A row keeps the id it
+  // came with, so the games already tagged with it stay its games.
+  if (input.competitions != null) {
+    const list = sanitizeCompetitions(input.competitions, newCompetitionId);
+    if (list.length) t.competitions = list; else delete t.competitions;
+  }
   return t;
 }
+const newCompetitionId = () => "c" + crypto.randomBytes(4).toString("hex");
 
 // Two feeds make one squad that plays as two teams each round. Each needs its
 // three Squadi ids and a label (trimmed, at most 12 characters, different from
@@ -105,6 +115,7 @@ export async function GET() {
       slug: t.slug, name: t.name, password: t.password, calendarKey: t.calendarKey || "",
       ageGroup: t.ageGroup || "", coachEmails: t.coachEmails || [],
       squadi: feeds.length === 2 ? feeds : (feeds[0] || null),
+      competitions: Array.isArray(t.competitions) ? t.competitions : [],
       source: t.stored ? "stored" : (t.legacy ? "legacy" : "env"),
       division: doc?.team?.division || "",
       whatsapp: doc?.team?.whatsapp || "",
