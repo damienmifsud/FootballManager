@@ -166,6 +166,8 @@ label.adm-btn:focus-within{outline:2px solid var(--pitch);outline-offset:2px;}
 .adm-staff .top{display:flex;gap:8px;align-items:center;}
 .adm-staff .more{display:grid;grid-template-columns:1fr 1.4fr;gap:8px;margin-top:8px;}
 .adm-staff .w110{width:110px;font-size:12px;font-weight:700;color:var(--muted);flex-shrink:0;}
+.adm-comp{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);}
+.adm-comp .top{display:flex;gap:8px;align-items:center;}
 .adm-logo{width:44px;height:44px;object-fit:contain;border-radius:10px;background:var(--soft);}
 .adm-actions{display:flex;gap:8px;margin-top:20px;}
 .adm-actions .adm-btn{flex:1;}

@@ -13,6 +13,7 @@ import { Plus, RefreshCw, X, Check } from "lucide-react";
 import { parsePlayerImport, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES, seasonLabel } from "@/lib/teamSetup";
 import { downscaleImage } from "@/lib/clientImage";
+import { MAX_COMPETITIONS } from "@/lib/competitions";
 import { AdminSwitch } from "@/components/AdminShell";
 
 const AGE_GROUPS = ["U6", "U7", "U8", "U9", "U10", "U11", "U12+"];
@@ -37,6 +38,7 @@ const BLANK = {
   name: "", ageGroup: "U8", password: "", coachEmails: "",
   division: "", whatsapp: "", season: { ...BLANK_SEASON },
   squadi: { competitionId: "", divisionId: "", teamId: "" },
+  competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId } }
   importText: "",
   training: [], // { weekday, time, endTime, location }
   features: { ...DEFAULT_FEATURES },
@@ -44,6 +46,10 @@ const BLANK = {
   logo: "", hasLogo: false, coachPin: "",
   staff: STAFF_ROLES.map((role) => ({ role, name: "", mobile: "", email: "", custom: false }))
 };
+
+// The three Squadi ids as the form holds them (strings, blank when not set).
+const squadiForEdit = (s) => ({ competitionId: s?.competitionId || "", divisionId: s?.divisionId || "", teamId: s?.teamId || "" });
+const hasSquadiIds = (s) => !!(s.competitionId || s.divisionId || s.teamId);
 
 // Staff rows: an email on a row gives that person a coach-level login, with the
 // row's title shown in the app. On edit we keep EVERY existing row (including
@@ -99,14 +105,15 @@ export default function TeamWizard({ onTeamsChanged }) {
   };
   const feedUrl = (t) => `${window.location.origin}/api/calendar?key=${t.calendarKey}`;
 
-  const openCreate = () => { setCreated(null); setEditSlug(null); setForm({ ...BLANK, season: { ...BLANK_SEASON }, features: { ...DEFAULT_FEATURES }, parentsSee: { ...DEFAULT_PARENTS_SEE }, training: [], password: friendlyCode() }); };
+  const openCreate = () => { setCreated(null); setEditSlug(null); setForm({ ...BLANK, season: { ...BLANK_SEASON }, features: { ...DEFAULT_FEATURES }, parentsSee: { ...DEFAULT_PARENTS_SEE }, training: [], competitions: [], password: friendlyCode() }); };
   const openEdit = (t) => {
     setCreated(null); setEditSlug(t.slug);
     setForm({
       name: t.name, ageGroup: t.ageGroup || "U8", password: t.password,
       coachEmails: (t.coachEmails || []).join(", "),
       division: t.division || "", whatsapp: t.whatsapp || "", season: seasonForEdit(t.season),
-      squadi: { competitionId: t.squadi?.competitionId || "", divisionId: t.squadi?.divisionId || "", teamId: t.squadi?.teamId || "" },
+      squadi: squadiForEdit(t.squadi),
+      competitions: (t.competitions || []).map((c) => ({ id: c.id, name: c.name || "", squadi: squadiForEdit(c.squadi) })),
       importText: "", training: [],
       features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
       parentsSee: { ...DEFAULT_PARENTS_SEE, ...(t.parentsSee || {}) },
@@ -163,11 +170,18 @@ export default function TeamWizard({ onTeamsChanged }) {
 
   const submit = async () => {
     setBusy(true); setErr("");
-    const squadi = (form.squadi.competitionId || form.squadi.divisionId || form.squadi.teamId) ? form.squadi : null;
+    const squadi = hasSquadiIds(form.squadi) ? form.squadi : null;
+    // A row nobody filled in is not sent. A named row with no ids is: the
+    // competition is kept and synced once its ids are added.
+    const competitions = form.competitions
+      .filter((c) => c.name.trim() || hasSquadiIds(c.squadi))
+      .map((c) => ({ ...(c.id ? { id: c.id } : {}), name: c.name.trim(), ...(hasSquadiIds(c.squadi) ? { squadi: c.squadi } : {}) }));
     const season = form.season.startISO || form.season.endISO ? { startISO: form.season.startISO, endISO: form.season.endISO } : null;
     const payload = {
       name: form.name, ageGroup: form.ageGroup, password: form.password.trim(),
       coachEmails: form.coachEmails, ...(squadi ? { squadi } : {}),
+      // On an edit the list is always sent, so removing a row removes it.
+      ...(editSlug || competitions.length ? { competitions } : {}),
       division: form.division, whatsapp: form.whatsapp, season, features: form.features, parentsSee: form.parentsSee,
       staff: form.staff.filter((s) => s.name.trim()).map(({ role, name, mobile, email }) => ({ role, name, mobile, email })),
       coachPin: form.coachPin,
@@ -331,7 +345,8 @@ export default function TeamWizard({ onTeamsChanged }) {
             </div>
           </Step>
 
-          <Step n={++stepNo} title="Squadi sync" optional lead="Fill in when FQ publishes the draw.">
+          <Step n={++stepNo} title="Competitions" optional lead="Where this team's games come from. Fill in each draw when it is published and leave the rest until then.">
+            <div className="adm-fl">Season</div>
             <div className="adm-line" style={{ marginTop: 0 }}>
               <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label="Squadi competition ID" placeholder="competitionId" value={form.squadi.competitionId}
                 onChange={(e) => setForm((f) => ({ ...f, squadi: { ...f.squadi, competitionId: e.target.value } }))} />
@@ -340,7 +355,40 @@ export default function TeamWizard({ onTeamsChanged }) {
               <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label="Squadi team ID" placeholder="teamId" value={form.squadi.teamId}
                 onChange={(e) => setForm((f) => ({ ...f, squadi: { ...f.squadi, teamId: e.target.value } }))} />
             </div>
-            <div className="adm-note">From the FQ widget via DevTools (see the README). Leave blank to add later with Edit.</div>
+            {form.competitions.map((c, i) => {
+              const set = (patch) => setForm((f) => ({ ...f, competitions: f.competitions.map((r, k) => (k === i ? { ...r, ...patch } : r)) }));
+              const setId = (key, value) => set({ squadi: { ...c.squadi, [key]: value } });
+              const who = c.name.trim() || `Competition ${i + 1}`;
+              return (
+                <div key={i} className="adm-comp">
+                  <div className="top">
+                    <input className="adm-inp" style={{ flex: 1, minWidth: 0 }} aria-label={`Competition ${i + 1} name`} placeholder="Name (e.g. Winterfest)" value={c.name}
+                      onChange={(e) => set({ name: e.target.value })} />
+                    <button type="button" className="adm-iconbtn" aria-label={`Remove ${who}`}
+                      onClick={() => setForm((f) => ({ ...f, competitions: f.competitions.filter((_, k) => k !== i) }))}><X size={16} aria-hidden="true" /></button>
+                  </div>
+                  <div className="adm-line">
+                    <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} competition ID`} placeholder="competitionId" value={c.squadi.competitionId}
+                      onChange={(e) => setId("competitionId", e.target.value)} />
+                    <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} division ID`} placeholder="divisionId" value={c.squadi.divisionId}
+                      onChange={(e) => setId("divisionId", e.target.value)} />
+                    <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} team ID`} placeholder="teamId" value={c.squadi.teamId}
+                      onChange={(e) => setId("teamId", e.target.value)} />
+                  </div>
+                </div>
+              );
+            })}
+            {form.competitions.length < MAX_COMPETITIONS && (
+              <button type="button" className="adm-btn soft sm" style={{ marginTop: 8 }}
+                onClick={() => setForm((f) => ({ ...f, competitions: [...f.competitions, { name: "", squadi: squadiForEdit() }] }))}>
+                <Plus size={14} aria-hidden="true" />Add a competition
+              </button>
+            )}
+            <div className="adm-note">
+              Squadi IDs come from the FQ widget via DevTools (see the README). Add a competition for anything played alongside the
+              season, such as a winter tournament. One with no IDs yet is kept, and synced once you add them with Edit. Its games
+              are labelled with its name and kept out of the season record.
+            </div>
           </Step>
 
           {!editSlug && (

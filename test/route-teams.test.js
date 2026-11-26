@@ -501,3 +501,123 @@ describe("season — the team's window", () => {
     expect(bySlug["env-a"].season).toBeNull();
   });
 });
+
+// A team's competitions beyond its season (lib/competitions.js, the real
+// module): each has a permanent id, a name and, once its draw is published,
+// Squadi ids. They live on the team's registry entry beside the season's ids.
+describe("competitions — the team's other draws", () => {
+  const WINTER = { competitionId: "1750", divisionId: "20001", teamId: "300123" };
+  const ID = /^c[0-9a-f]{8}$/;
+
+  it("POST stores them on the registry entry: an id each, ids as numbers, a name-only one kept", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: {
+      name: "U10 Red", password: "red-code-1",
+      squadi: { competitionId: "1439", divisionId: "10661", teamId: "110020" },
+      competitions: [{ name: " Winterfest ", squadi: WINTER }, { name: "Premier Invitational" }, { name: "" }, { name: "  ", squadi: {} }]
+    } }));
+    expect(res.status).toBe(200);
+    const stored = setStoredTeams.mock.calls[0][0][0];
+    expect(stored.squadi).toEqual({ competitionId: "1439", divisionId: "10661", teamId: 110020 });
+    expect(stored.competitions).toHaveLength(2);
+    expect(stored.competitions[0]).toEqual({ id: expect.stringMatching(ID), name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: 300123 } });
+    expect(stored.competitions[1]).toEqual({ id: expect.stringMatching(ID), name: "Premier Invitational" });
+    expect(stored.competitions[0].id).not.toBe(stored.competitions[1].id);
+    // The response carries the stored team, ids included.
+    expect((await res.json()).team.competitions).toEqual(stored.competitions);
+    // Competitions are registry-only: nothing about them goes into the starter document.
+    expect(JSON.stringify(setData.mock.calls[0][1])).not.toMatch(/Winterfest|competitions/);
+  });
+
+  it("POST with none stores no competitions key at all", async () => {
+    const { POST } = await asAdmin();
+    await POST(fakeRequest({ body: { name: "Plain", password: "plain-code" } }));
+    expect("competitions" in setStoredTeams.mock.calls[0][0][0]).toBe(false);
+    setStoredTeams.mockClear();
+    await POST(fakeRequest({ body: { name: "Plain Two", password: "plain-code-2", competitions: [] } }));
+    expect("competitions" in setStoredTeams.mock.calls[0][0][0]).toBe(false);
+  });
+
+  it("PATCH replaces the list: ids kept, a rename and new ids applied, a missing row removed, a new row given an id", async () => {
+    const existing = {
+      slug: "u10-red", name: "U10 Red", password: "red-code-1", calendarKey: "k",
+      squadi: { competitionId: "1439", divisionId: "10661", teamId: 110020 },
+      competitions: [
+        { id: "c1a2b3c4d", name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: 300123 } },
+        { id: "c5e6f7a8b", name: "Premier Invitational" },
+        { id: "c9d8e7f6a", name: "Old Cup", squadi: { competitionId: "9", divisionId: "8", teamId: 7 } }
+      ]
+    };
+    getStoredTeams.mockResolvedValue([existing]);
+    const { PATCH } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "u10-red", competitions: [
+      { id: "c1a2b3c4d", name: "Winterfest 2027", squadi: { competitionId: "1900", divisionId: "22000", teamId: "400000" } },
+      { id: "c5e6f7a8b", name: "Premier Invitational", squadi: { competitionId: "1800", divisionId: "21000", teamId: 310000 } },
+      { name: "Spring Cup" }
+    ] } }));
+    expect(res.status).toBe(200);
+    const stored = setStoredTeams.mock.calls[0][0][0];
+    expect(stored.competitions).toEqual([
+      { id: "c1a2b3c4d", name: "Winterfest 2027", squadi: { competitionId: "1900", divisionId: "22000", teamId: 400000 } },
+      { id: "c5e6f7a8b", name: "Premier Invitational", squadi: { competitionId: "1800", divisionId: "21000", teamId: 310000 } },
+      { id: expect.stringMatching(ID), name: "Spring Cup" }
+    ]);
+    // The season's ids were not sent, so they are as they were.
+    expect(stored.squadi).toEqual(existing.squadi);
+  });
+
+  it("PATCH without the key leaves them alone; an empty list removes them all", async () => {
+    const existing = { slug: "u10-red", name: "U10 Red", password: "red-code-1", calendarKey: "k", competitions: [{ id: "c1a2b3c4d", name: "Winterfest" }] };
+    getStoredTeams.mockResolvedValue([existing]);
+    const { PATCH } = await asAdmin();
+    await PATCH(fakeRequest({ body: { slug: "u10-red", name: "U10 Red Renamed" } }));
+    expect(setStoredTeams.mock.calls[0][0][0].competitions).toEqual(existing.competitions);
+    setStoredTeams.mockClear();
+    await PATCH(fakeRequest({ body: { slug: "u10-red", competitions: [] } }));
+    expect("competitions" in setStoredTeams.mock.calls[0][0][0]).toBe(false);
+  });
+
+  it("PATCH on an env-defined team takes it over with its competitions, and never touches the team document for them", async () => {
+    getData.mockResolvedValue({ team: { name: "Env A" }, players: [], fixtures: [] });
+    const { PATCH } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "env-a", competitions: [{ name: "Winterfest", squadi: WINTER }] } }));
+    expect(res.status).toBe(200);
+    const stored = setStoredTeams.mock.calls[0][0][0];
+    expect(stored).toMatchObject({ slug: "env-a", name: "Env A", password: "code-a" });
+    expect(stored.competitions).toEqual([{ id: expect.stringMatching(ID), name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: 300123 } }]);
+    expect((await res.json()).docUpdated).toBe(false);
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("caps the list at eight and refuses nothing: junk is dropped, not an error", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: {
+      name: "Many", password: "many-code",
+      competitions: [...Array.from({ length: 12 }, (_, i) => ({ name: `Comp ${i + 1}` })), "junk", null, 7]
+    } }));
+    expect(res.status).toBe(200);
+    expect(setStoredTeams.mock.calls[0][0][0].competitions.map((c) => c.name)).toEqual(Array.from({ length: 8 }, (_, i) => `Comp ${i + 1}`));
+    setStoredTeams.mockClear();
+    const odd = await POST(fakeRequest({ body: { name: "Odd", password: "odd-code-1", competitions: "Winterfest" } }));
+    expect(odd.status).toBe(200);
+    expect("competitions" in setStoredTeams.mock.calls[0][0][0]).toBe(false);
+  });
+
+  it("GET lists each team's competitions, an empty list when it has none", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "u10-red", name: "U10 Red", password: "red-code-1", calendarKey: "k", competitions: [{ id: "c1a2b3c4d", name: "Winterfest" }] }]);
+    const { GET } = await asAdmin();
+    const { teams } = await (await GET()).json();
+    expect(teams.find((t) => t.slug === "u10-red").competitions).toEqual([{ id: "c1a2b3c4d", name: "Winterfest" }]);
+    expect(teams.find((t) => t.slug === "env-a").competitions).toEqual([]);
+  });
+
+  it("the season's ids are sanitised as before: partial ids kept, an all-blank set removes them", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "u10-red", name: "U10 Red", password: "red-code-1", calendarKey: "k", squadi: { competitionId: "1439", divisionId: "10661", teamId: 110020 } }]);
+    const { PATCH } = await asAdmin();
+    await PATCH(fakeRequest({ body: { slug: "u10-red", squadi: { competitionId: " 1500 ", divisionId: "", teamId: "" } } }));
+    expect(setStoredTeams.mock.calls[0][0][0].squadi).toEqual({ competitionId: "1500", divisionId: "", teamId: 0 });
+    setStoredTeams.mockClear();
+    await PATCH(fakeRequest({ body: { slug: "u10-red", squadi: { competitionId: "", divisionId: "", teamId: "" } } }));
+    expect("squadi" in setStoredTeams.mock.calls[0][0][0]).toBe(false);
+  });
+});

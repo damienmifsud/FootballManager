@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getData, setData, getMeta, setMeta } from "@/lib/store";
 import { fetchSquadi, applySync } from "@/lib/squadiSync";
+import { squadiSources } from "@/lib/competitions";
 import { getTeams } from "@/lib/teams";
 import { resolveViewer, viewerError } from "@/lib/viewer";
 
@@ -37,31 +38,67 @@ async function emailChanges(teamName, changes) {
   return res.ok ? "emailed" : `email failed (${res.status})`;
 }
 
+// One team's sync. A team has one draw or several (lib/competitions.js): its
+// season, plus any other competition whose Squadi ids are complete. One
+// competition failing (its draw is not published yet, say) never stops the
+// others: it is listed under `failed` and the rest are applied. Only when
+// every draw fails is the whole sync an error, as it was with one.
 async function syncTeam(team, ifStale) {
-  if (!team.squadi?.competitionId) return { team: team.slug, skipped: "no squadi config" };
+  const sources = squadiSources(team);
+  if (!sources.length) return { team: team.slug, skipped: "no squadi config" };
   if (ifStale) {
     const meta = await getMeta(team.slug);
     if (meta.lastSyncAt && Date.now() - meta.lastSyncAt < STALE_MS) {
       return { team: team.slug, skipped: "recent" };
     }
   }
-  const data = await getData(team.slug);
+  if (!(await getData(team.slug))) return { team: team.slug, skipped: "no team data yet" };
+
+  // Fetch every draw first, then read the document and write it straight
+  // back: a reply or a score saved while Squadi was answering is in the copy
+  // the sync applies to, not lost under it.
+  const draws = await Promise.all(sources.map(async (src) => {
+    try { return { ...src, squadi: await fetchSquadi(src.squadi) }; }
+    catch (e) { return { ...src, error: String(e?.message || e) }; }
+  }));
+  const failed = draws.filter((d) => d.error).map((d) => ({ name: d.comp ? d.comp.name : "Season", error: d.error }));
+  if (failed.length === draws.length) throw new Error(failed[0].error);
+
+  let data = await getData(team.slug);
   if (!data) return { team: team.slug, skipped: "no team data yet" };
-  const squadi = await fetchSquadi(team.squadi);
-  const { data: next, changes, created, mutated } = applySync(data, squadi);
+  const changes = [], toEmail = [];
+  let matchesSeen = 0, created = 0, dirty = false, initialImport = false;
+  for (const draw of draws) {
+    if (draw.error) continue;
+    matchesSeen += draw.squadi.length;
+    const had = new Set((data.fixtures || []).map((f) => f.id));
+    const r = applySync(data, draw.squadi, { comp: draw.comp });
+    if (!(r.changes.length || r.mutated)) continue;
+    dirty = true;
+    created += r.created;
+    changes.push(...r.changes);
+    // A draw arriving for the first time is not news: no "new game" badges on
+    // the games it just added and no email. Other draws in the same run are
+    // judged on their own.
+    const isInitialImport = r.created === r.changes.length && r.created > 3;
+    if (isInitialImport) {
+      initialImport = true;
+      data = { ...r.data, fixtures: r.data.fixtures.map((f) => (had.has(f.id) ? f : { ...f, schedChanges: [] })) };
+    } else {
+      data = r.data;
+      toEmail.push(...r.changes);
+    }
+  }
+
   let emailStatus = "no changes";
-  if (changes.length || mutated) {
-    const isInitialImport = created === changes.length && created > 3;
-    const toSave = isInitialImport
-      ? { ...next, fixtures: next.fixtures.map((f) => ({ ...f, schedChanges: [] })) }
-      : next;
-    await setData(team.slug, toSave);
-    emailStatus = changes.length
-      ? (isInitialImport ? "initial import — email skipped" : await emailChanges(team.name, changes))
+  if (dirty) {
+    await setData(team.slug, data);
+    emailStatus = toEmail.length ? await emailChanges(team.name, toEmail)
+      : initialImport ? "initial import — email skipped"
       : "silent update (e.g. logos) — saved, no email";
   }
   await setMeta(team.slug, { ...(await getMeta(team.slug)), lastSyncAt: Date.now() });
-  return { team: team.slug, matchesSeen: squadi.length, created, changes, emailStatus };
+  return { team: team.slug, matchesSeen, created, changes, emailStatus, ...(failed.length ? { failed } : {}) };
 }
 
 export async function GET(req) {

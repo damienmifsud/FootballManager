@@ -51,6 +51,17 @@ describe("cannedAnswer — next game", () => {
   });
 });
 
+describe("cannedAnswer — next game in another competition", () => {
+  it("names the competition with the round, and counts as the next game when it is the soonest", () => {
+    const winter = { id: "w2", status: "upcoming", round: 2, dateISO: "2026-06-11", time: "17:30", opponent: "Lions FC", venue: "Lions Park", homeAway: "A", comp: "cwinter", compName: "Winterfest" };
+    const { text } = cannedAnswer(data({ fixtures: [played, home, winter] }), "When and where is our next game?");
+    expect(text.startsWith("Winterfest · Round 2 vs Lions FC")).toBe(true);
+    expect(text).toContain(fmtDate("2026-06-11"));
+    // A season game still opens with its round alone.
+    expect(cannedAnswer(data(), "When and where is our next game?").text.startsWith("Round 7 vs Oxley United FC U8 Eagles")).toBe(true);
+  });
+});
+
 describe("cannedAnswer — season focuses", () => {
   it("lists distinct focus titles in fixture order and names this week's, from the head coach", () => {
     expect(cannedAnswer(data(), "What are this season's match focuses?")).toEqual({

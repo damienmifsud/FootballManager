@@ -150,6 +150,53 @@ describe("account mode (AUTH_SECRET set)", () => {
       expect(body.fixtures[0].availability).toEqual({}); // the request body is not mutated
     });
 
+    it("keeps a league set-up saved through /api/league after the coach's dashboard loaded", async () => {
+      signedIn({ email: "coach@a.com", role: "coach" });
+      // What is stored now: the league page saved its set-up through its own route.
+      const squadi = { mode: "url", url: "https://registration.squadi.com/liveScoreSeasonFixture?x=1", org: "o", yearId: "8", comp: "c", divisionId: "1", teamId: "2" };
+      getData.mockResolvedValue({ team: { name: "A" }, fixtures: [{ id: "f1", round: 1 }], squadi });
+      setData.mockResolvedValue();
+      const { POST } = await loadRoute({ authOn: true });
+      // What the dashboard tab posts: the copy it loaded before that, with a score typed in.
+      const body = { team: { name: "A" }, fixtures: [{ id: "f1", round: 1, us: 2, them: 0 }] };
+      const res = await POST(fakeRequest({ body }));
+      expect(res.status).toBe(200);
+      expect(setData.mock.calls[0][1]).toEqual({ ...body, squadi });
+      expect("squadi" in body).toBe(false); // the request body is not mutated
+    });
+
+    it("never writes a league set-up itself: /api/league is the only way in, link check included", async () => {
+      signedIn({ email: "coach@a.com", role: "coach" });
+      setData.mockResolvedValue();
+      const { POST } = await loadRoute({ authOn: true });
+      const stored = { mode: "url", url: "https://registration.squadi.com/liveScoreSeasonFixture?x=1", org: "o", yearId: "8", comp: "c", divisionId: "1", teamId: "2" };
+      const hostile = { mode: "url", url: "https://evil.example/phish" };
+      // A league tab left open from before /api/league existed posts the whole
+      // document with the old hard-coded default (another team's draw) in it.
+      const oldDefault = { mode: "builder", url: "", org: "b0e92958-980b-4da0-9ec9-a9c2597b06f0", yearId: "8", comp: "58ec2bda-ceed-48f2-a33e-5b9d13cc30e8", divisionId: "10661", teamId: "110013" };
+      const doc = { team: { name: "A" }, fixtures: [{ id: "f1", round: 1 }] };
+
+      // The team has no set-up: none is created, whatever is sent. The rest is saved.
+      for (const squadi of [hostile, oldDefault]) {
+        setData.mockClear();
+        getData.mockResolvedValue(doc);
+        expect((await POST(fakeRequest({ body: { ...doc, squadi } }))).status).toBe(200);
+        expect(setData.mock.calls[0][1]).toEqual(doc);
+      }
+      // The team has one: it is kept.
+      setData.mockClear();
+      getData.mockResolvedValue({ ...doc, squadi: stored });
+      expect((await POST(fakeRequest({ body: { ...doc, squadi: hostile } }))).status).toBe(200);
+      expect(setData.mock.calls[0][1]).toEqual({ ...doc, squadi: stored });
+      // Nothing usable is stored (no document yet, or one that is not an object): still none.
+      for (const nothing of [null, []]) {
+        setData.mockClear();
+        getData.mockResolvedValue(nothing);
+        expect((await POST(fakeRequest({ body: { ...doc, squadi: hostile } }))).status).toBe(200);
+        expect(setData.mock.calls[0][1]).toEqual(doc);
+      }
+    });
+
     it("403s a coach-parent acting as the parent (the worn hat decides)", async () => {
       coachParentSignedIn();
       getData.mockResolvedValue(null);
