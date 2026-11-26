@@ -1,9 +1,11 @@
 "use client";
-// The /admin page. Super admins ("super" scope) manage club admins (view-only
-// on every team), per-email per-team role overrides and view-as, plus the team
-// wizard. Club admins ("club" scope) get the role table, the team wizard and
-// the league link only. Talks to /api/access; lib/directory.js applies
-// whatever is saved here on every request.
+// The /admin page. Super admins ("super" scope) get three sections: Teams
+// (the team wizard and the league link), People (everyone with a login and
+// what each is attached to) and Access (view-as, club admins, per-team role
+// overrides and the role table). Club admins ("club" scope) get the team
+// wizard, the role table and the league link only, with no sections to
+// choose between. Talks to /api/access; lib/directory.js applies whatever is
+// saved here on every request.
 //
 // Direction C: the dashboard's sub-header and cards via AdminShell (paper
 // page, hairline cards, tinted pills, lucide icons, no gradients, no emoji).
@@ -11,12 +13,23 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { ChevronRight, Eye, Trophy } from "lucide-react";
 import TeamWizard from "@/components/TeamWizard";
+import PeopleDirectory from "@/components/PeopleDirectory";
 import RoleMatrix from "@/components/RoleMatrix";
 import { AdminPage } from "@/components/AdminShell";
 import { SignOutButton } from "@/components/AuthShell";
 
 const ROLE_LABELS = { coach: "Coach", parent: "Parent", viewer: "View only", blocked: "Blocked" };
 const ROLE_TONES = { coach: " ok", parent: " info", viewer: " warn", blocked: " bad" };
+
+// The super admin's sections. The one showing is kept in the address
+// (?section=people) so a reload, or coming back from a team, lands on it again.
+const SECTIONS = [["teams", "Teams"], ["people", "People"], ["access", "Access"]];
+const sectionInAddress = () => {
+  try {
+    const wanted = new URLSearchParams(window.location.search).get("section");
+    return SECTIONS.some(([key]) => key === wanted) ? wanted : "teams";
+  } catch { return "teams"; }
+};
 
 export default function AccessManager({ adminEmail, scope = "super" }) {
   const superAdmin = scope === "super";
@@ -28,6 +41,14 @@ export default function AccessManager({ adminEmail, scope = "super" }) {
   const [ovTeam, setOvTeam] = useState("");
   const [ovRole, setOvRole] = useState("viewer");
   const [vaEmail, setVaEmail] = useState("");
+  const [section, setSectionState] = useState("teams");
+  useEffect(() => { if (superAdmin) setSectionState(sectionInAddress()); }, [superAdmin]);
+  const setSection = (key) => {
+    setSectionState(key);
+    try { window.history.replaceState(null, "", key === "teams" ? window.location.pathname : `?section=${key}`); } catch {}
+  };
+  // A club admin has one page and nothing to choose between.
+  const showing = (key) => (superAdmin ? section === key : key === "teams");
 
   const startViewAs = async () => {
     setBusy(true); setErr("");
@@ -75,14 +96,27 @@ export default function AccessManager({ adminEmail, scope = "super" }) {
     >
       {err && <div className="adm-msg err" role="alert">{err}</div>}
 
-      {/* Teams first: it is what both kinds of admin open this page for. The
-          wizard also needs to know when the team list changes so the override
-          form's team menu stays current. */}
-      <TeamWizard onTeamsChanged={superAdmin ? load : undefined} />
+      {superAdmin && (
+        <div className="adm-seg" role="group" aria-label="Club admin sections">
+          {SECTIONS.map(([key, label]) => (
+            <button key={key} type="button" className={section === key ? "on" : ""} aria-pressed={section === key} onClick={() => setSection(key)}>{label}</button>
+          ))}
+        </div>
+      )}
 
-      {superAdmin && !state && !err && <div className="adm-card quiet">Loading access settings…</div>}
+      {/* Teams: what both kinds of admin open this page for. The wizard stays
+          mounted while another section shows, so a team being set up is not
+          lost by looking something up; it also tells this page when the team
+          list changes so the override form's team menu stays current. */}
+      <div className={"adm-sect" + (showing("teams") ? "" : " off")}>
+        <TeamWizard onTeamsChanged={superAdmin ? load : undefined} />
+      </div>
 
-      {superAdmin && state && (<>
+      {showing("people") && <PeopleDirectory onChanged={load} />}
+
+      {showing("access") && !state && !err && <div className="adm-card quiet">Loading access settings…</div>}
+
+      {showing("access") && state && (<>
         <section className="adm-card" aria-labelledby="adm-viewas">
           <h2 className="adm-label" id="adm-viewas">View as a user</h2>
           <div className="adm-body">
@@ -165,23 +199,26 @@ export default function AccessManager({ adminEmail, scope = "super" }) {
         </section>
       </>)}
 
-      <details className="adm-card adm-fold">
-        <summary>
-          <h2 className="adm-label">Who can do what</h2>
-          <span className="hint">Every role, every feature</span>
-          <ChevronRight className="chev" size={18} aria-hidden="true" />
-        </summary>
-        <div className="adm-fold-body"><RoleMatrix /></div>
-      </details>
+      {/* The role table: under Access for a super admin, on the one page for a club admin. */}
+      {(superAdmin ? showing("access") : true) && (
+        <details className="adm-card adm-fold">
+          <summary>
+            <h2 className="adm-label">Who can do what</h2>
+            <span className="hint">Every role, every feature</span>
+            <ChevronRight className="chev" size={18} aria-hidden="true" />
+          </summary>
+          <div className="adm-fold-body"><RoleMatrix /></div>
+        </details>
+      )}
 
-      <Link href="/league" className="adm-card adm-linkcard">
+      {showing("teams") && <Link href="/league" className="adm-card adm-linkcard">
         <span className="adm-lc-ic" aria-hidden="true"><Trophy size={18} /></span>
         <span className="adm-lc-body">
           <span className="adm-lc-title">League page</span>
           <span className="adm-lc-sub">The Squadi draw and ladder, its filter setup and fixture sync</span>
         </span>
         <ChevronRight className="chev" size={18} aria-hidden="true" />
-      </Link>
+      </Link>}
     </AdminPage>
   );
 }
