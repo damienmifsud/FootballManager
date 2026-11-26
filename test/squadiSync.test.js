@@ -407,3 +407,66 @@ describe("applySync — another competition's draw", () => {
     expect(JSON.stringify(data)).toBe(before);
   });
 });
+
+// A draw can carry a competition and a side at once (applySync is called once
+// per source: lib/competitions squadiSources). The two never interfere: a
+// side pass is still a season pass, and a competition pass leaves sides alone.
+describe("applySync — sides and competitions together", () => {
+  const WINTER = { id: "cwinter", name: "Winterfest" };
+  const feed = (over) => normalize(squadiResponse([match(over)]), cfg);
+  const typed = (over = {}) => ({ id: "t7", round: 7, dateISO: "2026-06-21", time: "08:00", opponent: "Wests", venue: "Perry Park – Field 2", homeAway: "H", status: "upcoming", ...over });
+
+  it("a season feed with a side never adopts another competition's game of the same round", () => {
+    // Winterfest's round 7 was typed in by hand; the season's McKay feed has a round 7 too.
+    const r = applySync({ fixtures: [typed({ comp: "cwinter", compName: "Winterfest", opponent: "Zebras" })] }, feed(), { side: "McKay" });
+    expect(r.created).toBe(1);
+    expect(r.data.fixtures).toHaveLength(2);
+    expect(r.data.fixtures[0]).toMatchObject({ id: "t7", comp: "cwinter", opponent: "Zebras" });
+    expect("side" in r.data.fixtures[0]).toBe(false);
+    expect(r.data.fixtures[1]).toMatchObject({ squadiId: "m1", round: 7, side: "McKay" });
+    expect("comp" in r.data.fixtures[1]).toBe(false);
+  });
+
+  it("a season feed with a side still adopts a hand-typed season game of its round, and stamps it", () => {
+    const r = applySync({ fixtures: [typed()] }, feed(), { side: "McKay" });
+    expect(r.created).toBe(0);
+    expect(r.data.fixtures).toHaveLength(1);
+    expect(r.data.fixtures[0]).toMatchObject({ id: "t7", squadiId: "m1", side: "McKay" });
+    // The other side's feed then finds that game taken, and makes its own.
+    const r2 = applySync(r.data, feed({ id: "m2" }), { side: "McKain" });
+    expect(r2.created).toBe(1);
+    expect(r2.data.fixtures.map((f) => [f.squadiId, f.side])).toEqual([["m1", "McKay"], ["m2", "McKain"]]);
+  });
+
+  it("a side pass is a season pass: a stale competition tag goes as the side is stamped, silently", () => {
+    const tagged = applySync({ fixtures: [] }, feed(), { comp: WINTER }).data;
+    expect(tagged.fixtures[0]).toMatchObject({ comp: "cwinter", compName: "Winterfest" });
+    const r = applySync(tagged, feed(), { side: "McKay" });
+    expect(r.changes).toEqual([]);
+    expect(r.mutated).toBe(true);
+    expect(r.data.fixtures[0].side).toBe("McKay");
+    expect("comp" in r.data.fixtures[0]).toBe(false);
+    expect("compName" in r.data.fixtures[0]).toBe(false);
+  });
+
+  it("a competition's draw tags its game and leaves any side on it alone", () => {
+    const sided = applySync({ fixtures: [] }, feed(), { side: "McKay" }).data;
+    const r = applySync(sided, feed(), { comp: WINTER });
+    expect(r.data.fixtures[0]).toMatchObject({ comp: "cwinter", compName: "Winterfest", side: "McKay" });
+    expect(r.changes).toEqual([]);
+  });
+
+  it("a competition's draw never adopts a hand-typed game, sided or not", () => {
+    const r = applySync({ fixtures: [typed({ side: "McKay" }), typed({ id: "t7b" })] }, feed(), { comp: WINTER });
+    expect(r.created).toBe(1);
+    expect(r.data.fixtures.map((f) => f.squadiId || "typed")).toEqual(["typed", "typed", "m1"]);
+  });
+
+  it("with both, the game carries both and the change line names both", () => {
+    const r = applySync({ fixtures: [] }, feed(), { comp: WINTER, side: "McKay" });
+    expect(r.data.fixtures[0]).toMatchObject({ comp: "cwinter", compName: "Winterfest", side: "McKay" });
+    expect(r.changes[0]).toMatch(/^NEW — McKay · Winterfest Round 7 vs Wests: /);
+    const moved = applySync(r.data, feed({ startTime: "2026-06-20T23:00:00Z" }), { comp: WINTER, side: "McKay" });
+    expect(moved.changes[0]).toMatch(/^McKay · Winterfest Round 7 vs Wests: time /);
+  });
+});

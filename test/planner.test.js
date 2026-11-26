@@ -156,6 +156,24 @@ describe("rosterForFixture", () => {
     const ben = roster.find((p) => p.id === "b");
     expect(ben).toMatchObject({ available: true, rsvp: "out", overridden: true, noReply: false });
   });
+
+  // A game in a competition with a picked squad (data.competitionSquads, lib/dashboardData
+  // playersFor) is planned with those players only.
+  it("a competition game's roster is its squad; the season's and an unpicked competition's are everyone", () => {
+    const competitionSquads = { cwinter: ["a"] };
+    const winter = { ...fixture, comp: "cwinter", compName: "Winterfest" };
+    expect(rosterForFixture({ ...data, competitionSquads }, winter).map((p) => p.id)).toEqual(["a"]);
+    expect(rosterForFixture({ ...data, competitionSquads }, fixture).map((p) => p.id)).toEqual(["b", "a"]);
+    expect(rosterForFixture({ ...data, competitionSquads }, { ...fixture, comp: "ccup" }).map((p) => p.id)).toEqual(["b", "a"]);
+    expect(rosterForFixture(data, winter).map((p) => p.id)).toEqual(["b", "a"]);
+    // Being picked does not bring back a guest whose window has closed.
+    expect(rosterForFixture({ ...data, competitionSquads: { cwinter: ["g", "b"] } }, winter).map((p) => p.id)).toEqual(["b"]);
+    // A squad nobody on the team is in any more is everyone again.
+    expect(rosterForFixture({ ...data, competitionSquads: { cwinter: ["gone"] } }, winter).map((p) => p.id)).toEqual(["b", "a"]);
+    // An RSVP from someone outside the squad does not put them on the sheet.
+    const roster = rosterForFixture({ ...data, competitionSquads }, { ...winter, availability: { a: { status: "in" }, b: { status: "in" } } });
+    expect(roster.map((p) => [p.id, p.available])).toEqual([["a", true]]);
+  });
 });
 
 describe("seedAssignments and timer", () => {

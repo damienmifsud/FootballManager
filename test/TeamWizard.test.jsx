@@ -583,3 +583,94 @@ describe("TeamWizard — two Squadi teams on one squad", () => {
     expect(screen.getByRole("button", { name: "Add a second team" })).toBeTruthy();
   });
 });
+
+// The two season rows sit in the Competitions step with the team's other
+// competitions: one save carries both, and each is loaded back on edit.
+describe("TeamWizard — two season feeds and another competition together", () => {
+  const fill = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  const step = (title) => within(screen.getByRole("heading", { name: title }).closest(".adm-step"));
+
+  it("the season's rows come first in the Competitions step, under Season, with the competitions below", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Olympic FC U8 White" }));
+    const s = step("Competitions");
+    expect(screen.queryByRole("heading", { name: "Squadi sync" })).toBeNull();
+    expect(s.getByText("Season", { selector: ".adm-fl" })).toBeTruthy();
+    const labels = s.getAllByRole("textbox").map((i) => i.getAttribute("aria-label"));
+    expect(labels).toEqual([
+      "Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID",
+      "Competition 1 name", "Winterfest competition ID", "Winterfest division ID", "Winterfest team ID",
+      "Competition 2 name", "Premier Invitational competition ID", "Premier Invitational division ID", "Premier Invitational team ID"
+    ]);
+    // The second team's row goes between the season's first row and the competitions.
+    fireEvent.click(s.getByRole("button", { name: "Add a second team" }));
+    const after = s.getAllByRole("textbox").map((i) => i.getAttribute("aria-label"));
+    expect(after.slice(4, 8)).toEqual(["Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID"]);
+    expect(after[8]).toBe("Competition 1 name");
+  });
+
+  it("creating a team sends the two labelled feeds and the competitions in one request", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    fill("Team name", "U9 Academy");
+    fireEvent.click(screen.getByRole("button", { name: "Add a second team" }));
+    fill("Squadi team label", "McKay"); fill("Squadi competition ID", "1844"); fill("Squadi division ID", "12962"); fill("Squadi team ID", "133944");
+    fill("Second Squadi team label", "McKain"); fill("Second Squadi competition ID", "1844"); fill("Second Squadi division ID", "12960"); fill("Second Squadi team ID", "133943");
+    fireEvent.click(screen.getByRole("button", { name: "Add a competition" }));
+    fill("Competition 1 name", "Winterfest");
+    fill("Winterfest competition ID", "1750"); fill("Winterfest division ID", "20001"); fill("Winterfest team ID", "300123");
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].method).toBe("POST");
+    expect(calls[0].body.squadi).toEqual([
+      { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: "133944" },
+      { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: "133943" }
+    ]);
+    expect(calls[0].body.competitions).toEqual([{ name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: "300123" } }]);
+  });
+
+  it("the label check stops the save before the competitions are sent either", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    fill("Team name", "U9 Academy");
+    fireEvent.click(screen.getByRole("button", { name: "Add a second team" }));
+    fill("Squadi competition ID", "1844"); fill("Second Squadi competition ID", "1844");
+    fireEvent.click(screen.getByRole("button", { name: "Add a competition" }));
+    fill("Competition 1 name", "Winterfest");
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Give each Squadi team a label, like McKay and McKain.");
+    expect(calls).toEqual([]);
+  });
+
+  it("edit loads the two feeds and the competitions back, and a save keeps each competition's id", async () => {
+    teams = [{ ...U8, slug: "u9-academy", name: "U9 Academy", squadi: [
+      { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: 133944 },
+      { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 }
+    ] }];
+    render(<TeamWizard />);
+    await screen.findByText("U9 Academy");
+    fireEvent.click(screen.getByRole("button", { name: "Edit U9 Academy" }));
+    expect(screen.getByLabelText("Second Squadi team label").value).toBe("McKain");
+    expect(screen.getByLabelText("Competition 1 name").value).toBe("Winterfest");
+    expect(String(screen.getByLabelText("Winterfest team ID").value)).toBe("300123");
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.squadi.map((f) => [f.label, String(f.teamId)])).toEqual([["McKay", "133944"], ["McKain", "133943"]]);
+    expect(calls[0].body.competitions.map((c) => [c.id, c.name])).toEqual([["c1a2b3c4d", "Winterfest"], ["c5e6f7a8b", "Premier Invitational"]]);
+  });
+
+  it("removing the second team sends the season as the single feed it was, competitions untouched", async () => {
+    teams = [{ ...U8, slug: "u9-academy", name: "U9 Academy", squadi: [
+      { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: 133944 },
+      { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 }
+    ] }];
+    render(<TeamWizard />);
+    await screen.findByText("U9 Academy");
+    fireEvent.click(screen.getByRole("button", { name: "Edit U9 Academy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove the second team" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.squadi).toEqual({ competitionId: "1844", divisionId: "12962", teamId: 133944 });
+    expect(calls[0].body.competitions).toHaveLength(2);
+  });
+});
