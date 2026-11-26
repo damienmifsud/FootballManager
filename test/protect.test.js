@@ -249,3 +249,72 @@ describe("preserveNarrowFields — the league set-up (squadi)", () => {
     expect(JSON.stringify(i)).toBe(iBefore);
   });
 });
+
+// competitionSquads (who is in each competition's squad) has one writer too,
+// /api/competition-squad.
+// A dashboard tab opened before the coach picked a squad knows nothing of it,
+// and would otherwise put everyone back in with its next whole-document save.
+describe("preserveNarrowFields — competition squads (competitionSquads)", () => {
+  const SQUADS = { cwinter: ["p1"], ccup: ["p1", "p2"] };
+
+  it("keeps the stored squads when a stale copy that never had any saves a score", () => {
+    const out = preserveNarrowFields({ ...stored(), competitionSquads: SQUADS }, stale());
+    expect(out.competitionSquads).toEqual(SQUADS);
+    expect(out.fixtures.find((f) => f.id === "f1")).toMatchObject({ us: 2, them: 1 });
+  });
+
+  it("keeps the stored squads over different ones in the incoming copy", () => {
+    for (const sent of [{ cwinter: ["p1", "p2"] }, {}, { cwinter: [] }, null, "junk"]) {
+      expect(preserveNarrowFields({ ...stored(), competitionSquads: SQUADS }, { ...stale(), competitionSquads: sent }).competitionSquads).toEqual(SQUADS);
+    }
+  });
+
+  it("a stored empty set of squads still wins: that is everyone back in every competition", () => {
+    const out = preserveNarrowFields({ ...stored(), competitionSquads: {} }, { ...stale(), competitionSquads: { cwinter: ["p1"] } });
+    expect(out.competitionSquads).toEqual({});
+  });
+
+  it("never takes squads from a whole-document save: a document without any stays without any", () => {
+    for (const sent of [SQUADS, { cwinter: [] }, "junk", null]) {
+      const out = preserveNarrowFields(stored(), { ...stale(), competitionSquads: sent });
+      expect("competitionSquads" in out).toBe(false);
+      expect(out.fixtures.find((f) => f.id === "f1")).toMatchObject({ us: 2, them: 1 });
+    }
+    expect("competitionSquads" in preserveNarrowFields(stored(), stale())).toBe(false);
+  });
+
+  it("the first save of a new document drops them too, and is otherwise kept exactly as sent", () => {
+    for (const nothingStored of [null, undefined, "junk", []]) {
+      const out = preserveNarrowFields(nothingStored, { ...stale(), competitionSquads: SQUADS });
+      expect(out).toEqual(stale());
+      expect("competitionSquads" in out).toBe(false);
+    }
+  });
+
+  it("the league set-up and the squads are kept independently of each other", () => {
+    const SETUP = { mode: "url", url: "https://registration.squadi.com/liveScoreSeasonFixture?x=1", org: "o", yearId: "8", comp: "c", divisionId: "1", teamId: "2" };
+    // Stored has squads but no set-up; the stale copy carries a set-up and other squads.
+    let out = preserveNarrowFields({ ...stored(), competitionSquads: SQUADS }, { ...stale(), squadi: SETUP, competitionSquads: { cwinter: [] } });
+    expect(out.competitionSquads).toEqual(SQUADS);
+    expect("squadi" in out).toBe(false);
+    // And the other way round.
+    out = preserveNarrowFields({ ...stored(), squadi: SETUP }, { ...stale(), squadi: null, competitionSquads: SQUADS });
+    expect(out.squadi).toEqual(SETUP);
+    expect("competitionSquads" in out).toBe(false);
+    // Nothing stored at all: both go.
+    out = preserveNarrowFields(null, { ...stale(), squadi: SETUP, competitionSquads: SQUADS });
+    expect(out).toEqual(stale());
+  });
+
+  it("does not mutate either input", () => {
+    const s = { ...stored(), competitionSquads: SQUADS };
+    const i = { ...stale(), competitionSquads: { cwinter: ["p2"] } };
+    const sBefore = JSON.stringify(s);
+    const iBefore = JSON.stringify(i);
+    preserveNarrowFields(s, i);
+    preserveNarrowFields(stored(), i);
+    preserveNarrowFields(null, i);
+    expect(JSON.stringify(s)).toBe(sBefore);
+    expect(JSON.stringify(i)).toBe(iBefore);
+  });
+});
