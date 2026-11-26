@@ -15,7 +15,7 @@ import {
   countdown, ytId, videoKind, mapsUrl, activeOn, intlPhone, recentChanges,
   initials, secToClock, clockToSec, occurrences, monthItems, upcomingItems,
   nextBirthdays, isCarnival, carnivalOf, isCarnivalGame, carnivalGameRows, carnivalMeta, carnivalDescription, pitchLabel,
-  playerFullName, timeWindow, twinOf, sideOf, teamSides, sideName
+  playerFullName, timeWindow, twinOf, sideOf, teamSides, sideName, inSideOrder
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
@@ -25,7 +25,7 @@ import { seasonICS } from "@/lib/ics";
 // Competitions (a team's draws beyond its season): labels, list order and
 // what counts toward the season. On a line of its own so the long import
 // above is not a meeting point for every change to this file.
-import { competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff } from "@/lib/dashboardData";
+import { competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff, competitionSquad, inSquad, playersFor, nextFixtureFor } from "@/lib/dashboardData";
 import {
   FORMATION_PRESETS, fallbackFormation, defaultFormatForAgeGroup, resolveFormat, parseFormation,
   makePositions, computeAutoSubs, computeSegments, sanitizeAssignments, rosterForFixture
@@ -713,6 +713,11 @@ const CSS = `
 .ds-name{flex:1;min-width:0;font-weight:800;font-size:14px;}
 .ds-sub{font-size:12px;color:var(--muted);white-space:nowrap;}
 .note{font-size:12px;color:var(--muted);line-height:1.5;}
+.squadnote{margin-top:10px;}
+.sq-comp{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);}
+.sq-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;}
+.sq-name{font-size:14px;font-weight:800;}
+.sq-meta{font-size:12px;color:var(--muted);white-space:nowrap;}
 .playtag{display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:800;padding:2px 6px;
   border-radius:5px;background:#ffe6e6;color:#c0393d;margin-left:6px;vertical-align:middle;}
 .vidwrap{position:relative;width:100%;aspect-ratio:16/9;border-radius:14px;overflow:hidden;background:#000;margin-bottom:12px;}
@@ -1189,7 +1194,10 @@ export default function App() {
   }, [me]);
 
   const stats = useMemo(() => data ? computeStats(data) : null, [data]);
-  const next = useMemo(() => data ? nextFixture(data) : null, [data]);
+  // The next game is the soonest one, except for a family whose children are
+  // all outside its competition's squad: they get the next game one of their
+  // children is in.
+  const next = useMemo(() => data ? nextFixtureFor(data, ownPlayers(data, { isCoach, me, viewer }).map((p) => p.id)) : null, [data, isCoach, me, viewer]);
 
   // A pushed match / who's-in screen whose fixture has gone (deleted from the
   // editor, or by a sync) pops itself rather than rendering nothing; a player
@@ -1542,11 +1550,23 @@ const ownPlayers = (data, { isCoach, me, viewer }) => {
   return ids.map(id => data.players.find(p => p.id === id)).filter(Boolean).map(p => (self.includes(p.id) ? { ...p, isSelf: true } : p));
 };
 
+// A game in a competition with a picked squad is only for those players.
+// The line a family sees naming each of their children who is not in it (so a
+// missing reply row has a reason); null when all of them are.
+const notInSquadNote = (data, f, own) => {
+  const out = f ? own.filter(p => !inSquad(data, f, p.id)) : [];
+  if (!out.length) return null;
+  // A player signed in as themselves is "You"; their child goes by name.
+  const you = out.some(p => p.isSelf);
+  const names = [...(you ? ["You"] : []), ...out.filter(p => !p.isSelf).map(p => firstName(p.name))];
+  return `${joinNames(names)} ${names.length === 1 && !you ? "isn't" : "aren't"} in the ${competitionOf(f)?.name || "competition"} squad.`;
+};
+
 // Status pill(s) for a game/training row: the parent's own children's replies,
 // or the team-wide tally for coaches and viewers (D5: training replies live at
 // session.availability[occurrence][playerId], the same shape as a fixture's).
-const pillsFor = (data, own, av, iso) => {
-  if (own.length === 0) { const c = replyCounts(data.players, av, iso); return [{ cls: "nr", label: `${c.in} in · ${c.nr} to reply` }]; }
+const pillsFor = (players, own, av, iso) => {
+  if (own.length === 0) { const c = replyCounts(players, av, iso); return [{ cls: "nr", label: `${c.in} in · ${c.nr} to reply` }]; }
   return own.map(p => {
     const st = av?.[p.id]?.status, first = firstName(p.name);
     if (p.isSelf) {
@@ -1575,7 +1595,10 @@ function EventRow({ data, it, isCoach, own, onOpen, noDay = false }) {
   // A carnival row reads "3 games · Perry Park · 08:00–14:00" (the games, not one time).
   const meta = isBday ? "Birthday" : isCarn ? carnivalMeta(it.ref, data) : `${it.time || "Time TBC"}${place ? " · " + place : ""}`;
   const av = isGame ? it.ref.availability : it.ref.availability?.[it.occ];
-  const pills = isBday ? [] : cancelled ? [{ cls: "out", label: "Cancelled" }] : pillsFor(data, own, av, it.dateISO);
+  // A game is for its competition's squad (everyone, unless the coach picked one).
+  const pool = isGame ? playersFor(data, it.ref) : data.players;
+  const ownHere = isGame ? own.filter(p => inSquad(data, it.ref, p.id)) : own;
+  const pills = isBday ? [] : cancelled ? [{ cls: "out", label: "Cancelled" }] : pillsFor(pool, ownHere, av, it.dateISO);
   const sideTag = isGame ? sideOf(data, it.ref) : "";
   const open = onOpen || null;
   return (
@@ -1740,7 +1763,11 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
   const week = upcomingItems(data, todayISO, 7);
   const bdays = nextBirthdays(data, todayISO, 2);
   const oppCrest = next ? crestFor(next.opponent) : null;
-  const nextCounts = next ? replyCounts(data.players, next.availability, next.dateISO) : null;
+  // The next game is for its competition's squad: counts are over those
+  // players, and a family is only asked about a child who is in it.
+  const nextCounts = next ? replyCounts(playersFor(data, next), next.availability, next.dateISO) : null;
+  const ownNext = next ? own.filter(p => inSquad(data, next, p.id)) : [];
+  const nextNote = notInSquadNote(data, next, own);
   const openReply = (p) => setModal({ type: "reply", payload: { fixture: next, playerId: p.id } });
   // A paired round (two-team squad): both games, in team.sides order. The
   // card keeps one match-up and one reply block (a reply covers both games)
@@ -1808,9 +1835,9 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
             <button className="softpill" onClick={() => openMatch(next)}>Details</button>
           </div>
           )}
-          {own.length > 0 ? (
+          {ownNext.length > 0 ? (
             <div className="replyrows">
-              {own.map(p => <ReplyRow key={p.id} p={p} status={next.availability?.[p.id]?.status || null} onTap={() => openReply(p)} />)}
+              {ownNext.map(p => <ReplyRow key={p.id} p={p} status={next.availability?.[p.id]?.status || null} onTap={() => openReply(p)} />)}
             </div>
           ) : (
             <div className="ng-counts">
@@ -1822,6 +1849,7 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
               {isCoach && <button className="ghostlink" onClick={() => openMatch(next)}>Who's in ›</button>}
             </div>
           )}
+          {nextNote && <div className="note squadnote">{nextNote}</div>}
         </div>
       ) : (
         <div className="card"><div className="empty"><div className="disp">No upcoming match</div><div className="note">Add fixtures under Results.</div><button className="ghostlink" style={{ marginTop: 10 }} onClick={() => onOpen("duties")}>Duties ›</button></div></div>
@@ -2161,7 +2189,7 @@ function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
   // no longer order the list, so it runs by date and kick-off.
   const byRound = (a, b) => (a.round && b.round && a.round !== b.round) ? a.round - b.round
     : String(a.dateISO || "").localeCompare(String(b.dateISO || "")) || (a.round || 0) - (b.round || 0);
-  const sorted = [...data.fixtures].sort(hasSeveralDraws(data.fixtures) ? byKickOff : byRound);
+  const sorted = [...data.fixtures].sort(inSideOrder(data, hasSeveralDraws(data.fixtures) ? byKickOff : byRound));
   const results = sorted.filter(f => fixtureState(f).past);
   const upcoming = sorted.filter(f => !fixtureState(f).past);
   const hasCarnivalGame = data.fixtures.some(f => isCarnivalGame(data, f));
@@ -2265,7 +2293,7 @@ function SquadTab({ data, stats, next, isCoach, viewer, me, setModal, openPlayer
   const todayISO = isoLocal(new Date());
   const players = squadPlayers(data, isCoach, todayISO);
   const ownIds = ownPlayers(data, { isCoach, me, viewer }).map(p => p.id);
-  const canReply = (p) => !!next && (isCoach || ownIds.includes(p.id));
+  const canReply = (p) => !!next && (isCoach || ownIds.includes(p.id)) && inSquad(data, next, p.id);
   const openReply = (p) => setModal({ type: "reply", payload: { fixture: next, playerId: p.id } });
   const replyDay = next?.dateISO ? weekdayLong(next.dateISO) : "";
   const rowKey = (p) => (e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openPlayer(p); } };
@@ -2338,7 +2366,7 @@ function DutiesTab({ data, isCoach, viewer, me, setModal, patchLocal, showToast 
   }
   // By round for a single draw; by date and kick-off once there is another competition's draw too.
   const fixtures = data.fixtures.filter((f) => f.dateISO && f.status !== "cancelled")
-    .sort(hasSeveralDraws(data.fixtures) ? byKickOff : (a, b) => (a.round || 0) - (b.round || 0));
+    .sort(inSideOrder(data, hasSeveralDraws(data.fixtures) ? byKickOff : (a, b) => (a.round || 0) - (b.round || 0)));
   const own = ownPlayers(data, { isCoach, me, viewer });
   const openSheet = (f, duty) => setModal({ type: "duty", payload: { fixtureId: f.id, duty } });
 
@@ -2346,7 +2374,7 @@ function DutiesTab({ data, isCoach, viewer, me, setModal, patchLocal, showToast 
     const def = DUTY_DEFS[key];
     const cur = f[key] || "";
     const who = dutyWho(data, key, cur);
-    const kids = own.filter((p) => activeOn(p, f.dateISO));
+    const kids = own.filter((p) => activeOn(p, f.dateISO) && inSquad(data, f, p.id));
     const mine = !!cur && kids.some((p) => p.id === cur);
     let act = null, control = null, hint = null;
     if (!past && isCoach) {
@@ -2410,13 +2438,13 @@ function DutySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast, 
   const key = payload?.duty;
   const def = DUTY_DEFS[key];
   const own = ownPlayers(data, { isCoach, me, viewer });
-  const kids = f ? own.filter((p) => activeOn(p, f.dateISO)) : [];
+  const kids = f ? own.filter((p) => activeOn(p, f.dateISO) && inSquad(data, f, p.id)) : [];
   const [pick, setPick] = useState(kids[0]?.id || "");
   if (!f || !def) return null;
   const cur = f[key] || "";
   const who = dutyWho(data, key, cur);
   const mine = !!cur && kids.some((p) => p.id === cur);
-  const players = data.players.filter((p) => activeOn(p, f.dateISO)).sort((a, b) => (a.number || 0) - (b.number || 0));
+  const players = playersFor(data, f).filter((p) => activeOn(p, f.dateISO)).sort((a, b) => (a.number || 0) - (b.number || 0));
   const staff = getStaff(data.team);
   const head = staff.find((s) => /head coach/i.test(s.role || "")) || staff[0];
   const coachFirst = head?.name ? firstName(head.name) : null;
@@ -2871,6 +2899,7 @@ function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal,
         <ParentsSeeCard team={data.team} patchLocal={patchLocal} />
         <MatchFormatCards team={data.team} patchLocal={patchLocal} />
         <LineupRulesCard team={data.team} patchLocal={patchLocal} />
+        <CompetitionSquadsCard data={data} patchLocal={patchLocal} />
       </>}
 
       <div className="card">
@@ -2999,6 +3028,100 @@ function SeasonCard({ team, patchLocal }) {
       <div className="note">{stored ? seasonRange(effective) : `Following the calendar year: ${seasonRange(effective)}`}</div>
       {err && <div className="note" style={{ color: "var(--red)", marginTop: 8 }}>{err}</div>}
       <div className="note" style={{ marginTop: 8 }}>Weekly training and the calendar only run inside this window. Leave blank to follow the current calendar year.</div>
+    </div>
+  );
+}
+
+// Competition squads: who is going to each of the team's other competitions
+// (a winter tournament often takes part of the squad). Only those players are
+// asked to reply and counted for its games; the season is always everyone.
+// The competitions come from /api/competition-squad (the club's set-up knows
+// them before a game is drawn); the picks themselves are
+// data.competitionSquads, patched locally as they change. A switch saves
+// through the narrow route, optimistic and reverted on failure, like the cards
+// above. A team with no other competition has no card.
+//
+// A coach ticks several players off in a row, and every write carries the
+// whole squad, so two in flight at once could land in the wrong order and
+// leave the older pick stored. One write per competition is in flight at a
+// time: a change made meanwhile waits and goes next with the newest pick. If
+// a write fails, the list goes back to what is stored and anything waiting is
+// dropped with it.
+function CompetitionSquadsCard({ data, patchLocal }) {
+  const [comps, setComps] = useState(null); // [{ id, name }] once loaded
+  const [err, setErr] = useState("");
+  const writes = useRef({}); // competition id -> { busy, waiting, want, stored }
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/competition-squad", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (!cancelled) setComps(Array.isArray(j?.competitions) ? j.competitions.map(({ id, name }) => ({ id, name })) : []); })
+      .catch(() => { if (!cancelled) setComps([]); });
+    return () => { cancelled = true; };
+  }, []);
+  if (!comps || comps.length === 0) return null;
+
+  const players = [...(data.players || [])].sort((a, b) => (a.number || 0) - (b.number || 0) || String(a.name).localeCompare(String(b.name)));
+  const squadIn = (comp) => competitionSquad(data, comp);
+  const setSquad = (comp, ids) => patchLocal((d) => {
+    const next = { ...(d.competitionSquads || {}) };
+    if (ids === null) delete next[comp]; else next[comp] = ids;
+    return { ...d, competitionSquads: next };
+  });
+  const send = async (comp) => {
+    const w = writes.current[comp];
+    w.busy = true;
+    while (w.waiting) {
+      w.waiting = false;
+      try {
+        const res = await fetchJson("/api/competition-squad", { comp, playerIds: w.want });
+        w.stored = res && "playerIds" in res ? res.playerIds : w.want;
+        if (!w.waiting) setSquad(comp, w.stored);
+      } catch (e) {
+        w.waiting = false;
+        setSquad(comp, w.stored);
+        setErr(saveErrorText(e));
+      }
+    }
+    w.busy = false;
+  };
+  // playerIds: the squad's ids, or null for everyone.
+  const save = (comp, playerIds) => {
+    const w = writes.current[comp] || (writes.current[comp] = { busy: false, waiting: false, want: null, stored: null });
+    if (!w.busy) w.stored = squadIn(comp);
+    w.want = playerIds;
+    w.waiting = true;
+    setErr("");
+    setSquad(comp, playerIds);
+    if (!w.busy) send(comp);
+  };
+  return (
+    <div className="card">
+      <div className="label" style={{ marginBottom: 4 }}>Competition squads</div>
+      <div className="note">Who is going to each competition. Only those players are asked to reply and counted for its games. The season is always everyone.</div>
+      {comps.map((c) => {
+        const picked = squadIn(c.id);
+        const toggle = (p) => save(c.id, players.filter((x) => (x.id === p.id ? !picked.includes(x.id) : picked.includes(x.id))).map((x) => x.id));
+        return (
+          <div key={c.id} className="sq-comp">
+            <div className="sq-head">
+              <span className="sq-name">{c.name}</span>
+              <span className="sq-meta">{picked ? `${picked.length} of ${players.length} players` : "Everyone"}</span>
+            </div>
+            <div className="swrow">
+              <span style={{ flex: 1, fontSize: 13.5 }}>Everyone</span>
+              <Switch on={!picked} label={`Everyone is in the ${c.name} squad`} onClick={() => save(c.id, picked ? null : players.map((p) => p.id))} />
+            </div>
+            {picked && players.map((p) => (
+              <div className="swrow" key={p.id}>
+                <span style={{ flex: 1, fontSize: 13.5 }}>{p.number ? `${p.number}. ` : ""}{playerFullName(p)}</span>
+                <Switch on={picked.includes(p.id)} label={`${playerFullName(p)} is in the ${c.name} squad`} onClick={() => toggle(p)} />
+              </div>
+            ))}
+          </div>
+        );
+      })}
+      {err && <div className="note" style={{ color: "var(--red)", marginTop: 8 }}>{err}</div>}
     </div>
   );
 }
@@ -3659,8 +3782,12 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
     : { big: f.time || "TBC", cls: "", sub: matchDate(f.dateISO), up: true };
   const pname = (pid) => data.players.find(p => p.id === pid)?.name || "—";
   const players = data.players.filter(p => activeOn(p, f.dateISO)).sort((a, b) => a.number - b.number);
-  const counts = replyCounts(data.players, f.availability, f.dateISO);
-  const own = ownPlayers(data, { isCoach, me, viewer });
+  // The game is for its competition's squad: counts are over those players
+  // and a family is asked only about a child who is in it.
+  const counts = replyCounts(playersFor(data, f), f.availability, f.dateISO);
+  const ownAll = ownPlayers(data, { isCoach, me, viewer });
+  const own = ownAll.filter(p => inSquad(data, f, p.id));
+  const squadNote = notInSquadNote(data, f, ownAll);
   const guest = !me && !isCoach && viewer?.kind !== "parent";
   const scorers = (f.goals || []).map(g => ({ p: data.players.find(x => x.id === g.pid), name: pname(g.pid), n: g.n }));
   const staff = getStaff(data.team);
@@ -3791,6 +3918,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
               onTap={() => setModal({ type: "reply", payload: { fixture: f, playerId: p.id } })} />)}
           </div>
         )}
+        {squadNote && <div className="note squadnote">{squadNote}</div>}
         {guest && <button className="btn" style={{ marginTop: 10 }} onClick={() => setModal({ type: "signin" })}>Sign in to respond</button>}
         <button className="softbtn" onClick={() => onOpen("whosin", { kind: "game", fixtureId: f.id })}>See everyone's replies</button>
       </div>
@@ -3886,14 +4014,16 @@ function WhosInScreen({ data, events, setShow, isCoach, viewer, me, setModal, pa
   const account = !!me;
   const guest = !me && !isCoach && viewer?.kind !== "parent";
   const ownIds = account ? (me.role === "parent" ? (me.playerIds || []) : []) : (viewer?.kind === "parent" && viewer.pid ? [viewer.pid] : []);
-  // Whose replies the footnote names: a signed-in player is "yourself", their children go by name.
+  const ownNames = account ? (me.playerNames || []) : (viewer?.label ? [viewer.label] : []);
+  // In the footnote a signed-in player is "yourself"; their children go by name.
   const selfIds = isCoach ? [] : selfIdsOf(me);
-  const ownNames = account ? (me.playerNames || []).filter((n, i) => !selfIds.includes((me.playerIds || [])[i])) : (viewer?.label ? [viewer.label] : []);
 
   const order = { in: 0, out: 1 };
-  const rows = data.players.filter(p => activeOn(p, dateISO))
+  // A game is for its competition's squad; training is for everyone.
+  const pool = isSession ? data.players : playersFor(data, f);
+  const rows = pool.filter(p => activeOn(p, dateISO))
     .sort((a, b) => ((order[avail[a.id]?.status] ?? 2) - (order[avail[b.id]?.status] ?? 2)) || ((a.number || 0) - (b.number || 0)));
-  const counts = replyCounts(data.players, avail, dateISO);
+  const counts = replyCounts(pool, avail, dateISO);
   const noReply = rows.filter(p => !avail[p.id]?.status);
 
   const target = isSession ? { kind: "session", session: s, occ } : { kind: "game", fixture: f };
@@ -3912,9 +4042,15 @@ function WhosInScreen({ data, events, setShow, isCoach, viewer, me, setModal, pa
   const familyText = (p, parent) => `Hi${parent ? " " + parent : ""}, could you mark ${firstName(p.name)} In or Out for ${eventName} (${nudgeDate(dateISO)}) on the team page? Thanks.`;
   const n = noReply.length;
 
+  // A family replies for its players who are on this list: all of them for
+  // training, those in the competition's squad for a game.
+  const hereIds = ownIds.filter((id) => isSession || inSquad(data, f, id));
+  const kidsHere = ownNames.filter((_, i) => hereIds.includes(ownIds[i]) && !selfIds.includes(ownIds[i]));
+  const selfHere = hereIds.filter((id) => selfIds.includes(id)).length;
   const foot = past ? `This ${isSession ? "session" : "game"} has passed.`
     : isCoach ? "As coach you can reply for anyone."
-    : ownIds.length ? `You can reply for ${youAnd(selfIds.length, ownNames)}. Coaches can reply for anyone.`
+    : hereIds.length ? `You can reply for ${youAnd(selfHere, kidsHere)}. Coaches can reply for anyone.`
+    : ownIds.length ? notInSquadNote(data, f, ownPlayers(data, { isCoach, me, viewer }))
     : guest ? null : "Only coaches and families can reply.";
 
   return (
@@ -4205,7 +4341,7 @@ function PlayerScreen({ data, p, next, persist, patchLocal, isCoach, viewer, me,
   // The signed-in player looking at their own page.
   const self = !isCoach && selfIdsOf(me).includes(p.id);
   const canSeeContacts = isCoach || own;
-  const canReply = !!next && (isCoach || own);
+  const canReply = !!next && (isCoach || own) && inSquad(data, next, p.id);
   // Photos still go through the whole-document write, which the server only
   // accepts from a coach — so account-mode parents don't get a button that
   // would be refused. Legacy devices keep the per-child identity check.

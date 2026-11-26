@@ -383,3 +383,51 @@ describe("account mode — a player signed in with their own email", () => {
     expect(setData).not.toHaveBeenCalled();
   });
 });
+
+// Rounds are numbered per draw: a reply on a paired season game is never
+// copied onto another competition's game that happens to share the round
+// number, and a competition's own pair still shares its replies.
+describe("one reply per round — never across competitions", () => {
+  const WINTER = { comp: "cwinter", compName: "Winterfest" };
+  const doc = () => ({
+    ...TEAM_DATA(),
+    fixtures: [
+      { id: "s3a", round: 3, side: "McKay", availability: {} },
+      { id: "s3b", round: 3, side: "McKain", availability: {} },
+      { id: "w3", round: 3, side: "McKain", ...WINTER, availability: {} },   // Winterfest's round 3, one side
+      { id: "w4a", round: 4, side: "McKay", ...WINTER, availability: {} },
+      { id: "w4b", round: 4, side: "McKain", ...WINTER, availability: {} },
+      { id: "s4", round: 4, side: "McKay", availability: {} }                // the season's round 4, other side on a bye
+    ]
+  });
+  const post = async (body) => {
+    viewingAs.mockReset();
+    const { POST } = await loadRoute({ authOn: true });
+    return POST(fakeRequest({ body }));
+  };
+  const replied = () => setData.mock.calls[0][1].fixtures.filter((f) => f.availability.p1).map((f) => f.id);
+
+  it("a season reply covers the season's two games and nothing of Winterfest's", async () => {
+    happyPath();
+    getData.mockResolvedValue(doc());
+    expect((await post({ kind: "game", id: "s3a", playerId: "p1", status: "in" })).status).toBe(200);
+    expect(replied()).toEqual(["s3a", "s3b"]);
+  });
+
+  it("a reply on a competition game with no pair of its own is written to that game alone", async () => {
+    happyPath();
+    getData.mockResolvedValue(doc());
+    await post({ kind: "game", id: "w3", playerId: "p1", status: "out", reason: "Away" });
+    expect(replied()).toEqual(["w3"]);
+  });
+
+  it("a competition's own pair shares the reply, and the season game of that round number is left alone", async () => {
+    happyPath();
+    getData.mockResolvedValue(doc());
+    await post({ kind: "game", id: "w4b", playerId: "p1", status: "in" });
+    expect(replied()).toEqual(["w4a", "w4b"]);
+    setData.mockClear();
+    await post({ kind: "game", id: "s4", playerId: "p1", status: "in" });
+    expect(replied()).toEqual(["s4"]);
+  });
+});

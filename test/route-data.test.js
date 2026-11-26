@@ -197,6 +197,29 @@ describe("account mode (AUTH_SECRET set)", () => {
       }
     });
 
+    it("keeps the competition squads picked through /api/competition-squad, and never writes any itself", async () => {
+      signedIn({ email: "coach@a.com", role: "coach" });
+      setData.mockResolvedValue();
+      const { POST } = await loadRoute({ authOn: true });
+      const competitionSquads = { cwinter: ["p1"] };
+      const doc = { team: { name: "A" }, players: [{ id: "p1", name: "Sam" }, { id: "p2", name: "Ava" }], fixtures: [{ id: "f1", round: 1 }] };
+      // A dashboard tab loaded before the coach picked the squad saves a score: the pick stays.
+      getData.mockResolvedValue({ ...doc, competitionSquads });
+      const body = { ...doc, fixtures: [{ id: "f1", round: 1, us: 2, them: 0 }] };
+      expect((await POST(fakeRequest({ body }))).status).toBe(200);
+      expect(setData.mock.calls[0][1]).toEqual({ ...body, competitionSquads });
+      expect("competitionSquads" in body).toBe(false); // the request body is not mutated
+      // A copy carrying squads of its own (older, or made up) cannot replace the stored ones...
+      setData.mockClear();
+      expect((await POST(fakeRequest({ body: { ...doc, competitionSquads: { cwinter: ["p2"], cother: ["p1"] } } }))).status).toBe(200);
+      expect(setData.mock.calls[0][1]).toEqual({ ...doc, competitionSquads });
+      // ...nor create any on a document that has none.
+      setData.mockClear();
+      getData.mockResolvedValue(doc);
+      expect((await POST(fakeRequest({ body: { ...doc, competitionSquads: { cwinter: ["p2"] } } }))).status).toBe(200);
+      expect(setData.mock.calls[0][1]).toEqual(doc);
+    });
+
     it("403s a coach-parent acting as the parent (the worn hat decides)", async () => {
       coachParentSignedIn();
       getData.mockResolvedValue(null);

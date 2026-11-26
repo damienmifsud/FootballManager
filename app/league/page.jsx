@@ -5,8 +5,13 @@ import { AdminPage } from "@/components/AdminShell";
 
 // FQ Metro Region organisation key (from footballqueensland.com.au's own embeds).
 const FQ_METRO_ORG = "b0e92958-980b-4da0-9ec9-a9c2597b06f0";
-// Known season ids on FQ's site: 2025 -> 7, 2026 -> 8.
-const YEARS = [{ label: "2026", id: "8" }, { label: "2025", id: "7" }];
+// Squadi's season ids: 2025 -> 7, 2026 -> 8, 2027 -> 9 (from its own
+// competitions list). Newest first.
+const YEARS = [{ label: "2027", id: "9" }, { label: "2026", id: "8" }, { label: "2025", id: "7" }];
+// The Year list for a set-up: the known years, plus the set-up's own year id
+// when it is one this page does not know (a later season, or one saved from a
+// pasted link), so the list never shows a different year from the one saved.
+const yearsFor = (yearId) => (!yearId || YEARS.some((y) => y.id === yearId) ? YEARS : [{ label: `Season id ${yearId}`, id: yearId }, ...YEARS]);
 const SQUADI_FIXTURES = "https://registration.squadi.com/liveScoreSeasonFixture?";
 
 // What the set-up form starts from when a team has nothing saved: the region
@@ -207,7 +212,7 @@ export default function LeaguePage() {
                 <div>
                   <label className="adm-fl" htmlFor="lg-year">Year</label>
                   <select id="lg-year" className="adm-inp" value={cfg.yearId} onChange={(e) => setCfg({ ...cfg, yearId: e.target.value })}>
-                    {YEARS.map((y) => <option key={y.id} value={y.id}>{y.label}</option>)}
+                    {yearsFor(cfg.yearId).map((y) => <option key={y.id} value={y.id}>{y.label}</option>)}
                   </select>
                 </div>
                 <div>

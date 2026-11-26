@@ -5,8 +5,9 @@ import {
   occurrences, monthItems, upcomingItems, nextBirthdays,
   carnivalGames, carnivalMeta, carnivalDescription, pitchLabel,
   carnivalOf, isCarnivalGame, carnivalFixtures, carnivalGameRows,
-  twinOf, sideOf, teamSides, sideName,
-  competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff
+  twinOf, sideOf, teamSides, sideName, inSideOrder,
+  competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff,
+  competitionSquad, squadOf, inSquad, playersFor, nextFixtureFor
 } from "@/lib/dashboardData";
 
 // Pin "now" for the helpers that read the clock (countdown, isPastGame,
@@ -619,5 +620,161 @@ describe("competitions — games outside the season", () => {
     const up = (over) => ({ status: "upcoming", time: "09:00", ...over });
     const d = data([up({ id: "s7", round: 7, dateISO: "2026-06-27" }), up({ id: "w2", round: 2, dateISO: "2026-06-20", comp: "cwinter", compName: "Winterfest" })]);
     expect(nextFixture(d).id).toBe("w2");
+  });
+});
+
+// A competition's squad: the coach's pick of who is going to it, kept on the
+// team document as data.competitionSquads[competitionId]. A game is for its competition's
+// squad; with no pick, and always in the season, it is for everyone.
+describe("competition squads", () => {
+  const players = [{ id: "p1", name: "Sam" }, { id: "p2", name: "Alex" }, { id: "p3", name: "Kim" }];
+  const season = { id: "s5", round: 5 };
+  const winter = { id: "w1", round: 1, comp: "cwinter", compName: "Winterfest" };
+  const cup = { id: "c1", round: 1, comp: "ccup", compName: "Cup" };
+  const data = (competitionSquads) => ({ team: {}, players, fixtures: [season, winter, cup], ...(competitionSquads === undefined ? {} : { competitionSquads }) });
+
+  it("competitionSquad is the picked players still on the team, in the team's own order, and null when nothing is picked", () => {
+    const d = data({ cwinter: ["p3", "p1"] }); // stored in another order
+    expect(competitionSquad(d, "cwinter")).toEqual(["p1", "p3"]);
+    expect(competitionSquad(d, "ccup")).toBeNull(); // another competition, nothing picked for it
+    expect(competitionSquad(data(), "cwinter")).toBeNull(); // no squads on the document at all
+    // Each player once, and never an id that is not on the team.
+    expect(competitionSquad(data({ cwinter: ["p2", "gone", "p2"] }), "cwinter")).toEqual(["p2"]);
+  });
+
+  it("a squad with nobody left on the team is everyone, never no one", () => {
+    // Every pick deleted, or the players cleared and added again under new ids.
+    expect(competitionSquad(data({ cwinter: ["gone", "also-gone"] }), "cwinter")).toBeNull();
+    expect(competitionSquad(data({ cwinter: [] }), "cwinter")).toBeNull();
+    expect(competitionSquad({ competitionSquads: { cwinter: ["p1"] } }, "cwinter")).toBeNull(); // no player list
+    expect(competitionSquad({ players: "nope", competitionSquads: { cwinter: ["p1"] } }, "cwinter")).toBeNull();
+    expect(competitionSquad({ players: [null, players[0], undefined], competitionSquads: { cwinter: ["p1"] } }, "cwinter")).toEqual(["p1"]);
+  });
+
+  it("competitionSquad never takes a squad from anything but a list under a real competition id", () => {
+    for (const bad of ["p1", { p1: true }, 3, null, true]) expect(competitionSquad(data({ cwinter: bad }), "cwinter")).toBeNull();
+    for (const bad of [null, "x", ["p1"], 7]) expect(competitionSquad({ players, competitionSquads: bad }, "cwinter")).toBeNull();
+    // No competition id, no squad: an entry filed under "undefined", "null", "" or a number is never read.
+    const odd = data({ undefined: ["p1"], null: ["p1"], "": ["p1"], 0: ["p1"], 7: ["p1"] });
+    for (const id of [undefined, null, "", 0, 7, {}, ["cwinter"]]) expect(competitionSquad(odd, id)).toBeNull();
+    expect(competitionSquad(null, "cwinter")).toBeNull();
+    expect(competitionSquad(undefined, "cwinter")).toBeNull();
+  });
+
+  it("squadOf is the squad of the game's own competition; a season game is always for everyone", () => {
+    const d = data({ cwinter: ["p1", "p3"], undefined: ["p1"] });
+    expect(squadOf(d, winter)).toEqual(["p1", "p3"]);
+    expect(squadOf(d, cup)).toBeNull();
+    expect(squadOf(d, season)).toBeNull();
+    expect(squadOf(d, null)).toBeNull();
+    expect(squadOf(d, undefined)).toBeNull();
+  });
+
+  it("inSquad: everyone when nothing is picked, otherwise only the picked players", () => {
+    const d = data({ cwinter: ["p1", "p3"] });
+    expect(["p1", "p2", "p3"].map((id) => inSquad(d, winter, id))).toEqual([true, false, true]);
+    expect(["p1", "p2", "p3"].map((id) => inSquad(d, season, id))).toEqual([true, true, true]);
+    expect(["p1", "p2", "p3"].map((id) => inSquad(d, cup, id))).toEqual([true, true, true]);
+    expect(["p1", "p2", "p3"].map((id) => inSquad(data(), winter, id))).toEqual([true, true, true]);
+    // A squad nobody on the team is in any more: everyone again.
+    expect(["p1", "p2", "p3"].map((id) => inSquad(data({ cwinter: ["gone"] }), winter, id))).toEqual([true, true, true]);
+  });
+
+  it("playersFor is the team's players the game is for, in the team's own order", () => {
+    const d = data({ cwinter: ["p3", "p1"] });
+    expect(playersFor(d, winter).map((p) => p.id)).toEqual(["p1", "p3"]);
+    expect(playersFor(d, winter)[0]).toBe(players[0]); // the player records themselves, not copies
+    expect(playersFor(d, season)).toBe(players); // everyone: the list itself
+    expect(playersFor(d, cup)).toBe(players);
+    expect(playersFor(data({ cwinter: ["gone"] }), winter)).toBe(players);
+    expect(playersFor(data({ cwinter: ["p2", "gone"] }), winter).map((p) => p.id)).toEqual(["p2"]);
+  });
+
+  it("playersFor survives a missing or broken player list", () => {
+    expect(playersFor({ competitionSquads: { cwinter: ["p1"] } }, winter)).toEqual([]);
+    expect(playersFor({ players: "nope", competitionSquads: { cwinter: ["p1"] } }, winter)).toEqual([]);
+    expect(playersFor({ players: [null, players[0], undefined], competitionSquads: { cwinter: ["p1"] } }, winter).map((p) => p.id)).toEqual(["p1"]);
+    expect(playersFor(null, winter)).toEqual([]);
+    expect(playersFor(undefined, season)).toEqual([]);
+  });
+
+  // The Home card's game. Today is 2026-06-18 (pinned above).
+  describe("nextFixtureFor — the next game for one family", () => {
+    const up = (over) => ({ status: "upcoming", time: "09:00", ...over });
+    const w1 = up({ id: "w1", round: 1, dateISO: "2026-06-20", comp: "cwinter", compName: "Winterfest" });
+    const w2 = up({ id: "w2", round: 2, dateISO: "2026-06-21", comp: "cwinter", compName: "Winterfest" });
+    const s7 = up({ id: "s7", round: 7, dateISO: "2026-06-27" });
+    const d = { team: {}, players, fixtures: [s7, w2, w1], sessions: [], competitionSquads: { cwinter: ["p1", "p3"] } };
+
+    it("with no players (a coach, a club admin, a guest) it is the soonest game of all", () => {
+      expect(nextFixtureFor(d, []).id).toBe("w1");
+      expect(nextFixtureFor(d, undefined).id).toBe("w1");
+      expect(nextFixtureFor(d, null).id).toBe("w1");
+      expect(nextFixtureFor(d, "p2").id).toBe("w1"); // not a list of players
+      expect(nextFixtureFor(d, []).id).toBe(nextFixture(d).id);
+    });
+
+    it("a family whose child is in the squad gets the competition's game; one whose child is not gets the next game that is for them", () => {
+      expect(nextFixtureFor(d, ["p1"]).id).toBe("w1");
+      expect(nextFixtureFor(d, ["p2"]).id).toBe("s7"); // Alex is not going to Winterfest: both its games are skipped
+      // Two children, one in the squad: the game one of them is part of.
+      expect(nextFixtureFor(d, ["p2", "p3"]).id).toBe("w1");
+    });
+
+    it("falls back to the soonest game when nothing left is for any of their children", () => {
+      const onlyWinter = { ...d, fixtures: [w2, w1] };
+      expect(nextFixtureFor(onlyWinter, ["p2"]).id).toBe("w1");
+      expect(nextFixtureFor({ ...d, fixtures: [] }, ["p2"])).toBeNull();
+      expect(nextFixtureFor({ ...d, fixtures: [] }, [])).toBeNull();
+    });
+
+    it("with no squad picked every game is for everyone, so it is the soonest game for any family", () => {
+      const open = { ...d, competitionSquads: {} };
+      expect(nextFixtureFor(open, ["p2"]).id).toBe("w1");
+      // A child who is not on the team at all is in no squad, but the season is for everyone.
+      expect(nextFixtureFor(d, ["someone-else"]).id).toBe("s7");
+    });
+
+    it("keeps nextFixture's rules: played, past and carnival games are never next", () => {
+      const carnival = { id: "c1", kind: "carnival", recur: "once", dateISO: "2026-06-19", title: "Winter carnival" };
+      const fixtures = [
+        { id: "old", round: 5, status: "upcoming", dateISO: "2026-06-06", time: "09:00" }, // date has passed
+        { id: "done", round: 6, status: "played", dateISO: "2026-06-19", time: "09:00" },
+        up({ id: "cg", dateISO: "2026-06-19", carnivalId: "c1" }),
+        s7
+      ];
+      const dd = { ...d, fixtures, sessions: [carnival] };
+      expect(nextFixtureFor(dd, ["p2"]).id).toBe("s7");
+      expect(nextFixtureFor(dd, []).id).toBe("s7");
+    });
+  });
+});
+
+describe("inSideOrder — the two games of a round in wizard order", () => {
+  const data = { team: { sides: ["McKay", "McKain"] }, fixtures: [] };
+  const byRound = (a, b) => (a.round || 0) - (b.round || 0);
+  const g = (id, round, side, over = {}) => ({ id, round, ...(side ? { side } : {}), ...over });
+  const order = (list, d = data, cmp = byRound) => [...list].sort(inSideOrder(d, cmp)).map((f) => f.id);
+
+  it("breaks a tie by team.sides, whichever game was stored first", () => {
+    expect(order([g("b1", 1, "McKain"), g("a1", 1, "McKay"), g("b2", 2, "McKain"), g("a2", 2, "McKay")])).toEqual(["a1", "b1", "a2", "b2"]);
+    // The list's own order always comes first: sides only settle ties.
+    expect(order([g("a2", 2, "McKay"), g("b1", 1, "McKain")])).toEqual(["b1", "a2"]);
+  });
+
+  it("with kick-off order, the earlier game stays first even when it is the second side's", () => {
+    const list = [g("a", 7, "McKay", { dateISO: "2026-06-21", time: "10:30" }), g("b", 7, "McKain", { dateISO: "2026-06-21", time: "09:00" }),
+      g("c", 8, "McKain", { dateISO: "2026-06-28", time: "09:00" }), g("d", 8, "McKay", { dateISO: "2026-06-28", time: "09:00" })];
+    expect(order(list, data, byKickOff)).toEqual(["b", "a", "d", "c"]);
+  });
+
+  it("a game with no side, or a side the team does not list, goes after the listed sides and is otherwise left alone", () => {
+    expect(order([g("x", 1), g("b", 1, "McKain"), g("o", 1, "Other"), g("a", 1, "McKay")])).toEqual(["a", "b", "x", "o"]);
+  });
+
+  it("a team with no sides is ordered exactly as the list's own order says", () => {
+    const list = [g("r2", 2), g("r1", 1), g("r1b", 1)];
+    expect(order(list, { team: {}, fixtures: list })).toEqual(["r1", "r1b", "r2"]);
+    expect(order(list, null)).toEqual(["r1", "r1b", "r2"]);
   });
 });

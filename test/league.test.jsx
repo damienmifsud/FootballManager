@@ -208,6 +208,51 @@ describe("League page", () => {
     expect((await screen.findByText(/One-time setup for/)).textContent).toBe("One-time setup for this team:");
   });
 
+  it("the Year list offers 2027, and a set-up built for it carries Squadi's id for that season", async () => {
+    league = { teamSlug: "u9-academy", squadi: null, saved: false };
+    render(<LeaguePage />);
+    await screen.findByRole("heading", { level: 2, name: "Set up" });
+    const year = screen.getByLabelText("Year");
+    expect([...year.options].map((o) => [o.textContent, o.value])).toEqual([["2027", "9"], ["2026", "8"], ["2025", "7"]]);
+    fireEvent.change(year, { target: { value: "9" } });
+    expect(screen.getByRole("link", { name: "Open the Squadi fixtures page" }).getAttribute("href")).toBe(SQUADI + `organisationKey=${FQ_METRO}&yearId=9`);
+    fireEvent.change(screen.getByLabelText("Organisation key"), { target: { value: "74f39f3a-6e73-48a8-b837-705aba4c4512" } });
+    fireEvent.change(screen.getByLabelText("Competition key"), { target: { value: "51b128e2-c6ac-4416-8ae6-dc59504cdaf2" } });
+    fireEvent.change(screen.getByLabelText("Division ID (age group)"), { target: { value: "12962" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save for everyone" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].squadi).toMatchObject({ mode: "builder", yearId: "9", org: "74f39f3a-6e73-48a8-b837-705aba4c4512", comp: "51b128e2-c6ac-4416-8ae6-dc59504cdaf2", divisionId: "12962" });
+    const frame = await waitFor(() => { const f = document.querySelector("iframe"); expect(f).toBeTruthy(); return f; });
+    expect(frame.getAttribute("src")).toBe(SQUADI + "organisationKey=74f39f3a-6e73-48a8-b837-705aba4c4512&yearId=9&competitionUniqueKey=51b128e2-c6ac-4416-8ae6-dc59504cdaf2&divisionId=12962");
+  });
+
+  it("a set-up saved for 2027 opens showing 2027, not the first year on the list by default", async () => {
+    league = { teamSlug: "u9-academy", squadi: { mode: "builder", url: "", org: FQ_METRO, yearId: "9", comp: "c", divisionId: "1", teamId: "" }, saved: true };
+    render(<LeaguePage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
+    const year = screen.getByLabelText("Year");
+    expect(year.value).toBe("9");
+    expect(year.selectedOptions[0].textContent).toBe("2027");
+    expect(year.options).toHaveLength(3);
+  });
+
+  it("a set-up whose season this page does not know keeps it: the list shows that id rather than another year", async () => {
+    league = { teamSlug: "u9-academy", squadi: { mode: "builder", url: "", org: FQ_METRO, yearId: "10", comp: "c", divisionId: "1", teamId: "" }, saved: true };
+    render(<LeaguePage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
+    const year = screen.getByLabelText("Year");
+    expect(year.value).toBe("10");
+    expect([...year.options].map((o) => [o.textContent, o.value])).toEqual([["Season id 10", "10"], ["2027", "9"], ["2026", "8"], ["2025", "7"]]);
+    // Saving without touching the year keeps it.
+    fireEvent.click(screen.getByRole("button", { name: "Save for everyone" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].squadi.yearId).toBe("10");
+    // Once a known year is chosen the unknown one is no longer offered.
+    fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
+    fireEvent.change(screen.getByLabelText("Year"), { target: { value: "9" } });
+    expect(screen.getByLabelText("Year").options).toHaveLength(3);
+  });
+
   it("Save for everyone posts only the league set-up to its narrow route and closes the card", async () => {
     render(<LeaguePage />);
     fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
@@ -299,7 +344,9 @@ describe("League page", () => {
     render(<LeaguePage />);
     fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
-    expect((await screen.findByRole("status")).textContent).toBe("Already up to date with Squadi.");
+    // The status line reads "Syncing…" until the answer arrives, so each of
+    // these waits for the text rather than for the line to appear.
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Already up to date with Squadi."));
     syncReply = json(true, 200, { ok: true, changes: ["R5 moved to 09:00", "R6 venue changed"] });
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Updated 2 items: R5 moved to 09:00 · R6 venue changed"));
@@ -314,7 +361,7 @@ describe("League page", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
     syncReply = json(true, 200, { ok: true, changes: ["R5 moved to 09:00"], failed: [{ name: "Winterfest", error: "Squadi responded 404" }] });
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
-    expect((await screen.findByRole("status")).textContent).toBe("Updated 1 item: R5 moved to 09:00 Could not sync Winterfest (Squadi responded 404).");
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Updated 1 item: R5 moved to 09:00 Could not sync Winterfest (Squadi responded 404)."));
     syncReply = json(true, 200, { ok: true, changes: [], failed: [{ name: "Season", error: "Squadi responded 503" }, { name: "Winterfest", error: "Unexpected Squadi response shape" }] });
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Already up to date with Squadi. Could not sync Season (Squadi responded 503); Winterfest (Unexpected Squadi response shape)."));
@@ -329,7 +376,7 @@ describe("League page", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
     syncReply = json(true, 200, { ok: true, changes: [], team: "u8-white", skipped: "no squadi config" });
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
-    expect((await screen.findByRole("status")).textContent).toBe("No Squadi draw is set up for this team yet.");
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("No Squadi draw is set up for this team yet."));
   });
 
   it("no team linked: says so instead of bouncing to login, and shows no draw", async () => {
