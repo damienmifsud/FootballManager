@@ -257,6 +257,7 @@ mode, where there are no accounts.
 | **Club** | | | | | |
 | Open `/admin` | Yes | Yes (wizard and this table) | No | No | Not available |
 | Create and edit teams (the wizard) | Yes | Yes | No | No | Not available |
+| People: every login and what it is attached to | Yes | No | No | No | Not available |
 | Add or remove club admins | Yes | No | No | No | Not available |
 | Per-person per-team overrides | Yes | No | No | No | Not available |
 | View as any user (read only) | Yes | No | No | No | Not available |
@@ -295,6 +296,22 @@ as**: the person's roles on this team (tap one to switch), **Team settings** for
 **Switch team** back to My teams, **Club admin** for the people who run the club, and
 **Sign out**. Nobody is asked to choose a role up front: a team opens in the strongest
 role held there.
+
+**Club admin** (`/admin`) has three sections for a super admin:
+
+- **Teams**: the team wizard (create, edit, open any team) and the league page link.
+- **People**: everyone with a login and everything each is attached to, one card per
+  person with their roles as pills ("Assistant coach · U9 Reds", "Parent of Leo · U9
+  Reds", "Club admin"). Search by name, email, role or team. Open a card to set that
+  person's role on a team (Coach, Parent only, View only, No access, or **As listed**
+  to go back to the team's own lists), add them to another team, make them a club
+  admin, or view the site as them. Roles themselves come from each team's staff list
+  and the emails on its players' records; nothing on a roster is edited from this
+  page. It holds every family's email address, so club admins do not get it.
+- **Access**: view as a user, the club admins list, every per-team override in one
+  place, and the who-can-do-what table.
+
+A club admin sees the team wizard, the role table and the league link on one page.
 
 The choice is stored in the `team_slug` and `act_as` cookies and re-validated on every
 request: a cookie can only narrow what the person is entitled to, never widen it. The

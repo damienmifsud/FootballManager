@@ -334,6 +334,122 @@ describe("per-team overrides (set by the super admin)", () => {
   });
 });
 
+describe("clubPeople (everyone with a login, resolved from one load of the club)", () => {
+  beforeEach(() => { process.env.TEAMS = TWO_TEAMS; });
+  const CLUB = {
+    a: {
+      team: { staff: [{ role: "Head coach", name: "Pat Lane", email: "coach@a.com" }, { role: "Manager", name: "Kim Rowe", email: "Kim@Example.com" }, { role: "Trainer", name: "No Login", email: "" }] },
+      players: [
+        { id: "p1", name: "Leo K.", guardians: [{ name: "Sam Kelly", email: "sam@example.com" }, { name: "Rita Kelly", email: "rita@example.com" }], parentEmails: ["sam@example.com", "rita@example.com"] },
+        { id: "p2", name: "Ana R.", guardians: [{ name: "Kim Rowe (mum)", email: "kim@example.com" }], parentEmails: ["kim@example.com"] },
+        { id: "p3", name: "Old S.", parentName: "Jo Smith", parentEmails: ["jo@example.com", "second@example.com"] },
+        { id: "p4", name: "Not A Login", guardians: [{ name: "Gran", email: "gran@example.com" }], parentEmails: [] }
+      ]
+    },
+    b: { players: [{ id: "p9", name: "Mia K.", guardians: [{ name: "Sam Kelly", email: "sam@example.com" }], parentEmails: ["sam@example.com"] }] }
+  };
+  const byEmail = (people) => Object.fromEntries(people.map((p) => [p.email, p]));
+  const roles = (person) => person.memberships.map((m) => [m.teamSlug, m.role, m.staffRole || m.playerName || ""]);
+
+  it("lists each person once with the name the club's records give, sorted by name", async () => {
+    withRosters(CLUB);
+    const { clubPeople } = await loadDir();
+    const { teams, people } = await clubPeople();
+    expect(teams).toEqual([{ slug: "a", name: "Team A" }, { slug: "b", name: "Team B" }]);
+    expect(people.map((p) => [p.name, p.email])).toEqual([
+      ["Jo Smith", "jo@example.com"],       // an older record: one parent named beside the first email
+      ["Kim Rowe", "kim@example.com"],      // the staff list's name wins over the squad list's
+      ["Pat Lane", "coach@a.com"],
+      ["Rita Kelly", "rita@example.com"],
+      ["Sam Kelly", "sam@example.com"],
+      ["", "second@example.com"]            // no name on record: sorted by the email
+    ]);
+    // A guardian whose email is not a login is nobody here.
+    expect(people.some((p) => p.email === "gran@example.com")).toBe(false);
+  });
+
+  it("gives ordinary capitals to a name typed all in capitals or all in lower case, and leaves any other spelling alone", async () => {
+    withRosters({
+      a: { players: [
+        { id: "p1", name: "A", guardians: [{ name: "PAT  LANE", email: "caps@example.com" }, { name: "jo o'brien-smith", email: "lower@example.com" }], parentEmails: ["caps@example.com", "lower@example.com"] },
+        { id: "p2", name: "B", guardians: [{ name: "Rita van Dyk", email: "mixed@example.com" }, { name: "  Ewan McKay ", email: "mc@example.com" }], parentEmails: ["mixed@example.com", "mc@example.com"] }
+      ] },
+      b: { players: [] }
+    });
+    const { clubPeople } = await loadDir();
+    const who = byEmail((await clubPeople()).people);
+    expect(who["caps@example.com"].name).toBe("Pat Lane");
+    expect(who["lower@example.com"].name).toBe("Jo O'Brien-Smith");
+    expect(who["mixed@example.com"].name).toBe("Rita van Dyk");
+    expect(who["mc@example.com"].name).toBe("Ewan McKay");
+  });
+
+  it("gives each person exactly what signing in would", async () => {
+    withRosters(CLUB);
+    const { clubPeople, membershipsForEmail } = await loadDir();
+    const { people } = await clubPeople();
+    const who = byEmail(people);
+    expect(roles(who["kim@example.com"])).toEqual([["a", "coach", "Manager"], ["a", "parent", "Ana R."]]);
+    expect(roles(who["sam@example.com"])).toEqual([["a", "parent", "Leo K."], ["b", "parent", "Mia K."]]);
+    expect(roles(who["coach@a.com"])).toEqual([["a", "coach", "Head coach"]]);
+    for (const p of people) expect((await membershipsForEmail(p.email)).memberships, p.email).toEqual(p.memberships);
+  });
+
+  it("reads each team's document once however many people there are", async () => {
+    withRosters(CLUB);
+    const { clubPeople } = await loadDir();
+    await clubPeople();
+    expect(getData.mock.calls.map((c) => c[0]).sort()).toEqual(["a", "b"]);
+    expect(getClubAccess).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes the people who run the club, marked, with club-level access flagged as such", async () => {
+    process.env.ADMIN_EMAILS = "owner@example.com";
+    process.env.CLUB_ADMIN_EMAILS = "td@example.com";
+    getClubAccess.mockResolvedValue({ clubAdmins: ["Stored@Example.com", "sam@example.com"] });
+    withRosters(CLUB);
+    const { clubPeople } = await loadDir();
+    const who = byEmail((await clubPeople()).people);
+    expect(who["owner@example.com"]).toMatchObject({ superAdmin: true, clubAdmin: null, overrides: {} });
+    expect(who["owner@example.com"].memberships.every((m) => m.role === "coach" && m.admin && m.club)).toBe(true);
+    expect(who["td@example.com"]).toMatchObject({ superAdmin: false, clubAdmin: "env" });
+    expect(who["td@example.com"].memberships.every((m) => m.role === "viewer" && m.club)).toBe(true);
+    expect(who["stored@example.com"].clubAdmin).toBe("stored");
+    // A club admin who is also a parent keeps their own role where they have one.
+    expect(who["sam@example.com"].clubAdmin).toBe("stored");
+    expect(who["sam@example.com"].memberships.map((m) => [m.teamSlug, m.role, !!m.club])).toEqual([["a", "parent", false], ["b", "parent", false]]);
+  });
+
+  it("carries each person's overrides, including a team they are shut out of, and applies them", async () => {
+    getClubAccess.mockResolvedValue({ overrides: {
+      "sam@example.com": { b: "blocked" },
+      "helper@example.com": { b: "coach", gone: "viewer" }, // "gone" is a team that no longer exists
+      "shut@example.com": { a: "blocked" }
+    } });
+    withRosters(CLUB);
+    const { clubPeople } = await loadDir();
+    const who = byEmail((await clubPeople()).people);
+    expect(who["sam@example.com"].overrides).toEqual({ b: "blocked" });
+    expect(roles(who["sam@example.com"])).toEqual([["a", "parent", "Leo K."]]);
+    expect(who["helper@example.com"].overrides).toEqual({ b: "coach" });
+    expect(roles(who["helper@example.com"])).toEqual([["b", "coach", ""]]);
+    // Someone with nothing but a block is still listed, so the block can be seen and lifted.
+    expect(who["shut@example.com"]).toMatchObject({ memberships: [], overrides: { a: "blocked" } });
+  });
+
+  it("an empty or broken club is an empty list, not an error", async () => {
+    getData.mockRejectedValue(new Error("store down"));
+    getClubAccess.mockRejectedValue(new Error("store down"));
+    const { clubPeople } = await loadDir();
+    expect(await clubPeople()).toEqual({ teams: [{ slug: "a", name: "Team A" }, { slug: "b", name: "Team B" }], people: [{
+      email: "coach@a.com", name: "", superAdmin: false, clubAdmin: null, overrides: {},
+      memberships: [{ teamSlug: "a", teamName: "Team A", role: "coach" }]
+    }] });
+    delete process.env.TEAMS;
+    expect(await (await loadDir()).clubPeople()).toEqual({ teams: [], people: [] });
+  });
+});
+
 describe("emailCanAccessTeam / isCoachForTeam / isAdminEmail", () => {
   beforeEach(() => { process.env.TEAMS = TWO_TEAMS; });
 
