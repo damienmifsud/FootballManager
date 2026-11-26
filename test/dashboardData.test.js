@@ -5,7 +5,7 @@ import {
   occurrences, monthItems, upcomingItems, nextBirthdays,
   carnivalGames, carnivalMeta, carnivalDescription, pitchLabel,
   carnivalOf, isCarnivalGame, carnivalFixtures, carnivalGameRows,
-  competitionOf, countsForSeason, roundLabel
+  competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff
 } from "@/lib/dashboardData";
 
 // Pin "now" for the helpers that read the clock (countdown, isPastGame,
@@ -540,6 +540,21 @@ describe("competitions — games outside the season", () => {
     expect(stats.scorers.map((p) => [p.name, p.goals, p.assists])).toEqual([["Sam", 3, 0]]);
     // With only the other competition played, the season has no record at all.
     expect(computeStats(data([winter()]))).toMatchObject({ played: 0, w: 0, pts: 0, form: [], scorers: [], perRound: [] });
+  });
+
+  it("hasSeveralDraws: true once games come from more than one draw", () => {
+    expect(hasSeveralDraws([season(), season({ id: "s6", round: 6 })])).toBe(false);
+    expect(hasSeveralDraws([season(), winter()])).toBe(true);
+    expect(hasSeveralDraws([winter(), winter({ id: "w2" })])).toBe(false); // one competition, no season games
+    expect(hasSeveralDraws([winter(), winter({ id: "c1", comp: "ccup", compName: "Cup" })])).toBe(true);
+    expect(hasSeveralDraws([])).toBe(false);
+    expect(hasSeveralDraws(undefined)).toBe(false);
+  });
+
+  it("byKickOff orders by date, then kick-off, then round, with undated games last", () => {
+    const g = (id, dateISO, time, round) => ({ id, dateISO, time, round });
+    const list = [g("tbc", "", "09:00", 1), g("late", "2026-07-05", "10:30", 1), g("early", "2026-07-05", "08:00", 4), g("first", "2026-06-20", "17:00", 9), g("r2", "2026-07-05", "10:30", 2)];
+    expect([...list].sort(byKickOff).map((x) => x.id)).toEqual(["first", "early", "late", "r2", "tbc"]);
   });
 
   it("nextFixture is the soonest upcoming game whatever its competition", () => {

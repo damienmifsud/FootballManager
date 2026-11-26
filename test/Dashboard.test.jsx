@@ -4429,6 +4429,30 @@ describe("Competitions — games outside the season", () => {
     expect(document.querySelector(".mh-label").textContent).toMatch(/^Winterfest · Away · /);
   });
 
+  it("with two draws the lists run by date, not by round number; a single draw keeps its round order", async () => {
+    // Winterfest's rounds 1 and 2 fall either side of the season's round 7; round 8 is later still.
+    const fixtures = [
+      game({ id: "s8", round: 8, dateISO: daysFromNow(20), opponent: "Souths" }),
+      winterNext({ id: "w2", round: 2, dateISO: daysFromNow(12), opponent: "Tigers" }),
+      game({ id: "s7", round: 7, dateISO: daysFromNow(10), opponent: "Wests" }),
+      winterNext({ id: "w1", round: 1, dateISO: daysFromNow(3), opponent: "Lions" })
+    ];
+    await load(makeData({ players: kids, fixtures }));
+    toResults();
+    const order = () => [...resCard("Fixtures").querySelectorAll(".mrow")].map((r) => r.querySelector(".mr-side:not(.ours) .mr-name").textContent);
+    expect(order()).toEqual(["Lions", "Wests", "Tigers", "Souths"]);
+    // Duties too.
+    fireEvent.click(within(screen.getByRole("navigation")).getByText("Home"));
+    fireEvent.click(await screen.findByRole("button", { name: "Duties" }));
+    await screen.findByText(/each week:/);
+    expect([...document.querySelectorAll(".ducard .du-opp")].map((e) => e.textContent)).toEqual(["vs Lions · Winterfest", "vs Wests", "vs Tigers · Winterfest", "vs Souths"]);
+    // One draw: a postponed round keeps its place by number, as before.
+    cleanup();
+    await load(makeData({ players: kids, fixtures: [game({ id: "s8", round: 8, dateISO: daysFromNow(6), opponent: "Souths" }), game({ id: "s7", round: 7, dateISO: daysFromNow(13), opponent: "Wests" })] }));
+    toResults();
+    expect(order()).toEqual(["Wests", "Souths"]);
+  });
+
   it("duties: the game's card says which competition it is", async () => {
     await load(makeData({ players: kids, fixtures: [game(), winterNext()] }));
     fireEvent.click(await screen.findByRole("button", { name: "Duties" }));

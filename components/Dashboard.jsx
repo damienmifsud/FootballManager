@@ -15,7 +15,7 @@ import {
   countdown, ytId, videoKind, mapsUrl, activeOn, intlPhone, recentChanges,
   initials, secToClock, clockToSec, occurrences, monthItems, upcomingItems,
   nextBirthdays, isCarnival, carnivalOf, isCarnivalGame, carnivalGameRows, carnivalMeta, carnivalDescription, pitchLabel,
-  playerFullName, competitionOf, countsForSeason, roundLabel
+  playerFullName, competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
@@ -2034,9 +2034,11 @@ function MatchRow({ data, f, onTap }) {
 
 function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
   // By round, then date; a game without a round (a carnival game) slots in by date.
+  // With more than one draw (the season and another competition) round numbers
+  // no longer order the list, so it runs by date and kick-off.
   const byRound = (a, b) => (a.round && b.round && a.round !== b.round) ? a.round - b.round
     : String(a.dateISO || "").localeCompare(String(b.dateISO || "")) || (a.round || 0) - (b.round || 0);
-  const sorted = [...data.fixtures].sort(byRound);
+  const sorted = [...data.fixtures].sort(hasSeveralDraws(data.fixtures) ? byKickOff : byRound);
   const results = sorted.filter(f => fixtureState(f).past);
   const upcoming = sorted.filter(f => !fixtureState(f).past);
   const hasCarnivalGame = data.fixtures.some(f => isCarnivalGame(data, f));
@@ -2206,7 +2208,9 @@ function DutiesTab({ data, isCoach, viewer, me, setModal, patchLocal, showToast 
       <div className="card"><div className="empty"><div className="disp">Duties are turned off</div><div className="note">Fruit, jersey and goalkeeper duty can be switched on for this team from the club admin page.</div></div></div>
     );
   }
-  const fixtures = data.fixtures.filter((f) => f.dateISO && f.status !== "cancelled").sort((a, b) => (a.round || 0) - (b.round || 0));
+  // By round for a single draw; by date and kick-off once there is another competition's draw too.
+  const fixtures = data.fixtures.filter((f) => f.dateISO && f.status !== "cancelled")
+    .sort(hasSeveralDraws(data.fixtures) ? byKickOff : (a, b) => (a.round || 0) - (b.round || 0));
   const own = ownPlayers(data, { isCoach, me, viewer });
   const openSheet = (f, duty) => setModal({ type: "duty", payload: { fixtureId: f.id, duty } });
 
