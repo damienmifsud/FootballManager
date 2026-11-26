@@ -375,6 +375,22 @@ hat's player ids, so there is no second set of checks to keep in step.
   paste it. Importing a list again updates the players already in the squad instead of
   adding them twice, which is also how to fill in last names on a squad that was
   imported before they were kept.
+- **Importing staff with them:** the same file's Coach, Assistant Coach and Manager rows
+  are read back as the team's staff, each with what will happen, and come across with the
+  players in one save unless you switch them off. A staff member with an email can sign
+  in and edit the team, so the rules for that address are strict:
+  - It is taken only from the row's primary contact, and only when the file says that
+    contact *is* the person (the same name, or no name). Any other address on the row is
+    ignored, and someone whose contact is another person comes in without a login.
+  - Someone already on the staff list is matched by email, by name, or by the first name
+    they were typed under ("Pat" for Pat Lane, when only one row could be them). Only
+    their blank details are filled; nothing they have is replaced, and the read-back says
+    which row they were matched to.
+  - The file's "Coach" becomes the team's Head coach unless it already has one.
+  - Nothing else about a staff member is kept: no date of birth, no gender.
+  When creating a team in the wizard, the same rows are offered under Players and
+  parents: **Use them as this team's staff** fills the staff rows under Team identity,
+  which stay editable.
 - **Importing training and games:** Calendar tab, **Import training**, or Results tab,
   **Import games** (coaches only; both are also in Team settings under Import & data).
   Upload a CSV or paste a list. The sheet reads it back before anything is saved: how

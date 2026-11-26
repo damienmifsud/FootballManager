@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseDob, fixMobile, splitCSV, parsePlayerImport, sanitizePlayers, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
+import { parseDob, fixMobile, splitCSV, parsePlayerImport, sanitizePlayers, mergeImportedPlayers, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 
 describe("parseDob", () => {
   it("accepts ISO, AU dd/mm/yyyy and spelled-month forms", () => {
@@ -331,3 +331,224 @@ describe("mergeImportedPlayers", () => {
       .toEqual([{ id: "a", name: "Leo K.", surname: "Kelly" }, null]);
   });
 });
+
+// ---- Staff rows ------------------------------------------------------------
+// The columns of a full team contact list, in the export's own order. Every
+// person below is made up.
+const FULL_HEAD = "Role,FirstName,Surname,DateOfBirth,Gender,RegistrationDate,PlayerFFANumber,PlayerATSIStatus,PlayerPlayingGroup,PlayerSchool,PlayerMedicalConditions,PlayerMedicalNotes,PrimaryContactFirstName,PrimaryContactSurname,PrimaryContactEmailAddress,PrimaryContactMobileNumber,PrimaryContactPhoneNumber,MediaRelease,EmergencyContactFirstName,EmergencyContactSurname,EmergencyContactEmailAddress,EmergencyContactMobileNumber,EmergencyContactPhoneNumber,AdditionalEmailAddresses,DebtStatus";
+// One row of that list: the person, their primary and emergency contacts, and any extra addresses.
+const fullRow = ({ role, first, last, dob = "", p = [], e = [], extra = "" }) => [
+  role, first, last, dob, "", "", "", "", "", "", "", "",
+  p[0] || "", p[1] || "", p[2] || "", p[3] || "", "", "",
+  e[0] || "", e[1] || "", e[2] || "", e[3] || "", "", extra, ""
+].join(",");
+const TEAM_LIST = [
+  FULL_HEAD,
+  fullRow({ role: "Coach", first: "Pat", last: "Lane", dob: "02 Feb 1980", p: ["Pat", "Lane", "Pat@Example.com", "400000201"] }),
+  fullRow({ role: "Assistant Coach", first: "Sam", last: "Kelly", dob: "03 Mar 1982", p: ["Sam", "Kelly", "sam@example.com", "0400 000 202"] }),
+  fullRow({ role: "Player", first: "Leo", last: "Kelly", dob: "02 May 2017", p: ["Sam", "Kelly", "sam@example.com", "0400000202"], e: ["Rita", "Kelly", "rita@example.com", "0400000203"] }),
+  fullRow({ role: "Player", first: "Tess", last: "Lane", dob: "11 Sep 2017", p: ["Pat", "Lane", "pat@example.com", "0400000201"] })
+].join("\r\n");
+
+describe("parsePlayerImport — staff rows", () => {
+  it("returns the coach and manager rows as staff, with their own name, mobile and email and nothing else", () => {
+    const { isMajestri, players, staff } = parsePlayerImport("﻿" + TEAM_LIST);
+    expect(isMajestri).toBe(true);
+    expect(staff).toEqual([
+      { role: "Coach", name: "Pat Lane", mobile: "0400000201", email: "pat@example.com" },
+      { role: "Assistant coach", name: "Sam Kelly", mobile: "0400000202", email: "sam@example.com" }
+    ]);
+    // The players are exactly as before: staff rows are not players and do not shift the numbers.
+    expect(players.map((p) => [p.name, p.surname, p.number])).toEqual([["Leo K.", "Kelly", 1], ["Tess L.", "Lane", 2]]);
+    expect(JSON.stringify(staff)).not.toMatch(/1980|1982|dob/); // no date of birth is kept for an adult
+  });
+
+  it("takes a staff member's email and mobile only when the primary contact is that person", () => {
+    const list = [
+      FULL_HEAD,
+      // The contact is someone else: their address must not become this coach's login.
+      fullRow({ role: "Coach", first: "Pat", last: "Lane", p: ["Robin", "Lane", "robin@example.com", "0400000301"] }),
+      // No contact name at all: the row's own details.
+      fullRow({ role: "Manager", first: "Dee", last: "Finch", p: ["", "", "dee@example.com", "0400000302"] }),
+      // The same person, typed with other capitals and spacing.
+      fullRow({ role: "Assistant Coach", first: "Sam", last: "Kelly", p: [" SAM ", "kelly", "Sam@Example.com", "0400000303"] }),
+      // The same first name is not the same person.
+      fullRow({ role: "Trainer", first: "Jo", last: "Marsh", p: ["Jo", "Marsh-Reid", "jo@example.com", "0400000304"] }),
+      fullRow({ role: "Player", first: "Leo", last: "Kelly", p: ["Sam", "Kelly", "sam@example.com", "0400000303"] })
+    ].join("\n");
+    expect(parsePlayerImport(list).staff).toEqual([
+      { role: "Coach", name: "Pat Lane", mobile: "", email: "" },
+      { role: "Manager", name: "Dee Finch", mobile: "0400000302", email: "dee@example.com" },
+      { role: "Assistant coach", name: "Sam Kelly", mobile: "0400000303", email: "sam@example.com" },
+      { role: "Trainer", name: "Jo Marsh", mobile: "", email: "" }
+    ]);
+  });
+
+  it("never uses another address on a staff row: not the emergency contact's, not the additional ones", () => {
+    const list = [
+      FULL_HEAD,
+      fullRow({ role: "Coach", first: "Pat", last: "Lane", p: ["Pat", "Lane", "not-an-address", "0400000201"], e: ["Robin", "Lane", "robin@example.com", "0400000301"], extra: "other@example.com" }),
+      fullRow({ role: "Player", first: "Tess", last: "Lane", p: ["Pat", "Lane", "pat@example.com", "0400000201"], extra: "gran@example.com" })
+    ].join("\n");
+    const { staff, players } = parsePlayerImport(list);
+    expect(staff).toEqual([{ role: "Coach", name: "Pat Lane", mobile: "0400000201", email: "" }]);
+    // A player's row still gathers every address on it, as it always has.
+    expect(players[0].parentEmails).toEqual(["pat@example.com", "gran@example.com"]);
+  });
+
+  it("keeps the file's wording for a title, in sentence case, and skips a row with no first name or no role", () => {
+    const list = [
+      FULL_HEAD,
+      fullRow({ role: "TEAM  MANAGER", first: "Dee", last: "Finch" }),
+      fullRow({ role: "first aid officer", first: "Ari", last: "" }),
+      fullRow({ role: "Coach", first: "", last: "Nobody" }),
+      fullRow({ role: "", first: "Blank", last: "Role" }), // no role: a player, as before
+      fullRow({ role: "Player", first: "Leo", last: "Kelly" })
+    ].join("\n");
+    const { staff, players } = parsePlayerImport(list);
+    expect(staff).toEqual([
+      { role: "Team manager", name: "Dee Finch", mobile: "", email: "" },
+      { role: "First aid officer", name: "Ari", mobile: "", email: "" }
+    ]);
+    expect(players.map((p) => p.name)).toEqual(["Blank R.", "Leo K."]);
+  });
+
+  it("reads staff from a headerless Excel copy too, and a simple list has none", () => {
+    const tab = (cells) => cells.join("\t");
+    const row = (role, first, last, contact) => { const v = Array(22).fill(""); v[0] = role; v[1] = first; v[2] = last; [v[12], v[13], v[14], v[15]] = contact; return tab(v); };
+    const copy = [
+      row("Coach", "Pat", "Lane", ["Pat", "Lane", "pat@example.com", "400000201"]),
+      row("Player", "Tess", "Lane", ["Pat", "Lane", "pat@example.com", "400000201"])
+    ].join("\n");
+    const parsed = parsePlayerImport(copy);
+    expect(parsed.isMajestri).toBe(true);
+    expect(parsed.staff).toEqual([{ role: "Coach", name: "Pat Lane", mobile: "0400000201", email: "pat@example.com" }]);
+    expect(parsed.players).toHaveLength(1);
+    expect(parsePlayerImport("Leo, 9, FWD, Sam, 0400 000 202").staff).toEqual([]);
+    expect(parsePlayerImport("").staff).toEqual([]);
+  });
+});
+
+describe("mergeImportedStaff", () => {
+  const parsed = () => parsePlayerImport(TEAM_LIST).staff;
+
+  it("adds the file's staff to a team with none: the Coach is its head coach, and both are named as gaining a login", () => {
+    const res = mergeImportedStaff([], parsed());
+    expect(res.staff).toEqual([
+      { role: "Head coach", name: "Pat Lane", mobile: "0400000201", email: "pat@example.com", photo: "" },
+      { role: "Assistant coach", name: "Sam Kelly", mobile: "0400000202", email: "sam@example.com", photo: "" }
+    ]);
+    expect(res).toMatchObject({ added: ["Pat Lane", "Sam Kelly"], updated: [], unchanged: 0, logins: ["Pat Lane", "Sam Kelly"] });
+    expect(res.people).toEqual([
+      { name: "Pat Lane", role: "Head coach", email: "pat@example.com", mobile: "0400000201", change: "add", login: true },
+      { name: "Sam Kelly", role: "Assistant coach", email: "sam@example.com", mobile: "0400000202", change: "add", login: true }
+    ]);
+  });
+
+  it("importing the same file again changes nothing", () => {
+    const once = mergeImportedStaff([], parsed());
+    const twice = mergeImportedStaff(once.staff, parsed());
+    expect(twice).toMatchObject({ added: [], updated: [], unchanged: 2, logins: [] });
+    expect(twice.staff).toEqual(once.staff);
+    expect(twice.people.map((p) => [p.name, p.change, p.login])).toEqual([["Pat Lane", "none", false], ["Sam Kelly", "none", false]]);
+  });
+
+  it("someone already on the staff is filled in where blank and never overwritten", () => {
+    const before = [
+      { role: "Head coach", name: "pat  lane", mobile: "", email: "", photo: "data:pat" },
+      { role: "Kit and oranges", name: "Sam Kelly", mobile: "0499 999 999", email: "work@example.com", photo: "" }
+    ];
+    const snapshot = JSON.parse(JSON.stringify(before));
+    const res = mergeImportedStaff(before, parsed());
+    expect(res.staff).toEqual([
+      { role: "Head coach", name: "pat  lane", mobile: "0400000201", email: "pat@example.com", photo: "data:pat" }, // their own spelling and photo kept
+      { role: "Kit and oranges", name: "Sam Kelly", mobile: "0499 999 999", email: "work@example.com", photo: "" }   // nothing was blank
+    ]);
+    expect(res).toMatchObject({ added: [], updated: ["Pat Lane"], unchanged: 1, logins: ["Pat Lane"] });
+    expect(res.people.map((p) => [p.name, p.role, p.email, p.change, p.login])).toEqual([
+      ["Pat Lane", "Head coach", "pat@example.com", "update", true],
+      ["Sam Kelly", "Kit and oranges", "work@example.com", "none", false]
+    ]);
+    expect(res.people.some((p) => "listedAs" in p)).toBe(false); // the same name, whatever its capitals: nothing to point out
+    expect(before).toEqual(snapshot); // the list passed in is not changed
+  });
+
+  it("the same email is the same person, whatever name the list has them under", () => {
+    const res = mergeImportedStaff([{ role: "Manager", name: "Samuel K", mobile: "", email: "SAM@example.com", photo: "" }], parsed().slice(1));
+    expect(res.staff).toEqual([{ role: "Manager", name: "Samuel K", mobile: "0400000202", email: "SAM@example.com", photo: "" }]);
+    expect(res).toMatchObject({ added: [], updated: ["Sam Kelly"], logins: [] }); // they could already sign in
+  });
+
+  it("a row typed with a first name only, or a first name and an initial, is the same person; their name is left as written", () => {
+    const res = mergeImportedStaff([
+      { role: "Head coach", name: "Pat", mobile: "", email: "", photo: "" },
+      { role: "Assistant coach", name: "sam k.", mobile: "0400000202", email: "", photo: "" }
+    ], parsed());
+    expect(res.staff).toEqual([
+      { role: "Head coach", name: "Pat", mobile: "0400000201", email: "pat@example.com", photo: "" },
+      { role: "Assistant coach", name: "sam k.", mobile: "0400000202", email: "sam@example.com", photo: "" }
+    ]);
+    expect(res).toMatchObject({ added: [], updated: ["Pat Lane", "Sam Kelly"], logins: ["Pat Lane", "Sam Kelly"] });
+    // The read-back can say which row each was matched to.
+    expect(res.people.map((p) => [p.name, p.listedAs])).toEqual([["Pat Lane", "Pat"], ["Sam Kelly", "sam k."]]);
+    // Nothing in the file to add to it: the row is found and left alone.
+    expect(mergeImportedStaff([{ role: "Head coach", name: "Byron" }], [{ role: "Coach", name: "Byron Smith", mobile: "", email: "" }]))
+      .toMatchObject({ staff: [{ role: "Head coach", name: "Byron" }], added: [], updated: [], unchanged: 1 });
+  });
+
+  it("a short name that could be two people, or is someone else's, is not assumed to be them", () => {
+    // Two rows named Sam: the file's Sam Kelly is added rather than guessed at.
+    const two = mergeImportedStaff([{ role: "Head coach", name: "Sam" }, { role: "Manager", name: "Sam" }], parsed().slice(1));
+    expect(two.staff.map((s) => [s.role, s.name])).toEqual([["Head coach", "Sam"], ["Manager", "Sam"], ["Assistant coach", "Sam Kelly"]]);
+    // Another initial, another surname, or a first name that only starts the same way.
+    for (const listed of ["Sam R.", "Sam Rowe", "Samantha", "Sa"]) {
+      const res = mergeImportedStaff([{ role: "Manager", name: listed, email: "" }], parsed().slice(1));
+      expect(res.added, listed).toEqual(["Sam Kelly"]);
+      expect(res.staff[0], listed).toEqual({ role: "Manager", name: listed, email: "" });
+    }
+    // A full-name match is taken before a short one, so each row is used once.
+    const both = mergeImportedStaff([{ role: "Manager", name: "Sam" }, { role: "Assistant coach", name: "Sam Kelly", email: "" }], parsed().slice(1));
+    expect(both.staff.map((s) => [s.name, s.email || ""])).toEqual([["Sam", ""], ["Sam Kelly", "sam@example.com"]]);
+  });
+
+  it("a team that already has a head coach keeps them: the file's Coach is added as Coach", () => {
+    const res = mergeImportedStaff([{ role: "Head coach", name: "Byron Hale", mobile: "", email: "", photo: "" }], parsed());
+    expect(res.staff.map((s) => [s.role, s.name])).toEqual([["Head coach", "Byron Hale"], ["Coach", "Pat Lane"], ["Assistant coach", "Sam Kelly"]]);
+    // Two coaches in one file: the first is the head coach.
+    const two = mergeImportedStaff([], [{ role: "Coach", name: "Pat Lane" }, { role: "Coach", name: "Dee Finch" }]);
+    expect(two.staff.map((s) => [s.role, s.name])).toEqual([["Head coach", "Pat Lane"], ["Coach", "Dee Finch"]]);
+  });
+
+  it("someone with no email in the file is added without a login", () => {
+    const res = mergeImportedStaff([], [{ role: "Manager", name: "Dee Finch", mobile: "400000302", email: "" }, { role: "Trainer", name: "Jo Marsh", email: "not an address" }]);
+    expect(res.staff).toEqual([
+      { role: "Manager", name: "Dee Finch", mobile: "0400000302", email: "", photo: "" },
+      { role: "Trainer", name: "Jo Marsh", mobile: "", email: "", photo: "" }
+    ]);
+    expect(res.logins).toEqual([]);
+    expect(res.people.every((p) => p.login === false && p.change === "add")).toBe(true);
+  });
+
+  it("fills the team wizard's unnamed rows by title, keeps what else is on them, and adds the rest after", () => {
+    const rows = [
+      { role: "Head coach", name: "", mobile: "", email: "", custom: false },
+      { role: "Assistant coach", name: "", mobile: "", email: "", custom: false },
+      { role: "Manager", name: "", mobile: "", email: "", custom: false }
+    ];
+    const res = mergeImportedStaff(rows, [...parsed(), { role: "Trainer", name: "Jo Marsh", mobile: "", email: "" }]);
+    expect(res.staff).toEqual([
+      { role: "Head coach", name: "Pat Lane", mobile: "0400000201", email: "pat@example.com", photo: "", custom: false },
+      { role: "Assistant coach", name: "Sam Kelly", mobile: "0400000202", email: "sam@example.com", photo: "", custom: false },
+      { role: "Manager", name: "", mobile: "", email: "", custom: false },
+      { role: "Trainer", name: "Jo Marsh", mobile: "", email: "", photo: "" }
+    ]);
+    expect(res.added).toEqual(["Pat Lane", "Sam Kelly", "Jo Marsh"]);
+    expect(rows[0].name).toBe(""); // the rows passed in are not changed
+  });
+
+  it("tolerates junk input", () => {
+    expect(mergeImportedStaff(null, null)).toEqual({ staff: [], added: [], updated: [], unchanged: 0, logins: [], people: [] });
+    expect(mergeImportedStaff([null, "x", { role: "Manager", name: "Dee" }], [null, {}, { name: "  " }]).staff).toEqual([{ role: "Manager", name: "Dee" }]);
+  });
+});
+

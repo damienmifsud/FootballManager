@@ -10,7 +10,7 @@
 // what it was.
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, RefreshCw, X, Check } from "lucide-react";
-import { parsePlayerImport, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
+import { parsePlayerImport, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES, seasonLabel } from "@/lib/teamSetup";
 import { downscaleImage } from "@/lib/clientImage";
 import { MAX_COMPETITIONS } from "@/lib/competitions";
@@ -154,9 +154,22 @@ export default function TeamWizard({ onTeamsChanged }) {
 
   // Live parse of the Majestri paste / CSV upload (create flow only).
   const imported = useMemo(
-    () => (form && !editSlug && form.importText.trim() ? parsePlayerImport(form.importText) : { isMajestri: false, players: [] }),
+    () => (form && !editSlug && form.importText.trim() ? parsePlayerImport(form.importText) : { isMajestri: false, players: [], staff: [] }),
     [form, editSlug]
   );
+  // The file's coach and manager rows against the staff rows under Team
+  // identity: who would be added or filled in if they were used. Nothing moves
+  // until "Use them as this team's staff" is pressed, and the rows stay
+  // editable afterwards.
+  const staffFromFile = useMemo(
+    () => mergeImportedStaff(form ? form.staff : [], imported.staff),
+    [form, imported]
+  );
+  const staffToUse = staffFromFile.added.length + staffFromFile.updated.length;
+  const useFileStaff = () => setForm((f) => ({
+    ...f,
+    staff: mergeImportedStaff(f.staff, imported.staff).staff.map((s) => ({ ...staffRow(s), custom: s.custom ?? !STAFF_ROLES.includes(s.role) }))
+  }));
   const onLogoFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -424,9 +437,10 @@ export default function TeamWizard({ onTeamsChanged }) {
 
           {!editSlug && (
             <Step n={++stepNo} title="Players and parents" optional
-              lead={<>Upload the Majestri CSV export, or paste it (from the file or straight out of Excel). Player rows only:
-                parents' names, emails and mobiles come across, which is what powers parent login and replies. Full names
-                show in the squad list. A simple list works too: <i>Name, number, position, parent, mobile, dd/mm/yyyy</i>.</>}>
+              lead={<>Upload the Majestri CSV export, or paste it (from the file or straight out of Excel). Parents' names,
+                emails and mobiles come across, which is what powers parent login and replies. Full names show in the squad
+                list. Coach and manager rows can fill in the staff below. A simple list works too:{" "}
+                <i>Name, number, position, parent, mobile, dd/mm/yyyy</i>.</>}>
               <label className="adm-btn soft sm">
                 Upload CSV
                 <input type="file" accept={PLAYER_FILE_ACCEPT} className="adm-file" onChange={onCsvFile} />
@@ -446,8 +460,22 @@ export default function TeamWizard({ onTeamsChanged }) {
                       {imported.players.slice(0, 8).map((p) => p.name).join(", ")}{imported.players.length > 8 ? "…" : ""}
                       {" · "}{imported.players.filter((p) => (p.parentEmails || []).length).length} with parent emails
                     </>
-                  ) : (
+                  ) : imported.staff.length === 0 ? (
                     <b style={{ color: "var(--red-strong)" }}>Nothing readable yet. Check the format.</b>
+                  ) : null}
+                </div>
+              )}
+              {imported.staff.length > 0 && (
+                <div className="adm-note" role="group" aria-label="Staff in this file">
+                  <b>{imported.staff.length} {imported.staff.length === 1 ? "staff member" : "staff"} in this file:</b>{" "}
+                  {imported.staff.map((s) => `${s.name} (${s.role})`).join(", ")}.{" "}
+                  {staffToUse > 0
+                    ? <>They are not on the staff list yet.</>
+                    : <>Already in the staff list under Team identity.</>}
+                  {staffToUse > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <button type="button" className="adm-btn soft sm" onClick={useFileStaff}>Use them as this team's staff</button>
+                    </div>
                   )}
                 </div>
               )}
