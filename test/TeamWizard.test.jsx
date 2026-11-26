@@ -699,7 +699,7 @@ describe("TeamWizard — a website link beside each draw", () => {
       expect(field.getAttribute("inputmode")).toBe("url");
     }
     expect(step("Competitions").getByText(/The website link is a copy of the page each draw is on/).textContent)
-      .toBe("The website link is a copy of the page each draw is on, kept here beside its IDs so it is easy to find again. Nothing is synced from it.");
+      .toBe("The website link is a copy of the page each draw is on, kept here with the draw so it is easy to find again. Nothing is synced from it.");
     expect(screen.getByRole("heading", { level: 4, name: "Competitions" }).closest(".adm-step").textContent).not.toMatch(EMOJI);
   });
 

@@ -456,7 +456,7 @@ export default function TeamWizard({ onTeamsChanged }) {
               are labelled with its name and kept out of the season record.
             </div>
             <div className="adm-note">
-              The website link is a copy of the page each draw is on, kept here beside its IDs so it is easy to find again.
+              The website link is a copy of the page each draw is on, kept here with the draw so it is easy to find again.
               Nothing is synced from it.
             </div>
           </Step>
