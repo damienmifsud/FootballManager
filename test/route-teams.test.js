@@ -759,3 +759,135 @@ describe("two Squadi feeds and other competitions on one team", () => {
     expect(setStoredTeams).not.toHaveBeenCalled();
   });
 });
+
+// A draw's website link: a copy of the page it is on, stored beside its ids
+// on the registry entry (the season's feed, or the competition).
+describe("website links — a copy of each draw's page", () => {
+  const SEASON = "https://registration.squadi.com/liveScoreSeasonFixture?organisationKey=b0e92958&competitionUniqueKey=4a2f&divisionId=10661&teamId=110020";
+  const WINTER = "https://footballqueensland.com.au/winterfest/draw/";
+  const PREMIER = "https://premierinvitational.dribl.com/fixtures?season=RwNlzVMdjr&club=PydoO0nJdD";
+  const IDS = { competitionId: "1439", divisionId: "10661", teamId: "110020" };
+  const NOT_ONE = "A website link should be a full address starting with https://";
+  const stored = () => setStoredTeams.mock.calls[0][0][0];
+
+  it("POST stores the season's link on its feed and each competition's on its entry", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: {
+      name: "U10 Red", password: "red-code-1", squadi: { ...IDS, link: "  " + SEASON + " " },
+      competitions: [{ name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: "300123" }, link: WINTER }, { name: "Premier Invitational", link: PREMIER }, { name: "Cup" }]
+    } }));
+    expect(res.status).toBe(200);
+    expect(stored().squadi).toEqual({ competitionId: "1439", divisionId: "10661", teamId: 110020, link: SEASON });
+    expect(stored().competitions.map((c) => [c.name, c.link])).toEqual([["Winterfest", WINTER], ["Premier Invitational", PREMIER], ["Cup", undefined]]);
+    expect("link" in stored().competitions[2]).toBe(false);
+    // Links live on the registry only: none of them goes into the team's document.
+    expect(JSON.stringify(setData.mock.calls[0][1])).not.toMatch(/squadi\.com|footballqueensland|dribl/);
+  });
+
+  it("POST with two feeds stores each one's link with it", async () => {
+    const { POST } = await asAdmin();
+    await POST(fakeRequest({ body: { name: "U9 Academy", password: "u9-code-1", squadi: [
+      { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: "133944", link: SEASON },
+      { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: "133943" }
+    ] } }));
+    expect(stored().squadi).toEqual([
+      { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: 133944, link: SEASON },
+      { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 }
+    ]);
+    expect(setData.mock.calls[0][1].team.sides).toEqual(["McKay", "McKain"]);
+  });
+
+  it("a season's link can be saved before its ids are known, and is nothing to sync", async () => {
+    const { POST, GET } = await asAdmin();
+    await POST(fakeRequest({ body: { name: "U11 Blue", password: "blue-code-1", squadi: { competitionId: "", divisionId: "", teamId: "", link: SEASON } } }));
+    expect(stored().squadi).toEqual({ competitionId: "", divisionId: "", teamId: 0, link: SEASON });
+    getStoredTeams.mockResolvedValue([stored()]);
+    const listed = (await (await GET()).json()).teams.find((t) => t.slug === "u11-blue");
+    expect(listed.squadi).toEqual({ competitionId: "", divisionId: "", teamId: 0, link: SEASON });
+  });
+
+  it("refuses a link that is not a plain https address, naming its row, and stores nothing", async () => {
+    const { POST, PATCH } = await asAdmin();
+    for (const [body, sentence] of [
+      [{ squadi: { ...IDS, link: "registration.squadi.com/liveScoreSeasonFixture" } }, "Season: " + NOT_ONE],
+      [{ squadi: { ...IDS, link: "http://registration.squadi.com/x" } }, "Season: " + NOT_ONE],
+      [{ squadi: IDS, competitions: [{ name: "Winterfest", link: "javascript:alert(1)" }] }, "Winterfest: " + NOT_ONE],
+      [{ competitions: [{ name: "Premier Invitational", link: "https://user:pw@premierinvitational.dribl.com/fixtures" }] }, "Premier Invitational: " + NOT_ONE],
+      [{ competitions: [{ name: "Cup", link: "https://x.example/" + "a".repeat(1000) }] }, "Cup: A website link can be at most 1000 characters"]
+    ]) {
+      const res = await POST(fakeRequest({ body: { name: "U10 Red", password: "red-code-1", ...body } }));
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: sentence });
+    }
+    getStoredTeams.mockResolvedValue([{ slug: "u10-red", name: "U10 Red", password: "red-code-1", calendarKey: "k", squadi: { competitionId: "1439", divisionId: "10661", teamId: 110020, link: SEASON } }]);
+    const res = await PATCH(fakeRequest({ body: { slug: "u10-red", name: "Renamed", competitions: [{ name: "Winterfest", link: "www.fq.com.au" }] } }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Winterfest: " + NOT_ONE });
+    expect(setStoredTeams).not.toHaveBeenCalled();
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("PATCH adds, changes and removes links; one that is not sent goes with its row", async () => {
+    const existing = {
+      slug: "u10-red", name: "U10 Red", password: "red-code-1", calendarKey: "k",
+      squadi: { competitionId: "1439", divisionId: "10661", teamId: 110020, link: SEASON },
+      competitions: [{ id: "cwinter01", name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: 300123 } }, { id: "cprem0001", name: "Premier Invitational", link: PREMIER }]
+    };
+    getStoredTeams.mockResolvedValue([existing]);
+    const { PATCH } = await asAdmin();
+    // Winterfest gains a link, Premier's changes, the season's is removed (its row is sent without one).
+    await PATCH(fakeRequest({ body: { slug: "u10-red", squadi: { competitionId: "1439", divisionId: "10661", teamId: 110020 },
+      competitions: [{ id: "cwinter01", name: "Winterfest", squadi: existing.competitions[0].squadi, link: WINTER }, { id: "cprem0001", name: "Premier Invitational", link: PREMIER + "&league=RNEQXMoZNv" }] } }));
+    expect(stored().squadi).toEqual({ competitionId: "1439", divisionId: "10661", teamId: 110020 });
+    expect(stored().competitions).toEqual([
+      { id: "cwinter01", name: "Winterfest", squadi: existing.competitions[0].squadi, link: WINTER },
+      { id: "cprem0001", name: "Premier Invitational", link: PREMIER + "&league=RNEQXMoZNv" }
+    ]);
+  });
+
+  it("PATCH that touches neither list leaves every link where it was", async () => {
+    const existing = {
+      slug: "u10-red", name: "U10 Red", password: "red-code-1", calendarKey: "k",
+      squadi: { competitionId: "1439", divisionId: "10661", teamId: 110020, link: SEASON },
+      competitions: [{ id: "cprem0001", name: "Premier Invitational", link: PREMIER }]
+    };
+    getStoredTeams.mockResolvedValue([existing]);
+    const { PATCH } = await asAdmin();
+    await PATCH(fakeRequest({ body: { slug: "u10-red", name: "U10 Reds" } }));
+    expect(stored().squadi).toEqual(existing.squadi);
+    expect(stored().competitions).toEqual(existing.competitions);
+  });
+
+  it("a season sent empty is removed, link and all; the document's sides go with it", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "u10-red", name: "U10 Red", password: "red-code-1", calendarKey: "k", squadi: { competitionId: "", divisionId: "", teamId: 0, link: SEASON } }]);
+    getData.mockResolvedValue({ team: { name: "U10 Red", sides: ["McKay", "McKain"] }, players: [], fixtures: [] });
+    const { PATCH } = await asAdmin();
+    await PATCH(fakeRequest({ body: { slug: "u10-red", squadi: {} } }));
+    expect("squadi" in stored()).toBe(false);
+    expect("sides" in setData.mock.calls[0][1].team).toBe(false);
+  });
+
+  it("GET lists each draw's link with its ids, for one feed or two", async () => {
+    getStoredTeams.mockResolvedValue([
+      { slug: "one", name: "One", password: "one-code-1", squadi: { competitionId: "1439", divisionId: "10661", teamId: 110020, link: SEASON }, competitions: [{ id: "cprem0001", name: "Premier Invitational", link: PREMIER }] },
+      { slug: "two", name: "Two", password: "two-code-1", squadi: [{ label: "McKay", competitionId: "1844", divisionId: "12962", teamId: 133944, link: SEASON }, { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943, link: WINTER }] }
+    ]);
+    const { GET } = await asAdmin();
+    const teams = (await (await GET()).json()).teams;
+    const one = teams.find((t) => t.slug === "one"), two = teams.find((t) => t.slug === "two");
+    expect(one.squadi.link).toBe(SEASON);
+    expect(one.competitions).toEqual([{ id: "cprem0001", name: "Premier Invitational", link: PREMIER }]);
+    expect(two.squadi.map((f) => [f.label, f.link])).toEqual([["McKay", SEASON], ["McKain", WINTER]]);
+  });
+
+  it("two rows still need their ids: a second row with only a link is refused, as a second row with nothing else is", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: { name: "U9 Academy", password: "u9-code-1", squadi: [
+      { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: "133944" },
+      { label: "McKain", competitionId: "", divisionId: "", teamId: "", link: WINTER }
+    ] } }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "each Squadi team needs its competition ID, division ID and team ID" });
+    expect(setStoredTeams).not.toHaveBeenCalled();
+  });
+});

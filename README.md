@@ -514,6 +514,14 @@ For a team defined in `TEAMS`, the same list goes on the team entry:
 `"competitions":[{"id":"winterfest","name":"Winterfest","squadi":{"competitionId":"…","divisionId":"…","teamId":0}}]`.
 `id` is permanent (a game is tagged with it) and `name` can change.
 
+Every draw's row, the season's and each competition's, also takes a **website link**: the
+address of the page the draw is on (the FQ or Squadi fixtures page its IDs came from, or
+a tournament's own site). It is a copy for people, kept beside the IDs so the page is
+easy to find again, and once saved it has an **Open** link beside it. Nothing is synced
+from it, it can be saved before the IDs are known, and it must be a full `https://`
+address. In `TEAMS` it is `"link":"https://…"` on the season's `squadi` entry or on the
+competition.
+
 #### A squad for a competition
 
 A competition often takes part of the team. In **Team settings → Competition squads**

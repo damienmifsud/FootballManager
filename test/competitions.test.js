@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, knownCompetitions, sanitizeSquad, MAX_COMPETITIONS } from "@/lib/competitions";
+import {
+  sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, squadiFeeds, knownCompetitions, sanitizeSquad, MAX_COMPETITIONS,
+  websiteLink, websiteLinkProblem, websiteLinksError, LINK_MAX, NOT_A_WEBSITE_LINK, LINK_TOO_LONG
+} from "@/lib/competitions";
 
 // lib/competitions: a team's competitions beyond its season (a winter
 // tournament, an invitational league). Each has a permanent id, a name and,
@@ -286,5 +289,139 @@ describe("sanitizeSquad", () => {
     sanitizeSquad(sent, players);
     expect(sent).toEqual(["p3", "p1", "p3"]);
     expect(players.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+  });
+});
+
+// ---- Website links ----------------------------------------------------------
+// A draw can carry the address of its page on the web: a copy for people,
+// kept beside the ids the sync uses. It is shown as a link, so it is only
+// ever a plain https address.
+const FQ = "https://footballqueensland.com.au/competitions/fq-academy/?tab=fixtures";
+const SQUADI_PAGE = "https://registration.squadi.com/liveScoreSeasonFixture?organisationKey=b0e92958-980b-4da0-9ec9-a9c2597b06f0&yearId=9&competitionUniqueKey=4a2f&divisionId=12962&teamId=133944";
+const DRIBL_PAGE = "https://premierinvitational.dribl.com/fixtures?season=RwNlzVMdjr&club=PydoO0nJdD";
+
+describe("websiteLink", () => {
+  it("keeps a full https address, trimmed, whichever site it is", () => {
+    for (const link of [FQ, SQUADI_PAGE, DRIBL_PAGE]) {
+      expect(websiteLink(link)).toBe(link);
+      expect(websiteLink("  " + link + " \n")).toBe(link);
+      expect(websiteLinkProblem(link)).toBe("");
+    }
+    // Square brackets, as Squadi writes a list of teams, are left as they are.
+    expect(websiteLink("https://api.squadi.com/livescores/round/matches?teamIds=[133944]")).toBe("https://api.squadi.com/livescores/round/matches?teamIds=[133944]");
+    // A bare site gets the slash every browser gives it.
+    expect(websiteLink("https://footballqueensland.com.au")).toBe("https://footballqueensland.com.au/");
+  });
+
+  it("nothing entered is no link and no problem", () => {
+    for (const empty of ["", "   ", null, undefined, 7, {}, [FQ]]) {
+      expect(websiteLink(empty)).toBe("");
+      expect(websiteLinkProblem(empty)).toBe("");
+    }
+  });
+
+  it("is only ever a plain https address: anything else is not stored, and says why", () => {
+    for (const bad of [
+      "http://footballqueensland.com.au/draw",            // not https
+      "footballqueensland.com.au/draw",                    // no scheme
+      "www.footballqueensland.com.au",
+      "//footballqueensland.com.au/draw",
+      "javascript:alert(1)", "data:text/html,<p>x</p>", "ftp://footballqueensland.com.au/draw", "mailto:coach@example.com",
+      "https://user:pass@footballqueensland.com.au/draw",  // credentials
+      "https://user@footballqueensland.com.au/draw",
+      "https://fixtures", "https://localhost/draw",        // not a site on the web
+      "https://", "not a link", "Winterfest draw"
+    ]) {
+      expect(websiteLink(bad), bad).toBe("");
+      expect(websiteLinkProblem(bad), bad).toBe(NOT_A_WEBSITE_LINK);
+    }
+    expect(NOT_A_WEBSITE_LINK).toBe("A website link should be a full address starting with https://");
+  });
+
+  it("has a length it will keep, and says so past it", () => {
+    const base = "https://footballqueensland.com.au/draw?x=";
+    const longest = base + "a".repeat(LINK_MAX - base.length);
+    expect(longest).toHaveLength(LINK_MAX);
+    expect(websiteLink(longest)).toBe(longest);
+    expect(websiteLink(longest + "a")).toBe("");
+    expect(websiteLinkProblem(longest + "a")).toBe(LINK_TOO_LONG);
+    expect(LINK_TOO_LONG).toBe("A website link can be at most 1000 characters");
+  });
+});
+
+describe("a draw's website link on the registry", () => {
+  const IDS = { competitionId: "1844", divisionId: "12962", teamId: 133944 };
+
+  it("a competition keeps its link beside its name and ids, in the stored form", () => {
+    const [winter, premier] = sanitizeCompetitions([
+      { name: "Winterfest", squadi: IDS, link: "  " + FQ + " " },
+      { name: "Premier Invitational", link: DRIBL_PAGE }
+    ], counter());
+    expect(winter).toEqual({ id: "cnew1", name: "Winterfest", squadi: IDS, link: FQ });
+    expect(premier).toEqual({ id: "cnew2", name: "Premier Invitational", link: DRIBL_PAGE });
+  });
+
+  it("a row with only a link is kept and named by its place; a link that is not one is not stored", () => {
+    expect(sanitizeCompetitions([{ link: FQ }], counter())).toEqual([{ id: "cnew1", name: "Competition 1", link: FQ }]);
+    expect(sanitizeCompetitions([{ name: "Winterfest", link: "javascript:alert(1)" }], counter())).toEqual([{ id: "cnew1", name: "Winterfest" }]);
+    expect(sanitizeCompetitions([{ name: "", link: "not a link" }, { name: "Cup", link: "" }], counter())).toEqual([{ id: "cnew1", name: "Cup" }]);
+  });
+
+  it("the season's feed carries its link through squadiFeeds, and has none when none was given", () => {
+    expect(squadiFeeds({ squadi: { ...IDS, link: " " + SQUADI_PAGE } })).toEqual([{ ...IDS, link: SQUADI_PAGE }]);
+    expect(squadiFeeds({ squadi: IDS })).toEqual([IDS]);
+    expect(squadiFeeds({ squadi: { ...IDS, link: "http://not-https.example/x" } })).toEqual([IDS]);
+    expect(squadiFeeds({ squadi: { ...IDS, link: 7 } })).toEqual([IDS]);
+  });
+
+  it("each of two feeds has its own", () => {
+    const two = [{ label: "McKay", ...IDS, link: SQUADI_PAGE }, { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 }];
+    expect(squadiFeeds({ squadi: two })).toEqual([
+      { label: "McKay", ...IDS, link: SQUADI_PAGE },
+      { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 }
+    ]);
+  });
+
+  it("a season with a link and no ids yet is a feed (the page is often known first), and nothing to sync", () => {
+    const team = { squadi: { competitionId: "", divisionId: "", teamId: "", link: FQ } };
+    expect(squadiFeeds(team)).toEqual([{ competitionId: "", divisionId: "", teamId: 0, link: FQ }]);
+    expect(squadiSources(team)).toEqual([]);
+    // A row with nothing at all, or only a link that is not one, is still no feed.
+    expect(squadiFeeds({ squadi: { competitionId: "", divisionId: "", teamId: "", link: "" } })).toEqual([]);
+    expect(squadiFeeds({ squadi: { link: "not a link" } })).toEqual([]);
+  });
+
+  it("the link changes nothing about what is synced", () => {
+    const plain = { squadi: IDS, competitions: [{ id: "cwinter", name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: 300123 } }] };
+    const linked = { squadi: { ...IDS, link: SQUADI_PAGE }, competitions: [{ ...plain.competitions[0], link: FQ }, { id: "cprem", name: "Premier Invitational", link: DRIBL_PAGE }] };
+    const ids = (sources) => sources.map((s) => [s.comp && s.comp.id, s.squadi.competitionId, s.squadi.divisionId, s.squadi.teamId]);
+    expect(ids(squadiSources(linked))).toEqual(ids(squadiSources(plain)));
+    expect(squadiSources(linked)).toHaveLength(2);
+    // Two labelled feeds, one with a link: the same two season sources, sides intact.
+    const pair = [{ label: "McKay", ...IDS, link: SQUADI_PAGE }, { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 }];
+    expect(squadiSources({ squadi: pair }).map((s) => s.side)).toEqual(["McKay", "McKain"]);
+  });
+});
+
+describe("websiteLinksError — why a save's links cannot be stored", () => {
+  it("is null when every link is fine or empty, whatever the shapes", () => {
+    expect(websiteLinksError({})).toBeNull();
+    expect(websiteLinksError()).toBeNull();
+    expect(websiteLinksError({ squadi: null, competitions: null })).toBeNull();
+    expect(websiteLinksError({ squadi: { competitionId: "1", link: FQ }, competitions: [{ name: "Winterfest", link: "" }, { name: "Cup" }, null, "x"] })).toBeNull();
+    expect(websiteLinksError({ squadi: [{ label: "McKay", link: SQUADI_PAGE }, { label: "McKain" }] })).toBeNull();
+  });
+
+  it("names the row whose link is not one", () => {
+    expect(websiteLinksError({ squadi: { competitionId: "1", link: "fq.com.au/draw" } })).toBe("Season: " + NOT_A_WEBSITE_LINK);
+    expect(websiteLinksError({ squadi: [{ label: "McKay", link: FQ }, { label: " McKain ", link: "http://x.example/y" }] })).toBe("McKain: " + NOT_A_WEBSITE_LINK);
+    expect(websiteLinksError({ competitions: [{ name: "Winterfest", link: FQ }, { name: " Premier Invitational ", link: "premierinvitational.dribl.com" }] }))
+      .toBe("Premier Invitational: " + NOT_A_WEBSITE_LINK);
+    expect(websiteLinksError({ competitions: [{ name: "", link: "x" }] })).toBe("Competition: " + NOT_A_WEBSITE_LINK);
+    expect(websiteLinksError({ competitions: [{ name: "Cup", link: "https://x.example/" + "a".repeat(LINK_MAX) }] })).toBe("Cup: " + LINK_TOO_LONG);
+  });
+
+  it("the season is checked before the competitions, and the first problem is the one reported", () => {
+    expect(websiteLinksError({ squadi: { link: "nope" }, competitions: [{ name: "Cup", link: "nope" }] })).toBe("Season: " + NOT_A_WEBSITE_LINK);
   });
 });

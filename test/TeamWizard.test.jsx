@@ -517,8 +517,8 @@ describe("TeamWizard — two Squadi teams on one squad", () => {
     expect(screen.getByLabelText("Squadi team label").maxLength).toBe(12);
     // The season's rows sit under Competitions, ahead of any other competition.
     const inputs = [...step("Competitions").getAllByRole("textbox")].map((i) => i.getAttribute("aria-label"));
-    expect(inputs.slice(0, 4)).toEqual(["Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID"]);
-    expect(inputs.slice(4, 8)).toEqual(["Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID"]);
+    expect(inputs.slice(0, 5)).toEqual(["Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID", "Squadi website link"]);
+    expect(inputs.slice(5, 10)).toEqual(["Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID", "Second Squadi website link"]);
     expect(step("Competitions").getAllByRole("textbox").every((i) => i.className.includes("adm-inp"))).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Remove the second team" }));
     expect(screen.queryByLabelText("Second Squadi team label")).toBeNull();
@@ -598,15 +598,15 @@ describe("TeamWizard — two season feeds and another competition together", () 
     expect(s.getByText("Season", { selector: ".adm-fl" })).toBeTruthy();
     const labels = s.getAllByRole("textbox").map((i) => i.getAttribute("aria-label"));
     expect(labels).toEqual([
-      "Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID",
-      "Competition 1 name", "Winterfest competition ID", "Winterfest division ID", "Winterfest team ID",
-      "Competition 2 name", "Premier Invitational competition ID", "Premier Invitational division ID", "Premier Invitational team ID"
+      "Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID", "Squadi website link",
+      "Competition 1 name", "Winterfest competition ID", "Winterfest division ID", "Winterfest team ID", "Winterfest website link",
+      "Competition 2 name", "Premier Invitational competition ID", "Premier Invitational division ID", "Premier Invitational team ID", "Premier Invitational website link"
     ]);
     // The second team's row goes between the season's first row and the competitions.
     fireEvent.click(s.getByRole("button", { name: "Add a second team" }));
     const after = s.getAllByRole("textbox").map((i) => i.getAttribute("aria-label"));
-    expect(after.slice(4, 8)).toEqual(["Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID"]);
-    expect(after[8]).toBe("Competition 1 name");
+    expect(after.slice(5, 10)).toEqual(["Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID", "Second Squadi website link"]);
+    expect(after[10]).toBe("Competition 1 name");
   });
 
   it("creating a team sends the two labelled feeds and the competitions in one request", async () => {
@@ -672,5 +672,150 @@ describe("TeamWizard — two season feeds and another competition together", () 
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].body.squadi).toEqual({ competitionId: "1844", divisionId: "12962", teamId: 133944 });
     expect(calls[0].body.competitions).toHaveLength(2);
+  });
+});
+
+// Each draw (the season's row or rows, and every other competition) can carry
+// a website link: a copy of the page the draw is on, kept beside its ids.
+describe("TeamWizard — a website link beside each draw", () => {
+  const fill = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  const SEASON_LINK = "https://registration.squadi.com/liveScoreSeasonFixture?organisationKey=b0e92958&competitionUniqueKey=4a2f&divisionId=10661&teamId=110013";
+  const WINTER_LINK = "https://footballqueensland.com.au/winterfest/draw/";
+  const PREMIER_LINK = "https://premierinvitational.dribl.com/fixtures?season=RwNlzVMdjr&club=PydoO0nJdD";
+  const linked = () => ({
+    ...U8, squadi: { ...U8.squadi, link: SEASON_LINK },
+    competitions: [{ ...U8.competitions[0], link: WINTER_LINK }, { ...U8.competitions[1], link: PREMIER_LINK }]
+  });
+  const edit = async () => { await open(); fireEvent.click(screen.getByRole("button", { name: "Edit Olympic FC U8 White" })); };
+  const save = async () => { fireEvent.click(screen.getByRole("button", { name: /^Save/ })); await waitFor(() => expect(calls).toHaveLength(1)); return calls[0].body; };
+  const opener = (who) => screen.queryByRole("link", { name: `Open the ${who} website link in a new tab` });
+
+  it("every draw's row has the field, and a note says what it is for", async () => {
+    await edit();
+    for (const who of ["Squadi", "Winterfest", "Premier Invitational"]) {
+      const field = screen.getByLabelText(`${who} website link`);
+      expect(field.value).toBe("");
+      expect(field.getAttribute("placeholder")).toBe("Website link for this draw (https://…)");
+      expect(field.getAttribute("inputmode")).toBe("url");
+    }
+    expect(step("Competitions").getByText(/The website link is a copy of the page each draw is on/).textContent)
+      .toBe("The website link is a copy of the page each draw is on, kept here beside its IDs so it is easy to find again. Nothing is synced from it.");
+    expect(screen.getByRole("heading", { level: 4, name: "Competitions" }).closest(".adm-step").textContent).not.toMatch(EMOJI);
+  });
+
+  it("a new team's links are sent with their rows, trimmed; a row with only a link is still a row", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    fill("Team name", "U9 Academy");
+    fill("Squadi website link", "  " + SEASON_LINK + "  ");
+    fireEvent.click(screen.getByRole("button", { name: "Add a competition" }));
+    fill("Competition 1 website link", WINTER_LINK);
+    fireEvent.click(screen.getByRole("button", { name: "Add a competition" }));
+    fill("Competition 2 name", "Premier Invitational");
+    fill("Premier Invitational competition ID", "1900");
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    // The season's draw page is known before its ids: the row is sent with the link alone.
+    expect(calls[0].body.squadi).toEqual({ competitionId: "", divisionId: "", teamId: "", link: SEASON_LINK });
+    expect(calls[0].body.competitions).toEqual([
+      { name: "", link: WINTER_LINK },
+      { name: "Premier Invitational", squadi: { competitionId: "1900", divisionId: "", teamId: "" } }
+    ]);
+  });
+
+  it("two season rows each send their own link", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    fill("Team name", "U9 Academy");
+    fireEvent.click(screen.getByRole("button", { name: "Add a second team" }));
+    fill("Squadi team label", "McKay"); fill("Squadi competition ID", "1844"); fill("Squadi division ID", "12962"); fill("Squadi team ID", "133944");
+    fill("Second Squadi team label", "McKain"); fill("Second Squadi competition ID", "1844"); fill("Second Squadi division ID", "12960"); fill("Second Squadi team ID", "133943");
+    fill("Squadi website link", SEASON_LINK);
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.squadi).toEqual([
+      { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: "133944", link: SEASON_LINK },
+      { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: "133943" }
+    ]);
+  });
+
+  it("edit loads each link back, and saving unchanged sends them as they were", async () => {
+    teams = [linked(), ENV];
+    await edit();
+    expect(screen.getByLabelText("Squadi website link").value).toBe(SEASON_LINK);
+    expect(screen.getByLabelText("Winterfest website link").value).toBe(WINTER_LINK);
+    expect(screen.getByLabelText("Premier Invitational website link").value).toBe(PREMIER_LINK);
+    const body = await save();
+    expect(body.squadi).toEqual({ competitionId: "1439", divisionId: "10661", teamId: "110013", link: SEASON_LINK });
+    expect(body.competitions).toEqual([
+      { id: "c1a2b3c4d", name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: 300123 }, link: WINTER_LINK },
+      { id: "c5e6f7a8b", name: "Premier Invitational", link: PREMIER_LINK }
+    ]);
+  });
+
+  it("a saved link can be opened from its row: a new tab, to that address and nowhere else", async () => {
+    teams = [linked(), ENV];
+    await edit();
+    for (const [who, href] of [["Squadi", SEASON_LINK], ["Winterfest", WINTER_LINK], ["Premier Invitational", PREMIER_LINK]]) {
+      const a = opener(who);
+      expect(a.getAttribute("href")).toBe(href);
+      expect(a.getAttribute("target")).toBe("_blank");
+      expect(a.getAttribute("rel")).toBe("noopener noreferrer");
+      expect(a.textContent).toBe("Open");
+      // It sits straight after its field, inside the same row.
+      expect(a.previousElementSibling).toBe(screen.getByLabelText(`${who} website link`));
+    }
+  });
+
+  it("the Open link follows what is typed, and is only there for a web address", async () => {
+    await edit();
+    expect(opener("Winterfest")).toBeNull();
+    fill("Winterfest website link", "footballqueensland.com.au/winterfest");
+    expect(opener("Winterfest")).toBeNull();
+    for (const notOne of ["http://footballqueensland.com.au/winterfest", "javascript:alert(1)", "https://fixtures", "https://user:pw@footballqueensland.com.au/x", "   "]) {
+      fill("Winterfest website link", notOne);
+      expect(opener("Winterfest"), notOne).toBeNull();
+    }
+    fill("Winterfest website link", "  " + WINTER_LINK + " ");
+    expect(opener("Winterfest").getAttribute("href")).toBe(WINTER_LINK);
+    // Only this row's: the others have none.
+    expect(opener("Squadi")).toBeNull();
+    expect(opener("Premier Invitational")).toBeNull();
+    expect(screen.getAllByRole("link", { name: /website link in a new tab$/ })).toHaveLength(1);
+  });
+
+  it("clearing a link sends its row without one, so it is removed", async () => {
+    teams = [linked(), ENV];
+    await edit();
+    fill("Squadi website link", "");
+    fill("Winterfest website link", "  ");
+    const body = await save();
+    expect(body.squadi).toEqual({ competitionId: "1439", divisionId: "10661", teamId: "110013" });
+    expect(body.competitions[0]).toEqual({ id: "c1a2b3c4d", name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: 300123 } });
+    expect(body.competitions[1].link).toBe(PREMIER_LINK);
+  });
+
+  it("on an edit the season is always sent: emptying every field of it removes it, link and all", async () => {
+    teams = [{ ...U8, squadi: { competitionId: "", divisionId: "", teamId: 0, link: SEASON_LINK } }, ENV];
+    await edit();
+    expect(screen.getByLabelText("Squadi competition ID").value).toBe("");
+    fill("Squadi website link", "");
+    expect((await save()).squadi).toEqual({});
+  });
+
+  it("an edit of a team with no season sends an empty one, which changes nothing", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Env Team" }));
+    expect((await save()).squadi).toEqual({});
+  });
+
+  it("shows the server's sentence when a link is refused, and keeps what was typed", async () => {
+    reply = (method) => (method === "PATCH" ? { ok: false, status: 400, json: async () => ({ error: "Winterfest: A website link should be a full address starting with https://" }) } : null);
+    await edit();
+    fill("Winterfest website link", "footballqueensland.com.au/winterfest");
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Winterfest: A website link should be a full address starting with https://");
+    expect(screen.getByLabelText("Winterfest website link").value).toBe("footballqueensland.com.au/winterfest");
+    expect(calls[0].body.competitions[0].link).toBe("footballqueensland.com.au/winterfest");
   });
 });

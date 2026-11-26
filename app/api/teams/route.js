@@ -7,7 +7,7 @@ import { isAdminEmail, isClubAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
 import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE, sanitizeSeason } from "@/lib/teamSetup";
-import { sanitizeCompetitions, squadiFeeds } from "@/lib/competitions";
+import { sanitizeCompetitions, squadiFeeds, websiteLinksError } from "@/lib/competitions";
 
 export const dynamic = "force-dynamic";
 
@@ -54,9 +54,10 @@ function sanitizeTeam(input, existing = {}) {
     t.coachEmails = (Array.isArray(input.coachEmails) ? input.coachEmails : String(input.coachEmails).split(","))
       .map(norm).filter((e) => e.includes("@"));
   }
-  // The season's Squadi ids. One feed keeps the stored object shape; two
-  // feeds are stored as an array of labelled feeds (squadiError has already
-  // checked the labels).
+  // The season's Squadi ids, each row with its website link when it has one.
+  // One feed keeps the stored object shape; two feeds are stored as an array
+  // of labelled feeds (squadiError has already checked the labels). A season
+  // sent with nothing in it is removed.
   if (input.squadi != null) {
     const feeds = squadiFeeds({ squadi: input.squadi });
     if (feeds.length === 2) t.squadi = feeds;
@@ -151,6 +152,10 @@ export async function POST(req) {
 
   const squadiBad = body?.squadi != null ? squadiError(body.squadi) : null;
   if (squadiBad) return NextResponse.json({ error: squadiBad }, { status: 400 });
+  // A draw's website link is shown as a link: one that is not a plain https
+  // address is refused, naming its row, rather than dropped.
+  const linksBad = websiteLinksError(body || {});
+  if (linksBad) return NextResponse.json({ error: linksBad }, { status: 400 });
 
   clearTeamsCache();
   if ((await getTeams()).some((t) => t.slug === slug)) return NextResponse.json({ error: `a team with slug "${slug}" already exists` }, { status: 409 });
@@ -223,6 +228,8 @@ export async function PATCH(req) {
   }
   const squadiBad = body.squadi != null ? squadiError(body.squadi) : null;
   if (squadiBad) return NextResponse.json({ error: squadiBad }, { status: 400 });
+  const linksBad = websiteLinksError(body);
+  if (linksBad) return NextResponse.json({ error: linksBad }, { status: 400 });
 
   const { stored: _s, legacy: _l, ...base } = current;
   const next = sanitizeTeam(body, { ...base, slug });
