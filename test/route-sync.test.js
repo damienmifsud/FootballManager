@@ -446,3 +446,81 @@ describe("a team with more than one draw", () => {
     expect(m.setMeta).toHaveBeenCalledTimes(1);
   });
 });
+
+// Both at once: one squad with two season feeds that also plays another
+// competition. Three draws, one save, and each failure named for what it is.
+describe("a two-team squad that also plays another competition", () => {
+  const McKay = { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: 133944 };
+  const McKain = { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: 133943 };
+  const WINTER_IDS = { competitionId: "1750", divisionId: "20001", teamId: 300123 };
+  const SQUAD = { slug: "a", name: "U9 Academy", squadi: [McKay, McKain], competitions: [{ id: "cw", name: "Winterfest", squadi: WINTER_IDS }, { id: "cp", name: "Not published" }] };
+  const run = async () => {
+    m.getTeams.mockReturnValue([SQUAD]);
+    const { GET } = await loadRoute({ authOn: true });
+    return (await (await GET(fakeRequest({ url: "https://x.test/api/sync", headers: { authorization: "Bearer s3cret" } }))).json()).results[0];
+  };
+  // applySync stand-in: one fixture per call, carrying what the call was told.
+  const tagging = () => m.applySync.mockImplementation((doc, squadi, { comp, side } = {}) => ({
+    data: { ...doc, fixtures: [...doc.fixtures, { id: side || comp.id, ...(side ? { side } : {}), ...(comp ? { comp: comp.id } : {}), schedChanges: [] }] },
+    changes: [`NEW — ${side || comp.name}`], created: 1, mutated: true
+  }));
+  const whose = (ids) => (ids.label || "Winterfest");
+
+  it("pulls three draws, each applied as what it is, into one save", async () => {
+    tagging();
+    m.fetchSquadi.mockResolvedValue([{ squadiId: 1 }]);
+    const r = await run();
+    expect(m.fetchSquadi.mock.calls.map((c) => c[0])).toEqual([McKay, McKain, WINTER_IDS]);
+    expect(m.applySync.mock.calls.map((c) => c[2])).toEqual([
+      { comp: null, side: "McKay" }, { comp: null, side: "McKain" }, { comp: { id: "cw", name: "Winterfest" }, side: undefined }
+    ]);
+    // Each is applied on top of the one before.
+    expect(m.applySync.mock.calls.map((c) => c[0].fixtures.length)).toEqual([0, 1, 2]);
+    expect(m.setData).toHaveBeenCalledTimes(1);
+    expect(m.setData.mock.calls[0][1].fixtures.map((f) => [f.side || "", f.comp || ""])).toEqual([["McKay", ""], ["McKain", ""], ["", "cw"]]);
+    expect(m.setMeta).toHaveBeenCalledTimes(1);
+    expect(r).toMatchObject({ team: "a", matchesSeen: 3, created: 3, changes: ["NEW — McKay", "NEW — McKain", "NEW — Winterfest"] });
+    expect("failed" in r).toBe(false);
+  });
+
+  it("names each failure for what it is: a feed by its side, the competition by its name", async () => {
+    tagging();
+    m.fetchSquadi.mockImplementation(async (ids) => { if (whose(ids) !== "McKay") throw new Error(`Squadi responded 50${whose(ids) === "McKain" ? 3 : 4}`); return [{ squadiId: 1 }]; });
+    const r = await run();
+    expect(r.failed).toEqual([
+      { name: "McKain", side: "McKain", error: "Squadi responded 503" },
+      { name: "Winterfest", error: "Squadi responded 504" }
+    ]);
+    expect("side" in r.failed[1]).toBe(false);
+    // McKay's draw is still applied and saved.
+    expect(m.setData.mock.calls[0][1].fixtures.map((f) => f.side)).toEqual(["McKay"]);
+    expect(r).toMatchObject({ created: 1, changes: ["NEW — McKay"] });
+    expect(r.ok).toBeUndefined();
+  });
+
+  it("only when all three fail is the team's sync an error, with nothing written", async () => {
+    m.fetchSquadi.mockRejectedValue(new Error("Squadi responded 500"));
+    const r = await run();
+    expect(r).toMatchObject({ team: "a", ok: false });
+    expect(r.error).toContain("Squadi responded 500");
+    expect(m.setData).not.toHaveBeenCalled();
+    expect(m.setMeta).not.toHaveBeenCalled();
+  });
+
+  it("a draw's first import is judged on its own beside the other two", async () => {
+    // McKay's game moves; McKain's draw arrives for the first time (five games); Winterfest has nothing new.
+    m.getData.mockResolvedValue({ fixtures: [{ id: "old", side: "McKay", schedChanges: [{ field: "Time" }] }] });
+    m.applySync.mockImplementation((doc, squadi, { comp, side } = {}) => {
+      if (side === "McKay") return { data: doc, changes: ["McKay · Round 3 vs X: time a → b"], created: 0, mutated: true };
+      if (comp) return { data: doc, changes: [], created: 0, mutated: false };
+      const fresh = [1, 2, 3, 4, 5].map((n) => ({ id: "n" + n, side, schedChanges: [{ field: "New game" }] }));
+      return { data: { ...doc, fixtures: [...doc.fixtures, ...fresh] }, changes: fresh.map((f) => `NEW — McKain · ${f.id}`), created: 5, mutated: true };
+    });
+    const r = await run();
+    const saved = m.setData.mock.calls[0][1].fixtures;
+    expect(saved.find((f) => f.id === "old").schedChanges).toHaveLength(1); // McKay's real change keeps its badge
+    expect(saved.filter((f) => f.id !== "old").every((f) => f.schedChanges.length === 0)).toBe(true); // McKain's first import has none
+    expect(r.changes).toHaveLength(6);
+    expect(r.created).toBe(5);
+  });
+});

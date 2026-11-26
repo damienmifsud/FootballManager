@@ -15,7 +15,7 @@ import {
   countdown, ytId, videoKind, mapsUrl, activeOn, intlPhone, recentChanges,
   initials, secToClock, clockToSec, occurrences, monthItems, upcomingItems,
   nextBirthdays, isCarnival, carnivalOf, isCarnivalGame, carnivalGameRows, carnivalMeta, carnivalDescription, pitchLabel,
-  playerFullName, timeWindow, twinOf, sideOf, teamSides, sideName
+  playerFullName, timeWindow, twinOf, sideOf, teamSides, sideName, inSideOrder
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
@@ -2158,7 +2158,7 @@ function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
   // no longer order the list, so it runs by date and kick-off.
   const byRound = (a, b) => (a.round && b.round && a.round !== b.round) ? a.round - b.round
     : String(a.dateISO || "").localeCompare(String(b.dateISO || "")) || (a.round || 0) - (b.round || 0);
-  const sorted = [...data.fixtures].sort(hasSeveralDraws(data.fixtures) ? byKickOff : byRound);
+  const sorted = [...data.fixtures].sort(inSideOrder(data, hasSeveralDraws(data.fixtures) ? byKickOff : byRound));
   const results = sorted.filter(f => fixtureState(f).past);
   const upcoming = sorted.filter(f => !fixtureState(f).past);
   const hasCarnivalGame = data.fixtures.some(f => isCarnivalGame(data, f));
@@ -2335,7 +2335,7 @@ function DutiesTab({ data, isCoach, viewer, me, setModal, patchLocal, showToast 
   }
   // By round for a single draw; by date and kick-off once there is another competition's draw too.
   const fixtures = data.fixtures.filter((f) => f.dateISO && f.status !== "cancelled")
-    .sort(hasSeveralDraws(data.fixtures) ? byKickOff : (a, b) => (a.round || 0) - (b.round || 0));
+    .sort(inSideOrder(data, hasSeveralDraws(data.fixtures) ? byKickOff : (a, b) => (a.round || 0) - (b.round || 0)));
   const own = ownPlayers(data, { isCoach, me, viewer });
   const openSheet = (f, duty) => setModal({ type: "duty", payload: { fixtureId: f.id, duty } });
 

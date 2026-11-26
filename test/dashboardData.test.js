@@ -5,7 +5,7 @@ import {
   occurrences, monthItems, upcomingItems, nextBirthdays,
   carnivalGames, carnivalMeta, carnivalDescription, pitchLabel,
   carnivalOf, isCarnivalGame, carnivalFixtures, carnivalGameRows,
-  twinOf, sideOf, teamSides, sideName,
+  twinOf, sideOf, teamSides, sideName, inSideOrder,
   competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff,
   competitionSquad, squadOf, inSquad, playersFor, nextFixtureFor
 } from "@/lib/dashboardData";
@@ -747,5 +747,34 @@ describe("competition squads", () => {
       expect(nextFixtureFor(dd, ["p2"]).id).toBe("s7");
       expect(nextFixtureFor(dd, []).id).toBe("s7");
     });
+  });
+});
+
+describe("inSideOrder — the two games of a round in wizard order", () => {
+  const data = { team: { sides: ["McKay", "McKain"] }, fixtures: [] };
+  const byRound = (a, b) => (a.round || 0) - (b.round || 0);
+  const g = (id, round, side, over = {}) => ({ id, round, ...(side ? { side } : {}), ...over });
+  const order = (list, d = data, cmp = byRound) => [...list].sort(inSideOrder(d, cmp)).map((f) => f.id);
+
+  it("breaks a tie by team.sides, whichever game was stored first", () => {
+    expect(order([g("b1", 1, "McKain"), g("a1", 1, "McKay"), g("b2", 2, "McKain"), g("a2", 2, "McKay")])).toEqual(["a1", "b1", "a2", "b2"]);
+    // The list's own order always comes first: sides only settle ties.
+    expect(order([g("a2", 2, "McKay"), g("b1", 1, "McKain")])).toEqual(["b1", "a2"]);
+  });
+
+  it("with kick-off order, the earlier game stays first even when it is the second side's", () => {
+    const list = [g("a", 7, "McKay", { dateISO: "2026-06-21", time: "10:30" }), g("b", 7, "McKain", { dateISO: "2026-06-21", time: "09:00" }),
+      g("c", 8, "McKain", { dateISO: "2026-06-28", time: "09:00" }), g("d", 8, "McKay", { dateISO: "2026-06-28", time: "09:00" })];
+    expect(order(list, data, byKickOff)).toEqual(["b", "a", "d", "c"]);
+  });
+
+  it("a game with no side, or a side the team does not list, goes after the listed sides and is otherwise left alone", () => {
+    expect(order([g("x", 1), g("b", 1, "McKain"), g("o", 1, "Other"), g("a", 1, "McKay")])).toEqual(["a", "b", "x", "o"]);
+  });
+
+  it("a team with no sides is ordered exactly as the list's own order says", () => {
+    const list = [g("r2", 2), g("r1", 1), g("r1b", 1)];
+    expect(order(list, { team: {}, fixtures: list })).toEqual(["r1", "r1b", "r2"]);
+    expect(order(list, null)).toEqual(["r1", "r1b", "r2"]);
   });
 });
