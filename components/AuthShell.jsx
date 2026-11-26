@@ -138,6 +138,7 @@ export const AUTH_CSS = `
 .auth-ov{position:fixed;inset:0;background:rgba(26,16,18,.38);z-index:50;display:flex;align-items:flex-end;justify-content:center;animation:authfade .2s;}
 .auth-sheet{background:#fff;width:100%;max-width:560px;border-radius:20px 20px 0 0;max-height:82vh;overflow-y:auto;padding:10px 16px 28px;
   box-shadow:0 -10px 30px rgba(26,16,18,.18);animation:authrise .26s cubic-bezier(.2,.8,.2,1);}
+.auth-sheet:focus{outline:none;}
 .auth-sheet .grab{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 14px;}
 .auth-sheet-title{font-size:20px;font-weight:800;line-height:1.2;}
 .auth-sheet-sub{font-size:13px;color:var(--muted);margin-top:4px;overflow-wrap:anywhere;}

@@ -12,7 +12,7 @@
 // already sees and this family's own replies. A reply is one POST to
 // /api/rsvp naming its team; the route answers it as the family there and
 // refuses anything else, whatever this page offers.
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Trophy, ClipboardList, Star, Medal, Check, X } from "lucide-react";
 import { initials } from "@/lib/dashboardData";
 import { shortTeamNames } from "@/lib/people";
@@ -48,6 +48,8 @@ export default function FamilyWeek() {
   const [busy, setBusy] = useState(false);
   const [sheetErr, setSheetErr] = useState("");
   const [said, setSaid] = useState("");       // what just happened, said once
+  const sheetRef = useRef(null);              // the open reply sheet
+  const fromRef = useRef(null);               // the button it was opened from
 
   useEffect(() => { setChoice(readChoice()); }, []);
   const load = useCallback(async () => {
@@ -80,8 +82,32 @@ export default function FamilyWeek() {
   const asked = (data?.items || []).some((item) => item.replies.length > 0);
   const readOnly = !!data?.readOnly;
 
-  const answer = (item, reply) => { setOpen({ item, reply }); setNote(""); setSheetErr(""); };
+  const answer = (item, reply, from) => { fromRef.current = from || null; setOpen({ item, reply }); setNote(""); setSheetErr(""); };
   const close = () => { if (!busy) setOpen(null); };
+
+  // The reply sheet is a modal dialog: focus moves into it when it opens and
+  // goes back to the button it came from when it closes.
+  const sheetOpen = !!open;
+  useEffect(() => {
+    if (!sheetOpen) return undefined;
+    sheetRef.current?.focus();
+    return () => { const from = fromRef.current; if (from && from.isConnected) from.focus(); };
+  }, [sheetOpen]);
+  // Escape closes it, and Tab stays inside it.
+  useEffect(() => {
+    if (!sheetOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") { if (!busy) setOpen(null); return; }
+      if (e.key !== "Tab" || !sheetRef.current) return;
+      const stops = [...sheetRef.current.querySelectorAll("button:not([disabled]), input")];
+      if (!stops.length) return;
+      const at = document.activeElement;
+      if (e.shiftKey && (at === stops[0] || at === sheetRef.current)) { e.preventDefault(); stops[stops.length - 1].focus(); }
+      else if (!e.shiftKey && at === stops[stops.length - 1]) { e.preventDefault(); stops[0].focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [sheetOpen, busy]);
   const send = async (value) => {
     const { item, reply } = open;
     const status = reply.status === value ? null : value; // the one already chosen clears it
@@ -161,7 +187,7 @@ export default function FamilyWeek() {
                           ? <span className={"auth-pill st" + (reply.status ? " " + reply.status : "")}>{reply.status ? statusWord(reply.status) : "No reply"}</span>
                           : <button type="button" className={"auth-rr" + (reply.status ? " " + reply.status : "")}
                               aria-label={`${reply.isSelf ? "Your reply" : `Reply for ${firstName(reply.name)}`}, ${item.title}, ${shortDay(item.dateISO)}: ${reply.status ? statusWord(reply.status) : "not given"}`}
-                              onClick={() => answer(item, reply)}>{statusWord(reply.status)}</button>}
+                              onClick={(e) => answer(item, reply, e.currentTarget)}>{statusWord(reply.status)}</button>}
                       </div>
                     );
                   })}
@@ -175,7 +201,7 @@ export default function FamilyWeek() {
 
       {open && (
         <div className="auth-ov" onClick={close}>
-          <div className="auth-sheet" role="dialog" aria-modal="true" aria-labelledby="fw-sheet-title" onClick={(e) => e.stopPropagation()}>
+          <div className="auth-sheet" role="dialog" aria-modal="true" aria-labelledby="fw-sheet-title" tabIndex={-1} ref={sheetRef} onClick={(e) => e.stopPropagation()}>
             <div className="grab" />
             <div className="auth-sheet-title" id="fw-sheet-title">{open.reply.isSelf ? "Your reply" : `Reply for ${firstName(open.reply.name)}`}</div>
             <div className="auth-sheet-sub">{[open.item.title, shortDay(open.item.dateISO), open.item.time, short(open.item.teamName)].filter(Boolean).join(" · ")}</div>

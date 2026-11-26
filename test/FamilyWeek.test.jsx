@@ -35,15 +35,18 @@ const week = (over = {}) => ({
 let current;          // what /api/family answers now
 let rsvp;             // what /api/rsvp answers: { ok, status, json }
 let onReply;          // called with the body of each reply, to change `current`
+let hold;             // a promise /api/rsvp waits on before answering, to look at the sheet mid-save
 beforeEach(() => {
   current = week();
   rsvp = { ok: true, status: 200, json: { ok: true } };
   onReply = null;
+  hold = null;
   document.cookie = "teams_view=; path=/; max-age=0";
   vi.stubGlobal("fetch", vi.fn(async (url, init) => {
     const u = String(url);
     if (u.includes("/api/family")) return { ok: true, json: async () => JSON.parse(JSON.stringify(current)) };
     if (u.includes("/api/rsvp")) {
+      if (hold) await hold;
       if (rsvp.ok && onReply) onReply(JSON.parse(init.body));
       return { ok: rsvp.ok, status: rsvp.status, json: async () => rsvp.json };
     }
@@ -145,6 +148,64 @@ describe("Both teams together", () => {
     fireEvent.click(sheet().getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(within(replyRow("vs Lions", "Mia")).getByRole("button").textContent).toBe("Reply");
+  });
+
+  it("the reply sheet works from the keyboard: focus moves into it, Tab stays inside, Escape closes it and focus goes back", async () => {
+    onReply = (body) => { current.items[2].replies[0].status = body.status; };
+    await show();
+    const from = within(replyRow("vs Lions", "Mia")).getByRole("button");
+    fireEvent.click(from);
+    expect(document.activeElement).toBe(screen.getByRole("dialog"));
+    const yes = sheet().getByRole("button", { name: "In" });
+    const note = sheet().getByLabelText("Note for coach");
+    const cancel = sheet().getByRole("button", { name: "Cancel" });
+    // Tab from the last control comes round to the first, and Shift+Tab goes back the other way.
+    cancel.focus();
+    expect(fireEvent.keyDown(cancel, { key: "Tab" })).toBe(false);
+    expect(document.activeElement).toBe(yes);
+    expect(fireEvent.keyDown(yes, { key: "Tab", shiftKey: true })).toBe(false);
+    expect(document.activeElement).toBe(cancel);
+    // In between, Tab is the browser's own.
+    note.focus();
+    expect(fireEvent.keyDown(note, { key: "Tab" })).toBe(true);
+    expect(fireEvent.keyDown(note, { key: "Tab", shiftKey: true })).toBe(true);
+    expect(document.activeElement).toBe(note);
+
+    fireEvent.keyDown(note, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(from);
+    expect(replyBodies()).toEqual([]); // closing is not a reply
+
+    // After a reply the list is read again, and focus is still on the button it came from.
+    fireEvent.click(from);
+    fireEvent.click(sheet().getByRole("button", { name: "In" }));
+    await waitFor(() => expect(within(replyRow("vs Lions", "Mia")).getByRole("button").textContent).toBe("In"));
+    expect(document.activeElement).toBe(within(replyRow("vs Lions", "Mia")).getByRole("button"));
+  });
+
+  it("while a reply is being saved the sheet stays put: Escape and a tap outside wait for the answer", async () => {
+    let release;
+    hold = new Promise((r) => { release = r; });
+    await show();
+    fireEvent.click(within(replyRow("vs Lions", "Mia")).getByRole("button"));
+    fireEvent.click(sheet().getByRole("button", { name: "In" }));
+    await waitFor(() => expect(sheet().getByRole("button", { name: "Cancel" }).disabled).toBe(true));
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    fireEvent.click(document.querySelector(".auth-ov"));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    release();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(replyBodies()).toHaveLength(1);
+  });
+
+  it("a tap outside the sheet closes it without replying", async () => {
+    await show();
+    fireEvent.click(within(replyRow("vs Lions", "Mia")).getByRole("button"));
+    fireEvent.click(screen.getByRole("dialog")); // inside: stays
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.click(document.querySelector(".auth-ov"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(replyBodies()).toEqual([]);
   });
 
   it("a paired round says one reply covers both games; a cancelled game asks nobody; an event that needs no reply says so", async () => {
