@@ -8,6 +8,8 @@ page glow or a ScoreboardHero: Direction C has zero gradients and zero dark surf
 ## Voice and copy
 - Sentence case everywhere. AU English. No emoji in UI strings; lucide icons instead.
 - First names for kids ("Levi's in for Saturday"). Families as "Levi H.'s family".
+- A player signed in with their own login is "you", never their own name: "You",
+  "Your reply", "You're in for Saturday". Their child in the same team keeps the name.
 - Empty states are calm and true: "Not assigned yet", "No goals yet", "Nothing on this
   day. Enjoy the rest.", "No scorers recorded for this one." Never "—" as a value.
 - Toasts say what happened, honestly: "Reminder copied — paste it in the group", not

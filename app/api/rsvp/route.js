@@ -6,8 +6,9 @@ import { twinOf } from "@/lib/dashboardData";
 export const dynamic = "force-dynamic";
 
 // Narrow RSVP endpoint. In account mode the WORN hat (lib/viewer.js) decides:
-// a coach hat can set anyone (stamped "Coach"), a parent hat only the children
-// listed on that hat (stamped with the child's name), a viewer hat nothing.
+// a coach hat can set anyone (stamped "Coach"), a parent hat only the players
+// listed on that hat (their children, and themselves when they signed in as a
+// player; stamped with the player's name), a viewer hat nothing.
 // A coach who is also a parent and has chosen to act as the parent gets
 // exactly the parent's powers — the hat, not the email, is the permission.
 // In legacy team-code mode everyone with the code is trusted (the original

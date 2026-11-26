@@ -13,9 +13,10 @@ export const dynamic = "force-dynamic";
 // Duties screen:
 //   coach hat            any duty, any player, or clear ("")
 //   parent hat           fruit and jersey only (never the goalkeeper), only
-//                        for a child on that hat, and only when the slot is
-//                        empty (a claim) or already holds their own child (a
-//                        release, or switching between their own children)
+//                        for a player on that hat (their child, or themselves
+//                        when they signed in as a player), and only when the
+//                        slot is empty (a claim) or already holds one of
+//                        theirs (a release, or switching between their own)
 //   viewer / club admin  nothing
 //   legacy team-code     anyone with the code (the rsvp/plan trust model)
 //
@@ -30,7 +31,7 @@ export const dynamic = "force-dynamic";
 const DUTY_FEATURE = { fruit: "fruitDuty", gk: "gkDuty", jersey: "jerseyDuty" };
 
 export const GK_COACH_ONLY = "Only coaches can assign the goalkeeper.";
-export const OWN_CHILD_ONLY = "You can only claim a duty for your own child.";
+export const OWN_CHILD_ONLY = "You can only claim a duty for your own family.";
 export const ALREADY_TAKEN = "That duty is already taken.";
 
 const refuse = (message) => NextResponse.json({ error: message }, { status: 403 });

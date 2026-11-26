@@ -81,13 +81,26 @@ describe("personPills", () => {
     expect(personPills({ ...p, overrides: { zz: "blocked" }, teams: [] })).toEqual([{ text: "No access · zz", tone: "blocked" }]);
   });
 
+  it("someone signed in as a player reads Player, in the family tint, and is found by that word", () => {
+    const playerHat = { role: "parent", playerIds: ["p7"], playerNames: ["Jo P."], selfIds: ["p7"] };
+    const both = { role: "parent", playerIds: ["p7", "p8"], playerNames: ["Jo P.", "Leo P."], selfIds: ["p7"] };
+    const jo = { email: "jo@example.com", name: "Jo Park", superAdmin: false, clubAdmin: null, overrides: {}, teams: [team("ff", "Fast Fives", [playerHat])] };
+    expect(personPills(jo, TEAMS)).toEqual([{ text: "Player · Fast Fives", tone: "family" }]);
+    expect(personPills({ ...jo, teams: [team("ff", "Fast Fives", [coachHat({ staffRole: "Manager" }), both])] }, TEAMS)).toEqual([
+      { text: "Manager · Fast Fives", tone: "staff" },
+      { text: "Player and parent of Leo · Fast Fives", tone: "family" }
+    ]);
+    expect(filterPeople([sam, jo], "player")).toEqual([jo]);
+    expect(filterPeople([sam, jo], "fast fives")).toEqual([jo]);
+  });
+
   it("ownRoles leaves out club-level access", () => {
     expect(ownRoles(team("u9", "T", [coachHat({ admin: true, club: true }), parentHat("Leo")])).map((h) => h.role)).toEqual(["parent"]);
     expect(ownRoles(undefined)).toEqual([]);
   });
 
   it("names every override the role menu offers", () => {
-    expect(OVERRIDE_LABELS).toEqual({ coach: "Coach", parent: "Parent only", viewer: "View only", blocked: "No access" });
+    expect(OVERRIDE_LABELS).toEqual({ coach: "Coach", parent: "Parent or player only", viewer: "View only", blocked: "No access" });
   });
 });
 

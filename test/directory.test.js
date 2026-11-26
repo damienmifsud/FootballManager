@@ -450,6 +450,114 @@ describe("clubPeople (everyone with a login, resolved from one load of the club)
   });
 });
 
+describe("a player's own email is their login", () => {
+  beforeEach(() => { process.env.TEAMS = TWO_TEAMS; });
+  const JO = { id: "p7", name: "Jo P.", surname: "Park", email: "Jo@Example.com" };
+
+  it("matches a player by the email on their own record (case/space-insensitive)", async () => {
+    withRosters({ a: { players: [JO, { id: "p8", name: "Max" }] }, b: { players: [] } });
+    const { membershipsForEmail, emailCanAccessTeam, isCoachForTeam } = await loadDir();
+    const { memberships } = await membershipsForEmail("  jo@example.com ");
+    expect(memberships).toEqual([{ teamSlug: "a", teamName: "Team A", role: "player", playerId: "p7", playerName: "Jo P." }]);
+    expect(await emailCanAccessTeam("jo@example.com", "a")).toBe(true);
+    expect(await emailCanAccessTeam("jo@example.com", "b")).toBe(false);
+    expect(await isCoachForTeam("jo@example.com", "a")).toBe(false);
+  });
+
+  it("a record with no email of its own, a blank one or one that is not text is nobody's login", async () => {
+    withRosters({
+      a: { players: [{ id: "p1", name: "None" }, { id: "p2", name: "Blank", email: "  " }, { id: "p3", name: "Odd", email: 42 }, null, "junk", { id: "p4", name: "Listed", parentEmails: "mum@a.com" }] },
+      b: { players: [] }
+    });
+    const { membershipsForEmail } = await loadDir();
+    expect((await membershipsForEmail("anyone@example.com")).memberships).toEqual([]);
+    expect((await membershipsForEmail("42")).memberships).toEqual([]);
+    expect((await membershipsForEmail("mum@a.com")).memberships).toEqual([]); // parentEmails must be a list
+  });
+
+  it("someone who plays alongside their child is the player on their own record and the parent on the child's, own record first", async () => {
+    withRosters({
+      a: { players: [{ id: "p8", name: "Leo P.", parentEmails: ["jo@example.com"] }, JO] },
+      b: { players: [] }
+    });
+    const { membershipsForEmail } = await loadDir();
+    expect((await membershipsForEmail("jo@example.com")).memberships).toEqual([
+      { teamSlug: "a", teamName: "Team A", role: "player", playerId: "p7", playerName: "Jo P." },
+      { teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p8", playerName: "Leo P." }
+    ]);
+  });
+
+  it("a record that names the email both ways counts once, as the person's own", async () => {
+    withRosters({ a: { players: [{ ...JO, parentEmails: ["jo@example.com"] }] }, b: { players: [] } });
+    const { membershipsForEmail } = await loadDir();
+    expect((await membershipsForEmail("jo@example.com")).memberships).toEqual([
+      { teamSlug: "a", teamName: "Team A", role: "player", playerId: "p7", playerName: "Jo P." }
+    ]);
+  });
+
+  it("a player on the staff list is coach and player; a player in two teams is a player in both", async () => {
+    withRosters({
+      a: { team: { staff: [{ role: "Manager", name: "Jo Park", email: "jo@example.com" }] }, players: [JO] },
+      b: { players: [{ id: "p9", name: "Jo P.", email: "jo@example.com" }] }
+    });
+    const { membershipsForEmail } = await loadDir();
+    expect((await membershipsForEmail("jo@example.com")).memberships).toEqual([
+      { teamSlug: "a", teamName: "Team A", role: "coach", staffRole: "Manager" },
+      { teamSlug: "a", teamName: "Team A", role: "player", playerId: "p7", playerName: "Jo P." },
+      { teamSlug: "b", teamName: "Team B", role: "player", playerId: "p9", playerName: "Jo P." }
+    ]);
+  });
+
+  it("is personal, never club-level, including for a super admin who plays", async () => {
+    process.env.ADMIN_EMAILS = "jo@example.com";
+    withRosters({ a: { players: [JO] }, b: { players: [] } });
+    const { membershipsForEmail } = await loadDir();
+    const { memberships } = await membershipsForEmail("jo@example.com");
+    expect(memberships.find((m) => m.role === "player")).toEqual({ teamSlug: "a", teamName: "Team A", role: "player", playerId: "p7", playerName: "Jo P.", admin: true });
+    expect(memberships.filter((m) => m.teamSlug === "a" && m.role === "coach")).toEqual([{ teamSlug: "a", teamName: "Team A", role: "coach", club: true, admin: true }]);
+  });
+
+  it("overrides treat a player's own record as they treat a parent's children", async () => {
+    const rosters = { a: { team: { staff: [{ role: "Manager", name: "Jo Park", email: "jo@example.com" }] }, players: [JO] }, b: { players: [] } };
+    const rolesWith = async (role) => {
+      withRosters(rosters);
+      getClubAccess.mockResolvedValue({ overrides: { "jo@example.com": { a: role } } });
+      const { membershipsForEmail } = await loadDir();
+      return (await membershipsForEmail("jo@example.com")).memberships.map((m) => m.role);
+    };
+    expect(await rolesWith("parent")).toEqual(["player"]);          // no coach hat; their own record stays
+    expect(await rolesWith("coach")).toEqual(["coach", "player"]);
+    expect(await rolesWith("viewer")).toEqual(["viewer"]);
+    expect(await rolesWith("blocked")).toEqual([]);
+  });
+
+  it("the people list names them by the player's own name, with what signing in gives them", async () => {
+    withRosters({
+      a: { players: [
+        JO,
+        { id: "p8", name: "KIM", surname: "LANE", email: "kim@example.com" },
+        // A parent's address typed in as the player's own too: the parent's name stays.
+        { id: "p9", name: "Leo K.", surname: "Kelly", email: "sam@example.com", guardians: [{ name: "Sam Kelly", email: "sam@example.com" }], parentEmails: ["sam@example.com"] }
+      ] },
+      b: { players: [] }
+    });
+    const { clubPeople, membershipsForEmail } = await loadDir();
+    const { people } = await clubPeople();
+    expect(people.map((p) => [p.name, p.email])).toEqual([
+      ["", "coach@a.com"],                  // Team A's coach, from the team's own list
+      ["Jo Park", "jo@example.com"],
+      ["Kim Lane", "kim@example.com"],      // typed in capitals on the record
+      ["Sam Kelly", "sam@example.com"]
+    ]);
+    for (const person of people) {
+      expect(person.memberships, person.email).toEqual((await membershipsForEmail(person.email)).memberships);
+    }
+    const who = Object.fromEntries(people.map((p) => [p.email, p]));
+    expect(who["jo@example.com"].memberships).toEqual([{ teamSlug: "a", teamName: "Team A", role: "player", playerId: "p7", playerName: "Jo P." }]);
+    expect(who["sam@example.com"].memberships.map((m) => m.role)).toEqual(["player"]);
+  });
+});
+
 describe("emailCanAccessTeam / isCoachForTeam / isAdminEmail", () => {
   beforeEach(() => { process.env.TEAMS = TWO_TEAMS; });
 

@@ -262,7 +262,7 @@ describe("AccessManager — per-team overrides", () => {
     fireEvent.click(c.getByRole("button", { name: "Set" }));
     expect(await c.findByText("z@a.com")).toBeTruthy();
     expect(posts).toEqual([{ action: "setOverride", email: "z@a.com", teamSlug: "b", role: "parent" }]);
-    expect(within(c.getByText("z@a.com").closest(".adm-row")).getByText("Parent").className).toContain("info");
+    expect(within(c.getByText("z@a.com").closest(".adm-row")).getByText("Parent or player").className).toContain("info");
   });
 
   it("with no teams yet there is nothing to override: a note replaces the form, and no error is raised", async () => {

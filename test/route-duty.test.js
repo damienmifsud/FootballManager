@@ -224,7 +224,7 @@ describe("POST /api/duty — parent hat", () => {
     const { POST } = await loadRoute({ authOn: true });
     const res = await post(POST, { fixtureId: "f2", duty: "fruit", playerId: "p2" });
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "You can only claim a duty for your own child." });
+    expect(await res.json()).toEqual({ error: "You can only claim a duty for your own family." });
     expect(setData).not.toHaveBeenCalled();
   });
 
@@ -242,7 +242,7 @@ describe("POST /api/duty — parent hat", () => {
     const { POST } = await loadRoute({ authOn: true });
     const res = await post(POST, { fixtureId: "f1", duty: "fruit", playerId: "" });
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "You can only claim a duty for your own child." });
+    expect(await res.json()).toEqual({ error: "You can only claim a duty for your own family." });
     expect(setData).not.toHaveBeenCalled();
   });
 
@@ -321,5 +321,36 @@ describe("POST /api/duty — D4: the keeper is one field with the planner's bloc
     const { POST } = await loadRoute({ authOn: true });
     expect((await post(POST, { fixtureId: "f1", duty: "fruit", playerId: "p1" })).status).toBe(200);
     expect(savedFixture("f1").plan).toEqual(DATA().fixtures[0].plan);
+  });
+});
+
+// A player signed in with their own email wears the family hat over their own
+// record, so the parent rules apply to them unchanged.
+describe("POST /api/duty — a player signed in with their own email", () => {
+  function playerSession() {
+    auth.mockResolvedValue({ user: { email: "sam@example.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "player", playerId: "p1", playerName: "Sam" }] });
+    teamBySlug.mockReturnValue({ slug: "a" });
+  }
+
+  it("claims fruit for themselves on an empty slot, and hands it back", async () => {
+    playerSession();
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await post(POST, { fixtureId: "f2", duty: "fruit", playerId: "p1" })).status).toBe(200);
+    expect(savedFixture("f2").fruit).toBe("p1");
+    expect((await post(POST, { fixtureId: "f3", duty: "fruit", playerId: "" })).status).toBe(200); // f3 is theirs
+  });
+
+  it("cannot claim for a team-mate, take a slot someone holds, or put anyone in goal", async () => {
+    playerSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const other = await post(POST, { fixtureId: "f2", duty: "fruit", playerId: "p2" });
+    expect(other.status).toBe(403);
+    expect(await other.json()).toEqual({ error: "You can only claim a duty for your own family." });
+    expect((await post(POST, { fixtureId: "f1", duty: "fruit", playerId: "p1" })).status).toBe(403); // p2 holds it
+    const gk = await post(POST, { fixtureId: "f2", duty: "gk", playerId: "p1" });
+    expect(gk.status).toBe(403);
+    expect(await gk.json()).toEqual({ error: "Only coaches can assign the goalkeeper." });
+    expect(setData).not.toHaveBeenCalled();
   });
 });

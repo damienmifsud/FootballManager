@@ -249,6 +249,48 @@ describe("redactForViewer — other families' contact details", () => {
   });
 });
 
+describe("redactForViewer — a player's own email (their login)", () => {
+  // The email a player signs in with is theirs: the coaches see it, the player
+  // sees their own, a parent sees their own child's, and nobody else gets it.
+  const squad = () => ({
+    team: { name: "Fast Fives" },
+    players: [
+      { id: "p1", name: "Jo P.", surname: "Park", number: 4, email: "jo@example.com" },
+      { id: "p2", name: "Kim L.", surname: "Lane", number: 7, email: "kim@example.com", guardians: [{ name: "Pat Lane", mobile: "0400 000 002", email: "pat@example.com" }], parentEmails: ["pat@example.com"] },
+      { id: "p3", name: "Max", number: 9 } // no login of their own
+    ],
+    fixtures: []
+  });
+
+  it.each(NON_COACH)("a %s never receives a team-mate's own email", (role) => {
+    const out = redactForViewer(squad(), { role, playerIds: [], todayISO: TODAY });
+    for (const p of out.players) expect("email" in p).toBe(false);
+    expect(JSON.stringify(out)).not.toMatch(/@example\.com/);
+    expect(out.players.map((p) => [p.name, p.surname, p.number])).toEqual([["Jo P.", "Park", 4], ["Kim L.", "Lane", 7], ["Max", undefined, 9]]);
+  });
+
+  it("a player signed in as themselves keeps their own email and loses everyone else's", () => {
+    const out = redactForViewer(squad(), { role: "parent", playerIds: ["p1"], todayISO: TODAY });
+    expect(out.players[0]).toEqual({ id: "p1", name: "Jo P.", surname: "Park", number: 4, email: "jo@example.com" });
+    expect(out.players[1]).toEqual({ id: "p2", name: "Kim L.", surname: "Lane", number: 7 });
+    expect(out.players[2]).toEqual({ id: "p3", name: "Max", number: 9 }); // no key invented
+  });
+
+  it("a parent keeps their own child's email along with the family's contacts", () => {
+    const out = redactForViewer(squad(), { role: "parent", playerIds: ["p2"], todayISO: TODAY });
+    expect(out.players[1]).toMatchObject({ email: "kim@example.com", parentEmails: ["pat@example.com"] });
+    expect("email" in out.players[0]).toBe(false);
+  });
+
+  it("a coach gets every player's email, and the stored players are never changed", () => {
+    const src = squad();
+    const snapshot = JSON.parse(JSON.stringify(src));
+    expect(redactForViewer(src, { role: "coach", playerIds: [], todayISO: TODAY })).toBe(src);
+    redactForViewer(src, { role: "parent", playerIds: ["p1"], todayISO: TODAY });
+    expect(src).toEqual(snapshot);
+  });
+});
+
 describe("redactForViewer — players' last names", () => {
   // A player's last name is not private: the whole team sees full names in the
   // squad list. Only the family's contact details and PIN are withheld.

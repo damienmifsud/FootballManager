@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hatsFor, pickHat, teamsFor, resolveTeamSlug, hatLabel, joinNames, hasChoice, HAT_ORDER } from "@/lib/hats";
+import { hatsFor, pickHat, teamsFor, resolveTeamSlug, hatLabel, joinNames, hasChoice, kidNames, isPlayerHat, HAT_ORDER } from "@/lib/hats";
 
 // Pure helpers over the membership list: collapse (team, role, child) rows into
 // the hats a person can act as, pick the one a session wears, and label them.
@@ -144,5 +144,63 @@ describe("labels", () => {
     expect(hatLabel({ role: "viewer", playerIds: [], playerNames: [] })).toBe("View only");
     expect(hatLabel({ role: "parent", playerIds: ["p9"], playerNames: [""] })).toBe("Parent");
     expect(hatLabel(null)).toBe("");
+  });
+});
+
+// A player who signs in with their own email holds a "player" membership on
+// their own record. It folds into the family hat, so every rule written for a
+// parent applies to them over that one record.
+describe("a player's own login (the family hat)", () => {
+  const A = { teamSlug: "a", teamName: "Team A" };
+  const SELF = { ...A, role: "player", playerId: "p7", playerName: "Jo Park" };
+  const KID = { ...A, role: "parent", playerId: "p8", playerName: "Leo Park" };
+
+  it("a player membership gives the family hat, with the record marked as the person's own", () => {
+    expect(hatsFor([SELF], "a")).toEqual([{ role: "parent", playerIds: ["p7"], playerNames: ["Jo Park"], selfIds: ["p7"] }]);
+  });
+
+  it("their own record and their child's sit under one hat, so there is nothing to switch between", () => {
+    expect(hatsFor([SELF, KID], "a")).toEqual([
+      { role: "parent", playerIds: ["p7", "p8"], playerNames: ["Jo Park", "Leo Park"], selfIds: ["p7"] }
+    ]);
+    expect(hatsFor([KID, SELF], "a")[0]).toMatchObject({ playerIds: ["p8", "p7"], selfIds: ["p7"] });
+  });
+
+  it("a parent's hat carries no selfIds key at all", () => {
+    expect(hatsFor([KID], "a")[0]).not.toHaveProperty("selfIds");
+  });
+
+  it("labels the hat Player, and names a child who plays in the same team", () => {
+    expect(hatLabel(hatsFor([SELF], "a")[0])).toBe("Player");
+    expect(hatLabel(hatsFor([SELF, KID], "a")[0])).toBe("Player and parent of Leo");
+    expect(hatLabel(hatsFor([KID], "a")[0])).toBe("Parent of Leo");
+  });
+
+  it("kidNames leaves the person themselves out; isPlayerHat is true only with a record of their own", () => {
+    const both = hatsFor([SELF, KID], "a")[0];
+    expect(kidNames(both)).toEqual(["Leo Park"]);
+    expect(kidNames(hatsFor([SELF], "a")[0])).toEqual([]);
+    expect(kidNames(hatsFor([KID], "a")[0])).toEqual(["Leo Park"]);
+    expect(kidNames(null)).toEqual([]);
+    expect(isPlayerHat(both)).toBe(true);
+    expect(isPlayerHat(hatsFor([KID], "a")[0])).toBe(false);
+    expect(isPlayerHat({ role: "coach", playerIds: [], playerNames: [], selfIds: ["p7"] })).toBe(false);
+    expect(isPlayerHat(null)).toBe(false);
+  });
+
+  it("a player who also coaches holds two hats and opens the team as coach", () => {
+    const m = [{ ...A, role: "coach" }, SELF];
+    expect(hatsFor(m, "a").map((h) => h.role)).toEqual(["coach", "parent"]);
+    expect(pickHat(m, "a", undefined).role).toBe("coach");
+    expect(pickHat(m, "a", "parent")).toMatchObject({ role: "parent", selfIds: ["p7"] });
+    // "player" is a kind of membership, not a hat: asking for it changes nothing.
+    expect(pickHat(m, "a", "player").role).toBe("coach");
+    expect(pickHat([SELF], "a", "player")).toEqual(hatsFor([SELF], "a")[0]);
+  });
+
+  it("a team someone plays in is one of their own teams, and is opened without asking", () => {
+    expect(teamsFor([SELF])).toEqual([{ teamSlug: "a", teamName: "Team A", hats: hatsFor([SELF], "a"), mine: true }]);
+    expect(resolveTeamSlug([SELF], undefined)).toBe("a");
+    expect(hasChoice([SELF])).toBe(false);
   });
 });

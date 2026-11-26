@@ -16,7 +16,9 @@ const AUTH_ON = !!process.env.AUTH_SECRET;
 // Hats: one login can hold several roles on one team — a coach whose child
 // plays there is coach AND parent. `role`, `playerIds` and `playerNames`
 // describe the hat currently WORN (chosen by the act_as cookie, validated by
-// lib/viewer so it can only narrow, never widen); `hats` lists every hat held
+// lib/viewer so it can only narrow, never widen). `selfIds` is sent when the
+// worn hat includes the person's own player record (they signed in with the
+// player's own email): the dashboard says "you" for those. `hats` lists every hat held
 // on this team, strongest first; `teams` lists every team this login can open
 // with the hats held there, and `mine` on each says whether the person is on
 // that team themselves or can only open it as a super admin or club admin (a
@@ -65,6 +67,7 @@ export async function GET(req) {
     role: hat.role,
     playerIds: hat.playerIds,
     playerNames: hat.playerNames,
+    ...(hat.selfIds ? { selfIds: hat.selfIds } : {}),
     ...(hat.staffRole ? { staffRole: hat.staffRole } : {}),
     hats: hatsFor(memberships, team.slug),
     teams: teamsFor(memberships),

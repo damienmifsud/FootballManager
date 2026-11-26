@@ -56,7 +56,7 @@ export default async function Page() {
           <div className="auth-body">
             {impersonating
               ? <>You're viewing as {email}, who has no team access. Head back to <a href="/admin">/admin</a> to exit view-as.</>
-              : "Ask your coach to add this email to your child's record, then sign in again."}
+              : "Ask your coach to add this email to your child's record, or to your own if you play, then sign in again."}
           </div>
           <div className="auth-links">
             {impersonating

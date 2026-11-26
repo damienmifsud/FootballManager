@@ -159,7 +159,7 @@ describe("People — opening a person", () => {
       ["Riverside FC U9 Reds", "Parent of Ana", ""]
     ]);
     const menu = within(cardOf("Rita van Dyk")).getByLabelText("Role for Rita van Dyk on Riverside FC U13 Golds");
-    expect([...menu.options].map((o) => o.textContent)).toEqual(["As listed", "Coach", "Parent only", "View only", "No access"]);
+    expect([...menu.options].map((o) => o.textContent)).toEqual(["As listed", "Coach", "Parent or player only", "View only", "No access"]);
   });
 
   it("the super admin's card explains itself and offers nothing to change", async () => {

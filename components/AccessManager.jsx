@@ -18,7 +18,7 @@ import RoleMatrix from "@/components/RoleMatrix";
 import { AdminPage } from "@/components/AdminShell";
 import { SignOutButton } from "@/components/AuthShell";
 
-const ROLE_LABELS = { coach: "Coach", parent: "Parent", viewer: "View only", blocked: "Blocked" };
+const ROLE_LABELS = { coach: "Coach", parent: "Parent or player", viewer: "View only", blocked: "Blocked" };
 const ROLE_TONES = { coach: " ok", parent: " info", viewer: " warn", blocked: " bad" };
 
 // The super admin's sections. The one showing is kept in the address
