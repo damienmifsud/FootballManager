@@ -299,7 +299,9 @@ describe("League page", () => {
     render(<LeaguePage />);
     fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
-    expect((await screen.findByRole("status")).textContent).toBe("Already up to date with Squadi.");
+    // The status line reads "Syncing…" until the answer arrives, so each of
+    // these waits for the text rather than for the line to appear.
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Already up to date with Squadi."));
     syncReply = json(true, 200, { ok: true, changes: ["R5 moved to 09:00", "R6 venue changed"] });
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Updated 2 items: R5 moved to 09:00 · R6 venue changed"));
@@ -314,7 +316,7 @@ describe("League page", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
     syncReply = json(true, 200, { ok: true, changes: ["R5 moved to 09:00"], failed: [{ name: "Winterfest", error: "Squadi responded 404" }] });
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
-    expect((await screen.findByRole("status")).textContent).toBe("Updated 1 item: R5 moved to 09:00 Could not sync Winterfest (Squadi responded 404).");
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Updated 1 item: R5 moved to 09:00 Could not sync Winterfest (Squadi responded 404)."));
     syncReply = json(true, 200, { ok: true, changes: [], failed: [{ name: "Season", error: "Squadi responded 503" }, { name: "Winterfest", error: "Unexpected Squadi response shape" }] });
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Already up to date with Squadi. Could not sync Season (Squadi responded 503); Winterfest (Unexpected Squadi response shape)."));
@@ -329,7 +331,7 @@ describe("League page", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
     syncReply = json(true, 200, { ok: true, changes: [], team: "u8-white", skipped: "no squadi config" });
     fireEvent.click(screen.getByRole("button", { name: "Sync fixtures from Squadi now" }));
-    expect((await screen.findByRole("status")).textContent).toBe("No Squadi draw is set up for this team yet.");
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("No Squadi draw is set up for this team yet."));
   });
 
   it("no team linked: says so instead of bouncing to login, and shows no draw", async () => {
