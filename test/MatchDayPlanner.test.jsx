@@ -306,6 +306,26 @@ describe("two-team squads and missing numbers", () => {
     render(<MatchDayPlanner data={{ ...makeData(), fixtures: [f] }} fixture={f} isCoach onSavePlan={onSavePlan} close={close} />);
     expect(sub()).toMatch(/^Round 7 vs Oxley United · (?!McKay)/);
   });
+  it("the header sub-line names the competition too, and pairs only within it", () => {
+    const WINTER = { comp: "cwinter", compName: "Winterfest" };
+    const f = makeFixture({ round: 2, side: "McKay", opponent: "Lions", ...WINTER });
+    const twin = makeFixture({ id: "f2", round: 2, side: "McKain", opponent: "Lions", ...WINTER });
+    let view = render(<MatchDayPlanner data={{ ...makeData(), fixtures: [f, twin] }} fixture={f} isCoach onSavePlan={onSavePlan} close={close} />);
+    expect(sub()).toMatch(/^Winterfest · Round 2 vs Lions · McKay · /);
+    view.unmount();
+    // The season's round 2 on the other side is not this game's pair: no side shown.
+    const season = makeFixture({ id: "s2", round: 2, side: "McKain", opponent: "Wests" });
+    view = render(<MatchDayPlanner data={{ ...makeData(), fixtures: [f, season] }} fixture={f} isCoach onSavePlan={onSavePlan} close={close} />);
+    expect(sub()).toMatch(/^Winterfest · Round 2 vs Lions · (?!McKay)/);
+    view.unmount();
+    // A game with no round is still named: by its competition, or as a match.
+    view = render(<MatchDayPlanner data={makeData()} fixture={makeFixture({ round: null, opponent: "Lions", ...WINTER })} isCoach onSavePlan={onSavePlan} close={close} />);
+    expect(sub()).toMatch(/^Winterfest vs Lions · /);
+    view.unmount();
+    render(<MatchDayPlanner data={makeData()} fixture={makeFixture({ round: null, opponent: "Lions" })} isCoach onSavePlan={onSavePlan} close={close} />);
+    expect(sub()).toMatch(/^Match vs Lions · /);
+  });
+
   it("a player stored with number 0 shows initials on the disc, never 0", () => {
     const data = { ...makeData(), players: makeData().players.map((p) => ({ ...p, number: 0 })) };
     render(<MatchDayPlanner data={data} fixture={makeFixture()} isCoach onSavePlan={onSavePlan} close={close} />);
