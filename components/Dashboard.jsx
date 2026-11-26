@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon, Star, Info,
   Calendar, ClipboardList, ChevronLeft, Dumbbell, Repeat, Play, Download,
   Send, Phone, MessageSquare, Mail, Sparkles, FileText, Cake, Shirt, GripVertical,
-  Eye, User, LogOut, Navigation, Video, MessageCircle, Medal
+  Eye, User, LogOut, Navigation, Video, MessageCircle, Medal, Upload
 } from "lucide-react";
 // Pure data/display helpers live in lib/dashboardData.js so they can be unit
 // tested; everything below (ICS export, components) uses them from here.
@@ -18,7 +18,7 @@ import {
   playerFullName
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
-import { parsePlayerImport, mergeImportedPlayers } from "@/lib/majestri";
+import { parsePlayerImport, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths } from "@/lib/teamSetup";
 import { seasonICS } from "@/lib/ics";
 import {
@@ -619,6 +619,11 @@ const CSS = `
 .btn{background:var(--pitch);color:#fff;border:none;border-radius:13px;padding:14px;font-weight:700;
   font-size:15px;width:100%;cursor:pointer;font-family:inherit;margin-top:6px;}
 .btn.ghost{background:var(--soft);color:var(--ink);}
+/* a label that opens a file picker: the input is hidden from sight, still reachable by keyboard */
+.filebtn{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:var(--soft);color:var(--ink);
+  border-radius:13px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;min-height:44px;margin-bottom:10px;}
+.filebtn input{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0 0 0 0);}
+.filebtn:focus-within{outline:2px solid var(--pitch);outline-offset:2px;}
 .btn.danger{background:#fdecec;color:var(--red);}
 .iconbtn{background:var(--soft);border:none;width:32px;height:32px;border-radius:9px;display:flex;
   align-items:center;justify-content:center;cursor:pointer;color:var(--muted);}
@@ -1227,7 +1232,7 @@ export default function App() {
         ? `Carnival · ${whosIn.session.s.title} · ${fmtDate(whosIn.session.occ)}`
         : `${whosIn.session.s.title} · ${fmtDate(whosIn.session.occ)}${whosIn.session.s.time ? " " + whosIn.session.s.time : ""}`)
       : `${roundOf(whosIn.game) ? roundOf(whosIn.game) + " " : ""}vs ${whosIn.game.opponent} · ${fmtDate(whosIn.game.dateISO)}${whosIn.game.time ? " " + whosIn.game.time : ""}`]
-    : screen === "player" ? [shownName(screenPlayer, seesFullName(data, screenPlayer, { isCoach, me, viewer })) || "Player", screenPlayer ? [screenPlayer.number ? `#${screenPlayer.number}` : "", screenPlayer.position || ""].filter(Boolean).join(" · ") : ""]
+    : screen === "player" ? [playerFullName(screenPlayer) || "Player", screenPlayer ? [screenPlayer.number ? `#${screenPlayer.number}` : "", screenPlayer.position || ""].filter(Boolean).join(" · ") : ""]
     : screen === "duties" ? [SUB_TITLES.duties[0], dutiesKicker(data.team)]
     : screen === "stats" ? [SUB_TITLES.stats[0], `Season ${seasonLabel(season)}`]
     : (SUB_TITLES[screen] || [screen, ""]);
@@ -1460,15 +1465,6 @@ const ownPlayers = (data, { isCoach, me, viewer }) => {
   const ids = isCoach ? [] : me ? (me.role === "parent" ? (me.playerIds || []) : []) : (viewer?.kind === "parent" && viewer.pid ? [viewer.pid] : []);
   return ids.map(id => data.players.find(p => p.id === id)).filter(Boolean);
 };
-
-// The name to show for a player in the squad list and on their own screen:
-// the full name for coaches and the player's own family, the display name
-// (first name + initial) for everyone else. In account mode the server has
-// already withheld other children's last names (lib/visibility.js); this is
-// the same rule for legacy team-code devices, where the whole document
-// arrives.
-const shownName = (p, canSeeFull) => (canSeeFull ? playerFullName(p) : (p?.name || ""));
-const seesFullName = (data, p, who) => !!p && (who.isCoach || ownPlayers(data, who).some((x) => x.id === p.id));
 
 // Status pill(s) for a game/training row: the parent's own children's replies,
 // or the team-wide tally for coaches and viewers (D5: training replies live at
@@ -2152,7 +2148,7 @@ function SquadTab({ data, stats, next, isCoach, viewer, me, setModal, openPlayer
               <div className={"pr-num" + (p.guest ? " guest" : "")}>{p.number || ""}</div>
               <div className="pr-body">
                 <div className="pr-name">
-                  <b>{shownName(p, isCoach || ownIds.includes(p.id))}</b>
+                  <b>{playerFullName(p)}</b>
                   {p.position && <span className={"pos-pill pos-" + p.position}>{p.position}</span>}
                   {p.guest && <span className={"guesttag" + (ended ? " ended" : "")}>{ended ? "Guest · ended" : "Guest"}</span>}
                 </div>
@@ -2173,7 +2169,7 @@ function SquadTab({ data, stats, next, isCoach, viewer, me, setModal, openPlayer
         {isCoach && (
           <div className="pr-foot">
             <button className="ghostlink" onClick={() => setModal({ type: "player", payload: null })}>Add player</button>
-            <button className="ghostlink" onClick={() => setModal({ type: "playersImport" })}>Paste player list</button>
+            <button className="ghostlink" onClick={() => setModal({ type: "playersImport" })}>Import player list</button>
           </div>
         )}
       </div>
@@ -3869,7 +3865,7 @@ function PlayerSheet({ data, persist, payload, me, close }) {
       <div className="field"><label htmlFor="pl-name">Name</label><input id="pl-name" className="inp" value={p.name} autoFocus onChange={e => setP({ ...p, name: e.target.value })} /></div>
       <div className="field"><label htmlFor="pl-surname">Last name</label><input id="pl-surname" className="inp" value={p.surname || ""} onChange={e => setP({ ...p, surname: e.target.value })} /></div>
     </div>
-    <div className="note" style={{ marginTop: -6, marginBottom: 12 }}>Name is what the whole team sees, for example Levi H. The last name is only shown to coaches and the player's own family.</div>
+    <div className="note" style={{ marginTop: -6, marginBottom: 12 }}>The squad list and the player's page show both. Tight spots such as replies and duties show just the name, for example Levi H.</div>
     <div className="row2">
       <div className="field"><label>Jersey number</label><input className="inp" type="number" value={p.number} onChange={e => setP({ ...p, number: e.target.value })} /></div>
       <div className="field"><label>Birthday</label><input className="inp" type="date" value={p.dob || ""} onChange={e => setP({ ...p, dob: e.target.value })} /></div>
@@ -4051,7 +4047,7 @@ function PlayerScreen({ data, p, next, persist, patchLocal, isCoach, viewer, me,
       {p.photo
         ? <div className="ph-photo"><img src={p.photo} alt="" />{p.number ? <span className="numbadge">{p.number}</span> : null}</div>
         : <div className="ph-num">{p.number || ""}</div>}
-      <div className="ph-name">{shownName(p, canSeeContacts)}</div>
+      <div className="ph-name">{playerFullName(p)}</div>
       {(p.position || bday || p.guest) && (
         <div className="ph-row">
           {p.position && <span className={"pos-pill lg pos-" + p.position}>{p.position}</span>}
@@ -4136,14 +4132,29 @@ function ImportSheet({ data, persist, close }) {
 
 function PlayersImportSheet({ data, persist, close }) {
   const [txt, setTxt] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [fileErr, setFileErr] = useState("");
   // Parsing (Majestri CSV / Excel copy / simple list) lives in lib/majestri.js,
   // shared with the /admin team wizard's import step.
   const { isMajestri, players: parsed } = useMemo(() => parsePlayerImport(txt), [txt]);
   // Anyone already in the squad is updated (blank last name, birthday, family
-  // details), never added twice — so the same list can be pasted again.
+  // details), never added twice — so the same list can be imported again.
   const merged = useMemo(() => mergeImportedPlayers(data.players, parsed), [data.players, parsed]);
   const nAdd = merged.added.length, nUpd = merged.updated.length;
   const plural = (n) => `${n} player${n === 1 ? "" : "s"}`;
+
+  // Upload: the chosen file's text goes into the same box a paste does, so one
+  // parser and one preview serve both.
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // so the same file can be chosen again
+    if (!file) return;
+    setFileErr("");
+    const reader = new FileReader();
+    reader.onload = () => { setTxt(String(reader.result || "")); setFileName(file.name); };
+    reader.onerror = () => { setFileName(""); setFileErr("Couldn't read that file. Try again, or paste the list instead."); };
+    reader.readAsText(file);
+  };
 
   const save = () => {
     if (!nAdd && !nUpd) return;
@@ -4156,15 +4167,21 @@ function PlayersImportSheet({ data, persist, close }) {
     : parsed.length ? "Nothing to change" : "Add players";
 
   return (<>
-    <SheetHead title="Paste player list" close={close} />
+    <SheetHead title="Import player list" close={close} />
+    <label className="filebtn">
+      <Upload size={16} aria-hidden="true" />{fileName ? "Choose a different file" : "Upload CSV"}
+      <input type="file" accept={PLAYER_FILE_ACCEPT} onChange={onFile} />
+    </label>
+    {fileName && <div className="note" style={{ marginBottom: 10 }}>Loaded <b>{fileName}</b></div>}
+    {fileErr && <div className="note" role="alert" style={{ color: "var(--red)", marginBottom: 10 }}>{fileErr}</div>}
     <div className="note" style={{ marginBottom: 12 }}>
-      <b>Majestri:</b> copy the export and paste it here, from the CSV file directly or straight out of <b>Excel</b> (with or without the header row). It's detected automatically. Players only: coach rows and medical fields are skipped; parents' names, emails and mobiles come across, and mobiles get their leading 0 restored. The whole team sees a first name and initial; the full last name is kept for coaches and the player's own family.<br /><br />
+      <b>Majestri:</b> upload the team contact list CSV, or paste it below (from the file, or straight out of <b>Excel</b>, with or without the header row). It's detected automatically. Players only: coach rows and medical fields are skipped; parents' names, emails and mobiles come across, and mobiles get their leading 0 restored.<br /><br />
       <b>Or a simple list</b>, one player per line: <b>Name, number, position, parent, parent mobile, birthday</b> (position GK/DEF/MID/FWD; birthday dd/mm/yyyy; only the name is required).<br /><br />
       Players already in the squad are updated, not added twice.
     </div>
     <div className="field">
       <textarea className="inp" rows={8} aria-label="Player list" value={txt} onChange={e => setTxt(e.target.value)}
-        placeholder={"Paste the Majestri CSV export here, or:\nSpencer, 6, MID, Damien, 0400 000 000, 12/03/2018"} />
+        placeholder={"Or paste the list here:\nSpencer, 6, MID, Damien, 0400 000 000, 12/03/2018"} />
     </div>
     {txt.trim() && (
       <div className="note" role="status" style={{ marginBottom: 10 }}>

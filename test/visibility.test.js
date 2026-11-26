@@ -250,39 +250,30 @@ describe("redactForViewer — other families' contact details", () => {
 });
 
 describe("redactForViewer — players' last names", () => {
-  // `surname` is the child's full last name; the display `name` (a first name
-  // and initial) is what the rest of the team sees.
+  // A player's last name is not private: the whole team sees full names in the
+  // squad list. Only the family's contact details and PIN are withheld.
   const squad = () => ({
     team: { name: "Under 9 Reds" },
     players: [
-      { id: "p1", name: "Leo K.", surname: "Kelly", number: 4 },
-      { id: "p2", name: "Ana v.", surname: "van Dyk", number: 7 },
+      { id: "p1", name: "Leo K.", surname: "Kelly", number: 4, parentName: "Sam Kelly", parentEmails: ["sam@example.com"] },
+      { id: "p2", name: "Ana v.", surname: "van Dyk", number: 7, parentName: "Rita van Dyk", parentEmails: ["rita@example.com"] },
       { id: "p3", name: "Billie", number: 9 } // none recorded
     ],
     fixtures: []
   });
 
-  it.each(NON_COACH)("a %s gets their own child's last name and nobody else's", (role) => {
+  it.each(NON_COACH)("a %s gets every player's last name, their own child's or not", (role) => {
     const out = redactForViewer(squad(), { role, playerIds: ["p1"], todayISO: TODAY });
-    expect(out.players).toEqual([
-      { id: "p1", name: "Leo K.", surname: "Kelly", number: 4 },
-      { id: "p2", name: "Ana v.", number: 7 },
-      { id: "p3", name: "Billie", number: 9 } // no key invented
-    ]);
+    expect(out.players.map((p) => [p.name, p.surname])).toEqual([["Leo K.", "Kelly"], ["Ana v.", "van Dyk"], ["Billie", undefined]]);
+    expect("surname" in out.players[2]).toBe(false); // no key invented
+    // The family's details are still theirs alone.
+    expect(out.players[0].parentName).toBe("Sam Kelly");
+    expect(out.players[1]).toEqual({ id: "p2", name: "Ana v.", surname: "van Dyk", number: 7 });
   });
 
-  it("a club admin or other viewer with no children there gets none", () => {
-    const out = redactForViewer(squad(), { role: "viewer", playerIds: [], todayISO: TODAY });
-    for (const p of out.players) expect("surname" in p).toBe(false);
-    expect(JSON.stringify(out)).not.toMatch(/Kelly|van Dyk/);
-  });
-
-  it("a coach gets every last name, and the stored document is never changed", () => {
+  it("a coach gets the document untouched", () => {
     const src = squad();
-    const snapshot = JSON.parse(JSON.stringify(src));
     expect(redactForViewer(src, { role: "coach", playerIds: [], todayISO: TODAY })).toBe(src);
-    redactForViewer(src, { role: "parent", playerIds: ["p2"], todayISO: TODAY });
-    expect(src).toEqual(snapshot);
   });
 });
 

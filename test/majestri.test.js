@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseDob, fixMobile, splitCSV, parsePlayerImport, sanitizePlayers, mergeImportedPlayers } from "@/lib/majestri";
+import { parseDob, fixMobile, splitCSV, parsePlayerImport, sanitizePlayers, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 
 describe("parseDob", () => {
   it("accepts ISO, AU dd/mm/yyyy and spelled-month forms", () => {
@@ -108,10 +108,10 @@ describe("sanitizePlayers (server-side guard)", () => {
   });
 });
 
-// Last names. A Majestri player is stored as a display name the whole team
-// sees (first name + initial) plus the full last name in `surname`, which
-// lib/visibility.js keeps to coaches and the player's own family. The import
-// used to shorten the surname to its initial and throw the rest away.
+// Last names. A Majestri player is stored as a short display name (first name
+// + initial, for tight spots) plus the full last name in `surname`; the squad
+// list shows both. The import used to shorten the surname to its initial and
+// throw the rest away.
 const NAMES_CSV = [
   "Role,FirstName,Surname,DateOfBirth,PrimaryContactFirstName,PrimaryContactSurname,PrimaryContactEmailAddress,PrimaryContactMobileNumber",
   "Player,Leo,Kelly,02/05/2017,Sam,Kelly,sam@example.com,0400000001",
@@ -137,6 +137,62 @@ describe("parsePlayerImport — last names", () => {
     const { players } = parsePlayerImport("Leo Kelly, 7\nAna");
     expect(players.map((p) => p.name)).toEqual(["Leo Kelly", "Ana"]);
     for (const p of players) expect(p).not.toHaveProperty("surname");
+  });
+});
+
+describe("parsePlayerImport — an uploaded file", () => {
+  it("reads a file that starts with a byte-order mark: coach rows are still skipped", () => {
+    // Left in, the mark hides the first header ("Role") and every row counts as a player.
+    const { isMajestri, players } = parsePlayerImport("\uFEFF" + NAMES_CSV);
+    expect(isMajestri).toBe(true);
+    expect(players.map((p) => p.name)).toEqual(["Leo K.", "Ana v.", "Billie"]);
+  });
+
+  it("reads Windows line endings and the extra columns of a full team contact list", () => {
+    const head = "Role,FirstName,Surname,DateOfBirth,Gender,RegistrationDate,PlayerFFANumber,PlayerATSIStatus,PlayerPlayingGroup,PlayerSchool,PlayerMedicalConditions,PlayerMedicalNotes,PrimaryContactFirstName,PrimaryContactSurname,PrimaryContactEmailAddress,PrimaryContactMobileNumber,PrimaryContactPhoneNumber,MediaRelease,EmergencyContactFirstName,EmergencyContactSurname,EmergencyContactEmailAddress,EmergencyContactMobileNumber,EmergencyContactPhoneNumber,AdditionalEmailAddresses,DebtStatus";
+    const txt = [
+      head,
+      "Coach,Byron,Smith,20 Oct 1982,,,,,,,,,Byron,Smith,byron@example.com,0400000009,,,,,,,,,",
+      "Assistant Coach,Dee,Jones,23 Sep 1980,F,,,,,,,,Dee,Jones,dee@example.com,0400000008,0400000008,,,,,,,,",
+      "Player,Leo,Kelly,2 May 2017,M,7 Oct 2026,,No,Under 9,Some School,Yes,Asthmatic,Sam,Kelly,sam@example.com,0400000001,0400000001,Y,Pat,Kelly,PAT@example.com,0400000002,,third@example.com,OUT",
+      "Player,Matt,Pestano Perez,4 Nov 2017,M,7 Oct 2026,,No,Under 9,,No,,Aya,Perez,aya@example.com,0400000003,,Y,Ron,Palacios,,0400000004,,,OUT"
+    ].join("\r\n") + "\r\n";
+    const { isMajestri, players } = parsePlayerImport(txt);
+    expect(isMajestri).toBe(true);
+    // Coach and assistant coach rows are not players.
+    expect(players.map((p) => [p.name, p.surname, p.dob])).toEqual([["Leo K.", "Kelly", "2017-05-02"], ["Matt P.", "Pestano Perez", "2017-11-04"]]);
+    // Both contacts come across; every email on the row can sign in, lower-cased, once each.
+    expect(players[0].guardians).toEqual([{ name: "Sam Kelly", email: "sam@example.com", mobile: "0400000001" }, { name: "Pat Kelly", email: "pat@example.com", mobile: "0400000002" }]);
+    expect(players[0].parentEmails).toEqual(["sam@example.com", "pat@example.com", "third@example.com"]);
+    expect(players[1].guardians).toEqual([{ name: "Aya Perez", email: "aya@example.com", mobile: "0400000003" }, { name: "Ron Palacios", email: "", mobile: "0400000004" }]);
+    // Medical details never leave the file.
+    expect(JSON.stringify(players)).not.toMatch(/Asthmatic|Some School/);
+  });
+
+  it("numbers players by their place among the players, not their row in the file", () => {
+    // Two staff rows sit above the players in a real export.
+    const txt = [
+      "Role,FirstName,Surname",
+      "Coach,Byron,Smith",
+      "Assistant Coach,Dee,Jones",
+      "Player,Leo,Kelly",
+      "Player,Ana,van Dyk"
+    ].join("\n");
+    expect(parsePlayerImport(txt).players.map((p) => [p.name, p.number])).toEqual([["Leo K.", 1], ["Ana v.", 2]]);
+  });
+
+  it("a headerless copy is recognised whatever the staff roles are called", () => {
+    const row = (role, first, last) => [role, first, last, "12/03/2018", "M", "reg", "ffa", "", "group", "school", "", "", "Ann", last, "ann@example.com", "400123456", "", "Y", "", "", "", ""].join("\t");
+    const txt = [row("Coach", "Byron", "Smith"), row("Assistant Coach", "Dee", "Jones"), row("Team Manager", "Kit", "Lee"), row("Player", "Leo", "Kelly"), row("Player", "Ana", "van Dyk")].join("\n");
+    const { isMajestri, players } = parsePlayerImport(txt);
+    expect(isMajestri).toBe(true);
+    expect(players.map((p) => [p.name, p.surname, p.number])).toEqual([["Leo K.", "Kelly", 1], ["Ana v.", "van Dyk", 2]]);
+    // Wide rows with no Player among them are not a Majestri copy.
+    expect(parsePlayerImport([row("Coach", "Byron", "Smith"), row("Manager", "Kit", "Lee")].join("\n")).isMajestri).toBe(false);
+  });
+
+  it("the file picker offers CSV under the names phones use for it", () => {
+    for (const t of [".csv", "text/csv", "text/comma-separated-values", "text/plain"]) expect(PLAYER_FILE_ACCEPT.split(",")).toContain(t);
   });
 });
 
