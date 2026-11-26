@@ -232,6 +232,65 @@ describe("applySync — schedChanges housekeeping", () => {
   });
 });
 
+describe("applySync with a side (two feeds on one squad)", () => {
+  const feed = (over) => normalize(squadiResponse([match(over)]), cfg);
+  it("stamps the side on a new fixture and leads the change line with it", () => {
+    const r = applySync({ fixtures: [] }, feed(), { side: "McKay" });
+    expect(r.data.fixtures[0]).toMatchObject({ squadiId: "m1", round: 7, side: "McKay" });
+    expect(r.changes[0]).toMatch(/^NEW — McKay · Round 7 vs Wests: /);
+  });
+  it("stamps a missing or different side on a matched fixture as a silent update", () => {
+    const base = applySync({ fixtures: [] }, feed()).data;
+    expect("side" in base.fixtures[0]).toBe(false);
+    const r = applySync(base, feed(), { side: "McKay" });
+    expect(r.data.fixtures[0].side).toBe("McKay");
+    expect(r.changes).toEqual([]);
+    expect(r.mutated).toBe(true);
+    expect(r.data.fixtures[0].schedChanges).toEqual(base.fixtures[0].schedChanges);
+    const again = applySync(r.data, feed(), { side: "McKay" });
+    expect(again.mutated).toBe(false);
+    const moved = applySync(r.data, feed(), { side: "McKain" });
+    expect(moved.data.fixtures[0].side).toBe("McKain");
+    expect(moved.changes).toEqual([]);
+    expect(moved.mutated).toBe(true);
+  });
+  it("leads a schedule change line with the side", () => {
+    const base = applySync({ fixtures: [] }, feed(), { side: "McKay" }).data;
+    const r = applySync(base, feed({ startTime: "2026-06-20T23:00:00Z" }), { side: "McKay" });
+    expect(r.changes).toHaveLength(1);
+    expect(r.changes[0]).toMatch(/^McKay · Round 7 vs Wests: time /);
+  });
+  it("the round-number fallback never adopts a fixture that carries the other side", () => {
+    const hand = { id: "h1", round: 7, side: "McKay", opponent: "Wests", dateISO: "2026-06-21", time: "08:00", venue: "", status: "upcoming" };
+    const r = applySync({ fixtures: [hand] }, feed({ id: "m2" }), { side: "McKain" });
+    expect(r.data.fixtures).toHaveLength(2);
+    expect(r.data.fixtures[0]).toEqual(hand);
+    expect(r.data.fixtures[1]).toMatchObject({ squadiId: "m2", side: "McKain" });
+    // Its own side, or a fixture with no side yet, is still adopted.
+    const own = applySync({ fixtures: [hand] }, feed({ id: "m3" }), { side: "McKay" });
+    expect(own.data.fixtures).toHaveLength(1);
+    expect(own.data.fixtures[0]).toMatchObject({ id: "h1", squadiId: "m3", side: "McKay" });
+    const { side: _s, ...plain } = hand;
+    const adopt = applySync({ fixtures: [plain] }, feed({ id: "m4" }), { side: "McKain" });
+    expect(adopt.data.fixtures).toHaveLength(1);
+    expect(adopt.data.fixtures[0]).toMatchObject({ id: "h1", squadiId: "m4", side: "McKain" });
+  });
+  it("two feeds give two fixtures for the round, one per side", () => {
+    const a = applySync({ fixtures: [] }, feed({ id: "mA" }), { side: "McKay" }).data;
+    const b = applySync(a, feed({ id: "mB", venueCourt: { name: "Field 4A", venue: { name: "Perry Park" } } }), { side: "McKain" });
+    expect(b.data.fixtures.map((f) => [f.round, f.side])).toEqual([[7, "McKay"], [7, "McKain"]]);
+    expect(b.created).toBe(1);
+  });
+  it("with no side given behaves as before: no side key, plain change lines", () => {
+    const r = applySync({ fixtures: [] }, feed());
+    expect("side" in r.data.fixtures[0]).toBe(false);
+    expect(r.changes[0]).toMatch(/^NEW — Round 7 vs Wests: /);
+    const r2 = applySync(r.data, feed({ startTime: "2026-06-20T23:00:00Z" }));
+    expect(r2.changes[0]).toMatch(/^Round 7 vs Wests: time /);
+    expect("side" in r2.data.fixtures[0]).toBe(false);
+  });
+});
+
 // A team can have more than one Squadi draw: its season and other competitions
 // (lib/competitions.js). applySync runs once per draw; `comp` says which one a
 // draw is. Every competition has its own Round 1, so they must never be

@@ -118,6 +118,15 @@ describe("sanitizeCompetitions", () => {
   });
 });
 
+describe("squadiFeeds — the season's one or two feeds", () => {
+  it("is the one definition, whichever module it is imported from", async () => {
+    const competitions = await import("@/lib/competitions");
+    expect(typeof competitions.squadiFeeds).toBe("function");
+    expect(competitions.squadiFeeds({ squadi: { competitionId: " 1 ", divisionId: "2", teamId: "3" } })).toEqual([{ competitionId: "1", divisionId: "2", teamId: 3 }]);
+    expect(competitions.squadiFeeds({})).toEqual([]);
+  });
+});
+
 describe("squadiSources", () => {
   const SEASON = { competitionId: "1439", divisionId: "10661", teamId: 110013 };
   const WINTER = { competitionId: "1750", divisionId: "20001", teamId: 300123 };
@@ -138,6 +147,31 @@ describe("squadiSources", () => {
     expect(squadiSources({ slug: "a", squadi: SEASON })).toEqual([{ comp: null, squadi: SEASON }]);
     // The season is attempted as soon as it has a competition id (a half-filled one is reported, not skipped).
     expect(squadiSources({ squadi: { competitionId: "1", divisionId: "", teamId: 0 } })).toHaveLength(1);
+  });
+
+  it("a two-team squad's season is two sources, each with its side, ahead of any other competition", () => {
+    const REDS = { label: "Reds", competitionId: "1844", divisionId: "12962", teamId: 133944 };
+    const BLUES = { label: "Blues", competitionId: "1844", divisionId: "12960", teamId: 133943 };
+    const team = { slug: "u9", squadi: [REDS, BLUES], competitions: [{ id: "c1", name: "Winterfest", squadi: WINTER }] };
+    expect(squadiSources(team)).toEqual([
+      { comp: null, side: "Reds", squadi: REDS },
+      { comp: null, side: "Blues", squadi: BLUES },
+      { comp: { id: "c1", name: "Winterfest" }, squadi: WINTER }
+    ]);
+    // Ids are tidied on the way (strings trimmed, the team id a number), as the registry keeps them.
+    expect(squadiSources({ squadi: [{ ...REDS, label: " Reds ", teamId: "133944" }, BLUES] })[0]).toEqual({ comp: null, side: "Reds", squadi: REDS });
+  });
+
+  it("a pair with one row filled in is a single season source with no side", () => {
+    const one = { competitionId: "1844", divisionId: "12962", teamId: 133944 };
+    expect(squadiSources({ squadi: [{ label: "Reds", ...one }, { label: "", competitionId: "", divisionId: "", teamId: "" }] })).toEqual([{ comp: null, squadi: one }]);
+    expect(squadiSources({ squadi: [] })).toEqual([]);
+  });
+
+  it("the same draw entered for both sides is one source: it would otherwise retag its games on every run", () => {
+    const REDS = { label: "Reds", competitionId: "1844", divisionId: "12962", teamId: 133944 };
+    const out = squadiSources({ squadi: [REDS, { ...REDS, label: "Blues" }], competitions: [{ id: "c1", name: "Copy", squadi: { competitionId: "1844", divisionId: "12962", teamId: 133944 } }] });
+    expect(out).toEqual([{ comp: null, side: "Reds", squadi: REDS }]);
   });
 
   it("another competition can be the only source: the season's draw is not out yet", () => {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getData, setData } from "@/lib/store";
 import { resolveViewer, viewerError } from "@/lib/viewer";
+import { twinOf } from "@/lib/dashboardData";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,10 @@ export const dynamic = "force-dynamic";
 //  - kind "game":    id = fixture id
 //  - kind "session": id = session id, occ = occurrence ISO date (yyyy-mm-dd)
 //  - status: "in" | "out" | null  (null clears the response)
+//
+// A two-team squad plays two games a round (lib/dashboardData twinOf) and
+// collects availability once: a game reply is written to the fixture and to
+// its twin in the same merge, and clearing clears both.
 
 // Legacy mode: the per-device whoami_<slug> cookie says who is responding.
 function whoamiFromCookies(req, slug) {
@@ -81,10 +86,11 @@ export async function POST(req) {
   // Merge just this one player's entry into the right availability map.
   let next;
   if (kind === "game") {
+    const twinId = twinOf(data, (data.fixtures || []).find((f) => f.id === id))?.id;
     next = {
       ...data,
       fixtures: (data.fixtures || []).map((f) => {
-        if (f.id !== id) return f;
+        if (f.id !== id && f.id !== twinId) return f;
         const avail = { ...(f.availability || {}) };
         if (entry == null) delete avail[playerId]; else avail[playerId] = entry;
         return { ...f, availability: avail };

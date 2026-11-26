@@ -5,6 +5,7 @@ import {
   occurrences, monthItems, upcomingItems, nextBirthdays,
   carnivalGames, carnivalMeta, carnivalDescription, pitchLabel,
   carnivalOf, isCarnivalGame, carnivalFixtures, carnivalGameRows,
+  twinOf, sideOf, teamSides, sideName,
   competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff,
   competitionSquad, squadOf, inSquad, playersFor, nextFixtureFor
 } from "@/lib/dashboardData";
@@ -499,6 +500,63 @@ describe("playerFullName", () => {
   });
 });
 
+
+describe("twinOf: the other game of a paired round", () => {
+  const carnival = { id: "c1", kind: "carnival", recur: "once", dateISO: "2026-07-04", title: "Winter carnival" };
+  const fx = (id, round, side, over = {}) => ({ id, round, ...(side ? { side } : {}), opponent: "Wests", ...over });
+  const data = {
+    team: { name: "U9 Academy", sides: ["McKay", "McKain"] },
+    sessions: [carnival],
+    fixtures: [
+      fx("a1", 1, "McKay"), fx("b1", 1, "McKain"),
+      fx("a2", 2, "McKay"),                                  // McKain has a bye in round 2
+      fx("c1a", 1, "McKay", { carnivalId: "c1" }),           // carnival games never pair
+      fx("x3", 3), fx("y3", 3),                              // no side: a single-feed team
+      fx("a4", 4, "McKay"), fx("a4b", 4, "McKay")            // same side twice is not a pair
+    ]
+  };
+  const byId = (id) => data.fixtures.find((f) => f.id === id);
+  it("is the fixture with the same round and a different side, both ways", () => {
+    expect(twinOf(data, byId("a1")).id).toBe("b1");
+    expect(twinOf(data, byId("b1")).id).toBe("a1");
+  });
+  it("is null for a bye round, a fixture with no side, the same side and missing input", () => {
+    expect(twinOf(data, byId("a2"))).toBeNull();
+    expect(twinOf(data, byId("x3"))).toBeNull();
+    expect(twinOf(data, byId("a4"))).toBeNull();
+    expect(twinOf(data, null)).toBeNull();
+    expect(twinOf({}, byId("a1"))).toBeNull();
+  });
+  it("leaves carnival games out: one is never a twin and never has one", () => {
+    expect(twinOf(data, byId("c1a"))).toBeNull();
+    const only = { ...data, fixtures: [byId("b1"), byId("c1a")] };
+    expect(twinOf(only, byId("b1"))).toBeNull();
+  });
+  it("never pairs across draws: another competition has its own Round 1", () => {
+    // A game that carries a side and has since come back in another competition's draw.
+    const winter = fx("w1", 1, "McKain", { comp: "cwinter", compName: "Winterfest" });
+    const mixed = { ...data, fixtures: [byId("a1"), winter] };
+    expect(twinOf(mixed, byId("a1"))).toBeNull();
+    expect(twinOf(mixed, winter)).toBeNull();
+    expect(sideOf(mixed, byId("a1"))).toBe("");
+    // The season's own pair is untouched by it.
+    const both = { ...data, fixtures: [byId("a1"), byId("b1"), winter] };
+    expect(twinOf(both, byId("a1")).id).toBe("b1");
+  });
+
+  it("sideOf and sideName name the side only on a paired round", () => {
+    expect(sideOf(data, byId("a1"))).toBe("McKay");
+    expect(sideOf(data, byId("a2"))).toBe("");
+    expect(sideName(data, byId("b1"))).toBe("U9 Academy McKain");
+    expect(sideName(data, byId("a2"))).toBe("U9 Academy");
+    expect(sideName(data, byId("x3"), "Us")).toBe("Us");
+  });
+  it("teamSides is team.sides, else the order the fixtures first name them", () => {
+    expect(teamSides(data)).toEqual(["McKay", "McKain"]);
+    expect(teamSides({ fixtures: [fx("b", 1, "McKain"), fx("a", 1, "McKay"), fx("b2", 2, "McKain")] })).toEqual(["McKain", "McKay"]);
+    expect(teamSides({ fixtures: [fx("x", 1)] })).toEqual([]);
+  });
+});
 
 // A team's other competitions (lib/competitions.js): a game synced from one
 // carries its id and name. It is labelled, and it is not a season game.

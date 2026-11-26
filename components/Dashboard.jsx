@@ -15,7 +15,7 @@ import {
   countdown, ytId, videoKind, mapsUrl, activeOn, intlPhone, recentChanges,
   initials, secToClock, clockToSec, occurrences, monthItems, upcomingItems,
   nextBirthdays, isCarnival, carnivalOf, isCarnivalGame, carnivalGameRows, carnivalMeta, carnivalDescription, pitchLabel,
-  playerFullName, timeWindow
+  playerFullName, timeWindow, twinOf, sideOf, teamSides, sideName
 } from "@/lib/dashboardData";
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport, mergeImportedPlayers, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
@@ -183,6 +183,8 @@ const esc = (s) => (s || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replac
 const stamp = () => new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 const BYDAY = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
 
+// `team` is our name on the event: on a paired round the caller passes
+// sideName() ("U9 Academy McKay"), the same as lib/ics.js.
 function gameEv(f, team) {
   const title = `${f.homeAway === "H" ? team : f.opponent} v ${f.homeAway === "H" ? f.opponent : team}`;
   const res = f.status === "played" && f.us != null ? ` (${f.us}-${f.them})` : "";
@@ -536,6 +538,24 @@ const CSS = `
 /* position tag: 9/800 .06em radius 6 (rows); .lg is the Player hero's 10/800 */
 .pos-pill{display:inline-block;font-size:9px;font-weight:800;padding:2px 6px;border-radius:6px;letter-spacing:.06em;line-height:1.3;}
 .pos-pill.lg{font-size:10px;padding:3px 7px;}
+/* side tag: which of a two-team squad's games this is (McKay / McKain). The
+   position tag's geometry on soft grey; never red (red is our crest ring). */
+.sidetag{display:inline-block;font-size:9px;font-weight:800;padding:2px 6px;border-radius:6px;letter-spacing:.06em;line-height:1.3;background:var(--soft);color:var(--muted);white-space:nowrap;flex-shrink:0;vertical-align:middle;}
+.wk-meta .sidetag{margin-right:6px;}
+/* Home's duties card on a paired round: the side on its own line above the slots */
+.dutycard.sided{flex-wrap:wrap;row-gap:8px;}
+.dutycard .dc-side{width:100%;display:flex;}
+/* Next game on a paired round: one tappable line per side (tag, kick-off, field) */
+.ng-sides{border-top:1px solid var(--line);margin-top:14px;padding-top:4px;}
+.ng-shared{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px;padding:7px 0 3px;min-width:0;}
+.ng-shared svg{flex-shrink:0;}
+.ng-shared span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ng-side{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;background:none;border:none;border-top:1px solid var(--line);padding:0;font:inherit;color:var(--ink);text-align:left;cursor:pointer;}
+.ng-side:first-of-type{border-top:none;}
+.ng-side .t{font-family:'DM Mono',monospace;font-weight:500;font-size:13px;flex-shrink:0;}
+.ng-side .f{font-size:13px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ng-side:focus-visible{outline:2px solid var(--pitch);outline-offset:2px;border-radius:8px;}
+.rs-both{font-size:12px;color:var(--muted);margin-top:10px;}
 .pos-GK{background:#fff1da;color:#b3760a;} .pos-DEF{background:#e6f0ff;color:#2563a8;}
 .pos-MID{background:#e6f6ec;color:#1f8a4c;} .pos-FWD{background:#ffe6e6;color:#c0393d;}
 /* stats (S8, Direction C): five tiles, For / Against / Diff, Goals by round, Top scorers */
@@ -1255,7 +1275,7 @@ export default function App() {
   const calMonths = seasonMonths(season);
   const calMonth = (calMonthPick && calMonths.find((m) => sameMonth(m, calMonthPick))) || defaultCalMonth(calMonths);
   const subTitle = screen === "settings" ? ["Team settings", data.team.name]
-    : screen === "match" ? [screenCarnival?.title || roundOf(screenFixture) || "Match", screenFixture ? `vs ${screenFixture.opponent} · ${fmtDate(screenFixture.dateISO)}` : ""]
+    : screen === "match" ? [screenCarnival?.title || roundOf(screenFixture) || "Match", screenFixture ? `${sideOf(data, screenFixture) ? sideOf(data, screenFixture) + " · " : ""}vs ${screenFixture.opponent} · ${fmtDate(screenFixture.dateISO)}` : ""]
     : screen === "whosin" ? ["Who's in", !whosIn ? ""
       : whosIn.show === "session" ? (isCarnival(whosIn.session.s)
         ? `Carnival · ${whosIn.session.s.title} · ${fmtDate(whosIn.session.occ)}`
@@ -1401,9 +1421,23 @@ async function sendReply({ kind = "game", fixture, session, occ, playerId, statu
   const cleanReason = status === "out" ? (reason || "Away") : undefined;
   if (status == null) delete nextAv[playerId];
   else nextAv[playerId] = { status, ...(cleanReason ? { reason: cleanReason } : {}), by, at: Date.now() };
-  const setAv = (av) => patchLocal(d => isSession
-    ? { ...d, sessions: (d.sessions || []).map(x => x.id === session.id ? { ...x, availability: { ...(x.availability || {}), [occ]: av } } : x) }
-    : { ...d, fixtures: (d.fixtures || []).map(x => x.id === fixture.id ? { ...x, availability: av } : x) });
+  // A paired round (two-team squad) takes one reply for both games: the
+  // route mirrors the entry onto the twin, so the local patch does too. Only
+  // this player's entry moves on the twin; a refused write puts back what
+  // each game had.
+  const twinPrev = {};
+  const withEntry = (x, entry) => { const a = { ...(x.availability || {}) }; if (entry) a[playerId] = entry; else delete a[playerId]; return { ...x, availability: a }; };
+  const setAv = (av, revert = false) => patchLocal(d => {
+    if (isSession) return { ...d, sessions: (d.sessions || []).map(x => x.id === session.id ? { ...x, availability: { ...(x.availability || {}), [occ]: av } } : x) };
+    const twinId = twinOf(d, (d.fixtures || []).find(x => x.id === fixture.id))?.id;
+    return { ...d, fixtures: (d.fixtures || []).map(x => {
+      if (x.id === fixture.id) return { ...x, availability: av };
+      if (x.id !== twinId) return x;
+      if (revert) return withEntry(x, twinPrev[x.id]);
+      twinPrev[x.id] = x.availability?.[playerId];
+      return withEntry(x, av[playerId]);
+    }) };
+  });
   setAv(nextAv);
   const what = isSession ? ((session.kind || "training") === "training" ? "training" : isCarnival(session) ? "the carnival" : session.title) : (weekdayLong(fixture.dateISO) || "the game");
   if (!quiet) showToast(status === "in" ? `${first}'s in for ${what}` : status === "out" ? `${first}'s out for ${what}` : `${first}'s reply cleared`);
@@ -1419,7 +1453,7 @@ async function sendReply({ kind = "game", fixture, session, occ, playerId, statu
     if (!res.ok) throw new Error("rsvp " + res.status);
   } catch (e) {
     console.error("Could not save availability:", e);
-    setAv(prev);
+    setAv(prev, true);
     showToast(`Couldn't save ${first}'s reply — try again.`);
   }
 }
@@ -1539,6 +1573,7 @@ function EventRow({ data, it, isCoach, own, onOpen, noDay = false }) {
   const pool = isGame ? playersFor(data, it.ref) : data.players;
   const ownHere = isGame ? own.filter(p => inSquad(data, it.ref, p.id)) : own;
   const pills = isBday ? [] : cancelled ? [{ cls: "out", label: "Cancelled" }] : pillsFor(pool, ownHere, av, it.dateISO);
+  const sideTag = isGame ? sideOf(data, it.ref) : "";
   const open = onOpen || null;
   return (
     <div className={"wk-row" + (open ? "" : " static")} role={open ? "button" : undefined} tabIndex={open ? 0 : undefined}
@@ -1547,7 +1582,7 @@ function EventRow({ data, it, isCoach, own, onOpen, noDay = false }) {
       <span className={"wk-ic " + kind}><Ic size={noDay ? 16 : 15} /></span>
       <div className="wk-body">
         <div className={"wk-title" + (cancelled ? " off" : "")}>{title}</div>
-        <div className="wk-meta">{meta}</div>
+        <div className="wk-meta">{sideTag && <span className="sidetag">{sideTag}</span>}{meta}</div>
       </div>
       {pills.map((pl, i) => <span key={i} className={"wk-pill " + pl.cls}>{pl.label}</span>)}
       <ChevronRight size={15} color="#9AA3A6" style={{ flexShrink: 0, visibility: open ? "visible" : "hidden" }} />
@@ -1627,12 +1662,15 @@ async function saveDuty({ fixture, duty, playerId, data, patchLocal, showToast }
 // Duties card (S2): one slot per duty feature that's on, who has it ("Sam S.'s
 // family" for the family duties, "Sam S." in goal) or "Not assigned yet"; tap
 // → Duties. Shared by Home and Match detail.
-function DutyCard({ data, f, onOpen }) {
+// `tagged` (Home, where a paired round shows one card per side) names the side.
+function DutyCard({ data, f, onOpen, tagged = false }) {
+  const sideTag = tagged && f ? sideOf(data, f) : "";
   const duties = f ? enabledDuties(data.team).map((key) => ({ cls: key, Icon: DUTY_DEFS[key].Icon, label: DUTY_DEFS[key].label, who: dutyWho(data, key, f[key]) })) : [];
   if (!duties.length) return null;
   return (
-    <div className="card dutycard" role="button" tabIndex={0} aria-label="Duties"
+    <div className={"card dutycard" + (sideTag ? " sided" : "")} role="button" tabIndex={0} aria-label={sideTag ? `Duties, ${sideTag}` : "Duties"}
       onClick={() => onOpen("duties")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen("duties"); } }}>
+      {sideTag && <div className="dc-side"><span className="sidetag">{sideTag}</span></div>}
       {duties.map(({ cls, Icon, label, who }, i) => (
         <React.Fragment key={label}>
           {i > 0 && <div className="dc-div" />}
@@ -1702,6 +1740,17 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
   const ownNext = next ? own.filter(p => inSquad(data, next, p.id)) : [];
   const nextNote = notInSquadNote(data, next, own);
   const openReply = (p) => setModal({ type: "reply", payload: { fixture: next, playerId: p.id } });
+  // A paired round (two-team squad): both games, in team.sides order. The
+  // card keeps one match-up and one reply block (a reply covers both games)
+  // and names each side on its own line: tag, kick-off, field.
+  const nextTwin = next ? twinOf(data, next) : null;
+  const sideOrder = teamSides(data);
+  const nextSides = nextTwin ? [next, nextTwin].sort((a, b) => sideOrder.indexOf(a.side) - sideOrder.indexOf(b.side)) : [];
+  // "Perry Park – Field 4C": when both games share the ground it is named once
+  // and each line carries its field.
+  const ground = (f) => String(f.venue || "").split(" – ")[0];
+  const fieldOf = (f) => String(f.venue || "").split(" – ").slice(1).join(" – ");
+  const sharedGround = nextTwin && ground(next) && ground(next) === ground(nextTwin) && fieldOf(next) && fieldOf(nextTwin) ? ground(next) : "";
   // The soonest upcoming carnival within 21 days gets its own card under the
   // Duties card (parents block the day out and reply early). `next` is the
   // next league game: nextFixture skips carnival games, so the carnival never
@@ -1739,10 +1788,24 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
               <span className="mu-name">{next.opponent}</span>
             </div>
           </div>
+          {nextTwin ? (
+            <div className="ng-sides">
+              {sharedGround && <div className="ng-shared"><MapPin size={12} /><span>{sharedGround}</span></div>}
+              {nextSides.map(g => (
+                <button key={g.id} className="ng-side" onClick={() => openMatch(g)} aria-label={`${g.side}: ${g.time || "time to be confirmed"}, ${g.venue || "venue to be confirmed"}`}>
+                  <span className="sidetag">{g.side}</span>
+                  <span className="t">{g.time || "TBC"}</span>
+                  <span className="f">{(sharedGround ? fieldOf(g) : g.venue) || "Venue to be confirmed"}</span>
+                  <ChevronRight size={15} color="#9AA3A6" style={{ flexShrink: 0 }} />
+                </button>
+              ))}
+            </div>
+          ) : (
           <div className="ng-venue">
             <span className="ng-place"><MapPin size={12} /><span>{next.venue || "Venue to be confirmed"}</span></span>
             <button className="softpill" onClick={() => openMatch(next)}>Details</button>
           </div>
+          )}
           {ownNext.length > 0 ? (
             <div className="replyrows">
               {ownNext.map(p => <ReplyRow key={p.id} p={p} status={next.availability?.[p.id]?.status || null} onTap={() => openReply(p)} />)}
@@ -1763,7 +1826,7 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
         <div className="card"><div className="empty"><div className="disp">No upcoming match</div><div className="note">Add fixtures under Results.</div><button className="ghostlink" style={{ marginTop: 10 }} onClick={() => onOpen("duties")}>Duties ›</button></div></div>
       )}
 
-      {next && <DutyCard data={data} f={next} onOpen={onOpen} />}
+      {next && (nextTwin ? nextSides : [next]).map(g => <DutyCard key={g.id} data={data} f={g} onOpen={onOpen} tagged />)}
 
       {carnival && <CarnivalCard data={data} c={carnival} own={own} setModal={setModal} />}
 
@@ -1854,6 +1917,7 @@ function ReplySheet({ data, payload, isCoach, viewer, me, patchLocal, showToast,
         <button className={"rs-btn in" + (cur === "in" ? " sel" : "")} onClick={() => choose("in")}><Check size={18} />In</button>
         <button className={"rs-btn out" + (cur === "out" ? " sel" : "")} onClick={() => choose("out")}><X size={18} />Out</button>
       </div>
+      {!isSession && twinOf(data, fixture) && <div className="rs-both">Your reply covers both games this round.</div>}
       <input className="rs-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note for coach (optional)" aria-label="Note for coach" />
       <div className="rs-foot">{coachFirst ? `Coach ${coachFirst} sees` : "The coach sees"} replies straight away. You can change it any time before {isSession ? "it starts" : "kick-off"}.</div>
     </>
@@ -2061,6 +2125,8 @@ function MatchRow({ data, f, onTap }) {
   // A game in another competition (not the season): that competition's name
   // on the same tag line. The round column keeps its own round number.
   const comp = carnival ? null : competitionOf(f);
+  // On a two-team squad's paired round: which of the two sides this game is.
+  const sideTag = sideOf(data, f);
   const hs = home ? f.us : f.them, as = home ? f.them : f.us;
   const side = (ours, away) => (
     <div className={"mr-side" + (ours ? " ours" : "") + (away ? " away" : "")}>
@@ -2081,6 +2147,7 @@ function MatchRow({ data, f, onTap }) {
       {side(!home, true)}
       {carnival && <div className="mrow-tag"><span className="mtag"><Medal size={10} /><span>{carnival.title}</span></span></div>}
       {comp && <div className="mrow-tag"><span className="mtag"><Trophy size={10} /><span>{comp.name}</span></span></div>}
+      {sideTag && <div className="mrow-tag"><span className="sidetag">{sideTag}</span></div>}
     </div>
   );
 }
@@ -2320,6 +2387,7 @@ function DutiesTab({ data, isCoach, viewer, me, setModal, patchLocal, showToast 
             <div className="du-head">
               <span className="du-round">{f.round ? `R${f.round}` : "—"}</span>
               <span className="du-opp">vs {f.opponent}{competitionOf(f) ? ` · ${competitionOf(f).name}` : ""}</span>
+              {sideOf(data, f) && <span className="sidetag">{sideOf(data, f)}</span>}
               <span className="du-date">{fmtDate(f.dateISO)}</span>
             </div>
             {keys.map((key) => slot(f, key, past))}
@@ -3534,7 +3602,7 @@ function FixtureSheet({ data, persist, payload, close }) {
         <div className="gscroll">
           {players.map(p => (
             <div className="grow" key={p.id}>
-              <div className="gnm">{p.number}. {p.name}</div>
+              <div className="gnm">{Number(p.number) > 0 ? `${p.number}. ` : ""}{p.name}</div>
               <div style={{ textAlign: "center" }}>
                 <div className="l" style={{ fontSize: 9, color: "var(--muted)", marginBottom: 2 }}>G</div>
                 <div className="stepper"><button onClick={() => bump("goals", p.id, -1)}>–</button><div className="val">{cnt(f.goals, p.id)}</div><button onClick={() => bump("goals", p.id, 1)}>+</button></div>
@@ -3708,7 +3776,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
   return (<>
     <div className="card mhero">
       <div className="mh-head">
-        <span className="mh-label">{carnival ? `Carnival · ${carnival.title} · ${fmtDate(f.dateISO) || "Date TBC"}` : `${roundLabel(f) ? `${roundLabel(f)} · ` : ""}${home ? "Home" : "Away"} · ${fmtDate(f.dateISO) || "Date TBC"}`}</span>
+        <span className="mh-label">{carnival ? `Carnival · ${carnival.title} · ${fmtDate(f.dateISO) || "Date TBC"}` : `${roundLabel(f) ? `${roundLabel(f)} · ` : ""}${sideOf(data, f) ? `${sideOf(data, f)} · ` : ""}${home ? "Home" : "Away"} · ${fmtDate(f.dateISO) || "Date TBC"}`}</span>
         {isCoach && <button className="mh-edit" onClick={() => setModal({ type: "fixture", payload: f })}><Pencil size={13} />Edit</button>}
       </div>
       <div className="matchup">
@@ -3873,10 +3941,10 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
 
     <div className="card">
       {/* A carnival game has no calendar event of its own: the carnival's block covers the day. */}
-      {f.dateISO && !carnival && <CalAdd ev={gameEv(f, data.team.name)} style={{ marginBottom: 12 }} />}
+      {f.dateISO && !carnival && <CalAdd ev={gameEv(f, sideName(data, f))} style={{ marginBottom: 12 }} />}
       <a className="washare" target="_blank" rel="noopener noreferrer"
         href={"https://wa.me/?text=" + encodeURIComponent(
-          `⚽ ${data.team.name} — ${carnival ? carnival.title : roundLabel(f) || "Match"} vs ${f.opponent}\n` +
+          `⚽ ${sideName(data, f)} — ${carnival ? carnival.title : roundLabel(f) || "Match"} vs ${f.opponent}\n` +
           (f.status === "played" && f.us != null
             ? `Result: ${f.us}–${f.them}` +
               ((f.goals || []).length ? `\nGoals: ${(f.goals || []).map(g => `${pname(g.pid)}${g.n > 1 ? " ×" + g.n : ""}`).join(", ")}` : "")
