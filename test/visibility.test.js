@@ -249,6 +249,43 @@ describe("redactForViewer — other families' contact details", () => {
   });
 });
 
+describe("redactForViewer — players' last names", () => {
+  // `surname` is the child's full last name; the display `name` (a first name
+  // and initial) is what the rest of the team sees.
+  const squad = () => ({
+    team: { name: "Under 9 Reds" },
+    players: [
+      { id: "p1", name: "Leo K.", surname: "Kelly", number: 4 },
+      { id: "p2", name: "Ana v.", surname: "van Dyk", number: 7 },
+      { id: "p3", name: "Billie", number: 9 } // none recorded
+    ],
+    fixtures: []
+  });
+
+  it.each(NON_COACH)("a %s gets their own child's last name and nobody else's", (role) => {
+    const out = redactForViewer(squad(), { role, playerIds: ["p1"], todayISO: TODAY });
+    expect(out.players).toEqual([
+      { id: "p1", name: "Leo K.", surname: "Kelly", number: 4 },
+      { id: "p2", name: "Ana v.", number: 7 },
+      { id: "p3", name: "Billie", number: 9 } // no key invented
+    ]);
+  });
+
+  it("a club admin or other viewer with no children there gets none", () => {
+    const out = redactForViewer(squad(), { role: "viewer", playerIds: [], todayISO: TODAY });
+    for (const p of out.players) expect("surname" in p).toBe(false);
+    expect(JSON.stringify(out)).not.toMatch(/Kelly|van Dyk/);
+  });
+
+  it("a coach gets every last name, and the stored document is never changed", () => {
+    const src = squad();
+    const snapshot = JSON.parse(JSON.stringify(src));
+    expect(redactForViewer(src, { role: "coach", playerIds: [], todayISO: TODAY })).toBe(src);
+    redactForViewer(src, { role: "parent", playerIds: ["p2"], todayISO: TODAY });
+    expect(src).toEqual(snapshot);
+  });
+});
+
 describe("redactForViewer — the plan", () => {
   describe.each(NON_COACH)("as a %s", (role) => {
     it("with defaults, shows today's lineup only, without coach working state", () => {

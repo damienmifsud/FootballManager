@@ -203,9 +203,9 @@ Roles exist only in account mode. They are resolved from the signed-in email in
   the same coach-level access.
 - **Parent** — the emails on their child's player record (Majestri import, the wizard
   roster, or the Squad tab). Parents read the team with redactions — no ratings, lineup
-  rules, coach notes or other families' contacts, and game plans / match records only
-  as far as the coach's **Parents can see** switches allow — and write only their own
-  children's RSVPs.
+  rules, coach notes, other families' contacts or other children's last names (they see
+  a first name and initial), and game plans / match records only as far as the coach's
+  **Parents can see** switches allow — and write only their own children's RSVPs.
 - **Overrides** (`/admin`) — per email, per team, force coach, parent, viewer or
   blocked. Overrides never apply to super admins.
 
@@ -220,6 +220,7 @@ mode, where there are no accounts.
 | **See** | | | | | |
 | Fixtures, results, calendar, training, duties | Yes | Yes | Yes | Yes | Yes |
 | Squad list, positions, photos, goals and assists | Yes | Yes | Yes | Yes | Yes |
+| Players' last names (everyone else sees a first name and initial) | Yes | No | Yes | Own children | Yes |
 | Parents' contact details and family PINs | Yes | No | Yes | Own children | Yes |
 | Player ratings and coach notes | Yes | No | Yes | No | Yes |
 | Lineup rules and the coach PIN | Yes | No | Yes | No | Yes |
@@ -271,6 +272,12 @@ bottom-left, shown only when there is a choice.
 - Parent emails must be on the player records (the Majestri import captures them; or
   add them in the wizard roster or the Squad tab).
 - Coaches need an email in `coachEmails` or on the team's staff list.
+- **Player names:** the Majestri import stores each player under a display name the
+  whole team sees (first name and initial, "Levi H.") and keeps the full last name
+  beside it for coaches and the player's own family. Coaches can edit both in the
+  player editor. Pasting a list again (Squad tab, **Paste player list**) updates the
+  players already in the squad instead of adding them twice, which is also how to fill
+  in last names on a squad that was imported before they were kept.
 - **Env teams taken over by the wizard:** editing an env-defined team in `/admin`
   stores a copy in the data store; from then on the stored copy wins for that slug.
 

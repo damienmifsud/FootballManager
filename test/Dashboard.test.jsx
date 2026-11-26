@@ -2479,6 +2479,219 @@ describe("S5 Squad + Player — Direction C", () => {
   });
 });
 
+// Players' last names. The import used to shorten "Leo Kelly" to "Leo K." and
+// throw the rest away. Now the last name is kept in `surname`: coaches and the
+// player's own family see the full name in the squad list and on the player's
+// screen; everyone else keeps seeing the first name and initial.
+describe("Players' last names", () => {
+  const kids = [
+    { id: "p1", name: "Leo K.", surname: "Kelly", number: 7, position: "FWD" },
+    { id: "p2", name: "Ana v.", surname: "van Dyk", number: 8, position: "MID" },
+    { id: "p3", name: "Billie", number: 9, position: "DEF" }
+  ];
+  const team = (over = {}) => ({ name: "Test FC", division: "Div 1", ageGroup: "U9", coachPin: "", headCoach: "Byron", ...over });
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); render(<App />); return waitForLoaded(); };
+  const nav = (label) => fireEvent.click(within(screen.getByRole("navigation")).getByText(label));
+  const rows = () => [...document.querySelectorAll(".prow")];
+  const names = () => rows().map((r) => r.querySelector(".pr-name b").textContent);
+  const openSquad = async () => { nav("Squad"); await screen.findByText("Players", { selector: ".label" }); };
+  const saved = () => JSON.parse(storage.set.mock.calls.at(-1)[1]);
+  const account = (role, playerIds = [], playerNames = []) => {
+    const hat = { role, playerIds, playerNames };
+    return {
+      mode: "account", email: "x@a.com", admin: false, clubAdmin: false, teamSlug: "a", teamName: "Test FC", role, playerIds, playerNames,
+      hats: [hat], teams: [{ teamSlug: "a", teamName: "Test FC", hats: [hat] }], canSwitch: false, memberships: []
+    };
+  };
+  const meFetch = (me) => fetch.mockImplementation((url) =>
+    Promise.resolve(String(url).includes("/api/me") ? { ok: true, json: async () => me } : { ok: false, json: async () => ({}) }));
+  const MAJESTRI = [
+    "Role,FirstName,Surname,DateOfBirth,PrimaryContactFirstName,PrimaryContactSurname,PrimaryContactEmailAddress,PrimaryContactMobileNumber",
+    "Player,Leo,Kelly,02/05/2017,Sam,Kelly,sam@example.com,0400000001",
+    "Player,Ana,van Dyk,11/09/2017,Rita,van Dyk,rita@example.com,0400000002"
+  ].join("\n");
+  const openPaste = async () => {
+    fireEvent.click(within(document.querySelector(".pr-foot")).getByText("Paste player list"));
+    await screen.findByText("Paste player list", { selector: ".sheet h2" });
+  };
+  const paste = (text) => fireEvent.change(screen.getByLabelText("Player list"), { target: { value: text } });
+  const sheetButton = () => document.querySelector(".sheet .btn");
+  // The sheet's preview, one line per kind of change.
+  const statusLines = () => [...screen.getByRole("status").children].map((el) => el.textContent);
+
+  it("a coach sees full names in the squad list, on the player's screen and in its header", async () => {
+    await load(makeData({ team: team(), players: kids }));
+    await enterCoachMode();
+    await openSquad();
+    expect(names()).toEqual(["Leo Kelly", "Ana van Dyk", "Billie"]);
+    fireEvent.click(rows()[1]);
+    await waitFor(() => expect(headerTitle()).toBe("Ana van Dyk"));
+    expect(document.querySelector(".ph-name").textContent).toBe("Ana van Dyk");
+  });
+
+  it("a signed-in coach sees them too", async () => {
+    meFetch(account("coach"));
+    await load(makeData({ team: team(), players: kids }));
+    await expectChip("Coach");
+    await openSquad();
+    expect(names()).toEqual(["Leo Kelly", "Ana van Dyk", "Billie"]);
+  });
+
+  it("a parent sees their own child's full name and everyone else's first name and initial", async () => {
+    // What the server sends a parent: other children's last names withheld.
+    meFetch(account("parent", ["p1"], ["Leo K."]));
+    const { surname: _withheld, ...ana } = kids[1];
+    await load(makeData({ team: team(), players: [kids[0], ana, kids[2]] }));
+    await expectChip("Parent of Leo");
+    await openSquad();
+    expect(names()).toEqual(["Leo Kelly", "Ana v.", "Billie"]);
+    fireEvent.click(rows()[0]);
+    await waitFor(() => expect(headerTitle()).toBe("Leo Kelly"));
+    expect(document.querySelector(".ph-name").textContent).toBe("Leo Kelly");
+  });
+
+  it("the same rule holds on the device even when every last name is in the document (team-code mode)", async () => {
+    // Legacy mode sends the whole document; outside coach mode the squad
+    // still reads first name and initial.
+    await load(makeData({ team: team(), players: kids }));
+    await expectChip("Parent");
+    await openSquad();
+    expect(names()).toEqual(["Leo K.", "Ana v.", "Billie"]);
+    fireEvent.click(rows()[0]);
+    await waitFor(() => expect(headerTitle()).toBe("Leo K."));
+    expect(document.querySelector(".ph-name").textContent).toBe("Leo K.");
+    expect(document.body.textContent).not.toMatch(/Kelly|van Dyk/);
+    // A signed-in parent of Leo does not see Ana's either.
+    cleanup();
+    meFetch(account("parent", ["p1"], ["Leo K."]));
+    await load(makeData({ team: team(), players: kids }));
+    await expectChip("Parent of Leo");
+    await openSquad();
+    expect(names()).toEqual(["Leo Kelly", "Ana v.", "Billie"]);
+  });
+
+  it("everywhere else keeps the short name: the hat chip, replies and birthdays never carry a last name", async () => {
+    const bday = (() => { const d = new Date(); d.setDate(d.getDate() + 3); return `2017-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+    await load(makeData({ team: team(), players: [{ ...kids[0], dob: bday }, kids[1], kids[2]] }));
+    await enterCoachMode();
+    // Home (next game, birthdays) shows names without last names, even to the coach.
+    expect(document.body.textContent).toMatch(/Leo K\./);
+    expect(document.body.textContent).not.toMatch(/Kelly/);
+  });
+
+  it("the player editor has a Last name field: it saves trimmed, and clearing it removes it", async () => {
+    await load(makeData({ team: team(), players: kids }));
+    await enterCoachMode();
+    await openSquad();
+    fireEvent.click(rows()[0]);
+    await waitFor(() => expect(headerTitle()).toBe("Leo Kelly"));
+    fireEvent.click(screen.getByText("Edit", { selector: ".ph-edit" }));
+    await screen.findByText("Edit player", { selector: ".sheet h2" });
+    expect(screen.getByLabelText("Name").value).toBe("Leo K.");
+    expect(screen.getByLabelText("Last name").value).toBe("Kelly");
+    expect(screen.getByText(/only shown to coaches and the player's own family/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Last name"), { target: { value: "  Kelly-Jones " } });
+    fireEvent.click(screen.getByText("Save player"));
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    expect(saved().players[0]).toMatchObject({ id: "p1", name: "Leo K.", surname: "Kelly-Jones" });
+    await waitFor(() => expect(document.querySelector(".ph-name").textContent).toBe("Leo Kelly-Jones"));
+    // Clearing it drops the key rather than saving an empty string.
+    fireEvent.click(screen.getByText("Edit", { selector: ".ph-edit" }));
+    await screen.findByText("Edit player", { selector: ".sheet h2" });
+    fireEvent.change(screen.getByLabelText("Last name"), { target: { value: "   " } });
+    fireEvent.click(screen.getByText("Save player"));
+    await waitFor(() => expect("surname" in saved().players[0]).toBe(false));
+    await waitFor(() => expect(document.querySelector(".ph-name").textContent).toBe("Leo K."));
+  });
+
+  it("a new player can be given a last name straight away", async () => {
+    await load(makeData({ team: team(), players: [] }));
+    await enterCoachMode();
+    await openSquad();
+    fireEvent.click(screen.getByText("Add player"));
+    await screen.findByText("Add player", { selector: ".sheet h2" });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Zed Q." } });
+    fireEvent.change(screen.getByLabelText("Last name"), { target: { value: "Quinn" } });
+    fireEvent.click(screen.getByText("Save player"));
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    expect(saved().players).toHaveLength(1);
+    expect(saved().players[0]).toMatchObject({ name: "Zed Q.", surname: "Quinn" });
+    await waitFor(() => expect(names()).toEqual(["Zed Quinn"]));
+  });
+
+  it("pasting a Majestri export keeps the last names: short names for the team, full names for the coach", async () => {
+    await load(makeData({ team: team(), players: [] }));
+    await enterCoachMode();
+    await openSquad();
+    await openPaste();
+    expect(sheetButton().textContent).toBe("Add players");
+    expect(sheetButton().disabled).toBe(true);
+    paste(MAJESTRI);
+    expect(statusLines()).toEqual(["Majestri export detected.", "Ready to add 2: Leo K., Ana v."]);
+    expect(sheetButton().textContent).toBe("Add 2 players");
+    fireEvent.click(sheetButton());
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    expect(saved().players.map((p) => [p.name, p.surname, p.dob])).toEqual([["Leo K.", "Kelly", "2017-05-02"], ["Ana v.", "van Dyk", "2017-09-11"]]);
+    await waitFor(() => expect(names()).toEqual(["Leo Kelly", "Ana van Dyk"]));
+    expect(document.querySelector(".sheet")).toBeNull();
+  });
+
+  it("pasting the same list again fills in the last names on the players already there, without adding anyone twice", async () => {
+    // A squad imported before last names were kept.
+    const old = [
+      { id: "p1", name: "Leo K.", number: 7, position: "FWD", dob: "2017-05-02", parentEmails: ["sam@example.com"], parentName: "Sam Kelly" },
+      { id: "p2", name: "Ana v.", number: 8, position: "GK", dob: "2017-09-11", parentEmails: ["rita@example.com"], parentName: "Rita van Dyk" }
+    ];
+    await load(makeData({ team: team(), players: old }));
+    await enterCoachMode();
+    await openSquad();
+    expect(names()).toEqual(["Leo K.", "Ana v."]);
+    await openPaste();
+    paste(MAJESTRI);
+    expect(statusLines()).toEqual(["Majestri export detected.", "Filling in missing details for 2 already in the squad: Leo K., Ana v."]);
+    expect(sheetButton().textContent).toBe("Update 2 players");
+    fireEvent.click(sheetButton());
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    // Same two players, same ids, numbers and positions; only the last names are new.
+    expect(saved().players).toEqual([{ ...old[0], surname: "Kelly" }, { ...old[1], surname: "van Dyk" }]);
+    await waitFor(() => expect(names()).toEqual(["Leo Kelly", "Ana van Dyk"]));
+  });
+
+  it("a paste can add and update at once, and says so; when nothing would change there is nothing to save", async () => {
+    await load(makeData({ team: team(), players: [{ id: "p1", name: "Leo K.", number: 7, position: "FWD", dob: "2017-05-02" }] }));
+    await enterCoachMode();
+    await openSquad();
+    await openPaste();
+    paste(MAJESTRI);
+    expect(statusLines()).toEqual(["Majestri export detected.", "Ready to add 1: Ana v.", "Filling in missing details for 1 already in the squad: Leo K."]);
+    expect(sheetButton().textContent).toBe("Add 1 and update 1");
+    fireEvent.click(sheetButton());
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    expect(saved().players.map((p) => [p.id === "p1", p.name, p.surname])).toEqual([[true, "Leo K.", "Kelly"], [false, "Ana v.", "van Dyk"]]);
+    // The list sorts by shirt number: Ana took 2 (her row in the paste), Leo keeps 7.
+    await waitFor(() => expect(names()).toEqual(["Ana van Dyk", "Leo Kelly"]));
+    // Paste it a third time: everyone is up to date.
+    storage.set.mockClear();
+    await openPaste();
+    paste(MAJESTRI);
+    expect(statusLines()).toEqual(["Majestri export detected.", "2 already up to date."]);
+    expect(sheetButton().textContent).toBe("Nothing to change");
+    expect(sheetButton().disabled).toBe(true);
+    fireEvent.click(sheetButton());
+    expect(storage.set).not.toHaveBeenCalled();
+  });
+
+  it("an unreadable paste says so and offers nothing to save", async () => {
+    await load(makeData({ team: team(), players: [] }));
+    await enterCoachMode();
+    await openSquad();
+    await openPaste();
+    paste("Role,FirstName,Surname"); // a Majestri header with no players under it
+    expect(statusLines()).toEqual(["Majestri export detected.", "Nothing readable yet. Check the format."]);
+    expect(sheetButton().disabled).toBe(true);
+  });
+});
+
 describe("S6 Availability — Direction C", () => {
   const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const fmt = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });

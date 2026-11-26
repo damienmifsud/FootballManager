@@ -341,8 +341,9 @@ export default function TeamWizard({ onTeamsChanged }) {
           {!editSlug && (
             <Step n={++stepNo} title="Players and parents" optional
               lead={<>Upload the Majestri CSV export, or paste it (from the file or straight out of Excel). Player rows only:
-                parents' names, emails and mobiles come across, which is what powers parent login and replies. A simple list
-                works too: <i>Name, number, position, parent, mobile, dd/mm/yyyy</i>.</>}>
+                parents' names, emails and mobiles come across, which is what powers parent login and replies. The team sees
+                each player's first name and initial; the full last name is kept for coaches and the player's own family. A
+                simple list works too: <i>Name, number, position, parent, mobile, dd/mm/yyyy</i>.</>}>
               <label className="adm-btn soft sm">
                 Upload CSV
                 <input type="file" accept=".csv,text/csv,text/plain" className="adm-file" onChange={onCsvFile} />

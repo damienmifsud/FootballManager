@@ -62,6 +62,9 @@ describe("lib/roleMatrix — facts the code enforces", () => {
     expect(byFeature("Duties: fruit, jerseys and the goalkeeper").note).toMatch(/never the goalkeeper/);
     expect(byFeature("Edit fixtures, scores, squad, staff, team details").parent).toBe("no");
     expect(byFeature("Parents' contact details and family PINs").parent).toBe("own");
+    // A child's last name is the family's too: coaches see it, other parents
+    // and view-only club admins get a first name and initial.
+    expect(byFeature("Players' last names")).toMatchObject({ admin: "yes", club: "no", coach: "yes", parent: "own", code: "yes" });
     expect(byFeature("Player ratings and coach notes").parent).toBe("no");
     expect(byFeature("Lineup rules and the coach PIN").parent).toBe("no");
     for (const f of ["Game plan before kick-off", "Live lineup and clock on game day", "Match record and minutes played"]) {

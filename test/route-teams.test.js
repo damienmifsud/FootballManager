@@ -130,6 +130,19 @@ describe("POST — create", () => {
     expect(doc.players[0].id).toBeTruthy();
   });
 
+  it("keeps each imported player's last name beside the short display name", async () => {
+    const { POST } = await asAdmin();
+    const players = [
+      { name: "Leo K.", surname: "  Kelly ", number: 1, position: "MID" },
+      { name: "Billie", surname: "", number: 2, position: "MID" }
+    ];
+    const res = await POST(fakeRequest({ body: { name: "Wiz D", ageGroup: "U9", password: "gold-roo-78", players } }));
+    expect(res.status).toBe(200);
+    const [, doc] = setData.mock.calls[0];
+    expect(doc.players.map((p) => [p.name, p.surname])).toEqual([["Leo K.", "Kelly"], ["Billie", undefined]]);
+    expect("surname" in doc.players[1]).toBe(false);
+  });
+
   it("seeds the training schedule, features, division and WhatsApp into the starter doc", async () => {
     const { POST } = await asAdmin();
     const res = await POST(fakeRequest({ body: {
