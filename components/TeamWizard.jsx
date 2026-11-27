@@ -14,6 +14,8 @@ import { parsePlayerImport, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib
 import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES, seasonLabel } from "@/lib/teamSetup";
 import { downscaleImage } from "@/lib/clientImage";
 import { MAX_COMPETITIONS, websiteLink } from "@/lib/competitions";
+import { parseFeedLink, feedProvider } from "@/lib/feedLinks";
+import { readDriblLink } from "@/lib/driblLink";
 import { AdminSwitch } from "@/components/AdminShell";
 
 const AGE_GROUPS = ["U6", "U7", "U8", "U9", "U10", "U11", "U12+"];
@@ -36,16 +38,17 @@ const thisYear = new Date().getFullYear();
 const SEASON_YEARS = [thisYear - 1, thisYear, thisYear + 1, thisYear + 2];
 // The season's Squadi rows: one feed, or two for one squad that plays as two
 // teams each round (each row then needs a label, which names that side on
-// every game). Each row can carry its draw's website link.
-const squadiRow = (s = {}) => ({ label: s.label || "", competitionId: s.competitionId || "", divisionId: s.divisionId || "", teamId: s.teamId || "", link: s.link || "" });
+// every game). Each row can carry its draw's website link. `note` is what
+// reading that link found: shown under the field and never sent.
+const squadiRow = (s = {}) => ({ label: s.label || "", competitionId: s.competitionId || "", divisionId: s.divisionId || "", teamId: s.teamId || "", link: s.link || "", note: null });
 const seasonFeedsForEdit = (squadi) => (Array.isArray(squadi) && squadi.length ? squadi.slice(0, 2).map(squadiRow) : [squadiRow(squadi || {})]);
 const rowFilled = (r) => !!(String(r.competitionId).trim() || String(r.divisionId).trim() || String(r.teamId).trim() || String(r.link).trim());
 const SIDE_LABEL_MAX = 12;
 const BLANK = {
   name: "", ageGroup: "U8", password: "", coachEmails: "",
   division: "", whatsapp: "", season: { ...BLANK_SEASON },
-  squadi: [{ label: "", competitionId: "", divisionId: "", teamId: "", link: "" }], // the season: one row, or two for a two-team squad
-  competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId }, dribl: { url, team }, link }
+  squadi: [squadiRow()], // the season: one row, or two for a two-team squad
+  competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId }, dribl: { url, team }, link, note, teams }
   importText: "",
   training: [], // { weekday, time, endTime, location }
   features: { ...DEFAULT_FEATURES },
@@ -62,19 +65,90 @@ const hasSquadiIds = (s) => !!(s.competitionId || s.divisionId || s.teamId);
 // team's name there, which says which side of each game is ours.
 const driblForEdit = (d) => ({ url: d?.url || "", team: d?.team || "" });
 
+// Another competition's row as the form holds it. `note` is what reading its
+// link found and `teams` the team names a Dribl draw listed, offered in the
+// team name box; neither is sent.
+const competitionRow = (c = {}) => ({ ...(c.id ? { id: c.id } : {}), name: c.name || "", squadi: squadiForEdit(c.squadi), dribl: driblForEdit(c.dribl), link: c.link || "", note: null, teams: [] });
+
+// ---- Setting a draw up from its link ----------------------------------------
+// A draw's website link is the address of its page, and when that page is the
+// team's fixtures on Squadi or on Dribl, the row can be filled in from it
+// (lib/feedLinks.js). A Squadi link is looked up through /api/feed-link for
+// the three ids the sync uses. A Dribl link is turned into the competition's
+// fixtures request by this browser (lib/driblLink.js), since Dribl turns
+// servers away. Either way what was found is read back under the field before
+// anything is saved, and the link itself is kept as the website link.
+export const DRIBL_IN_SEASON = "The season's games come from Squadi. For a draw on Dribl, use Add a competition below and paste its link there.";
+export const LINK_BEING_READ = "A link is still being read. Give it a moment, then save.";
+export const DRIBL_BY_HAND = "The link is kept. To sync this draw, its fixtures request can still be pasted in the Dribl box by hand (see the note below).";
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+// What reading a Squadi link found, said back in a sentence or two.
+const squadiFound = (found) => {
+  const f = found && typeof found === "object" ? found : {};
+  const what = [f.team, f.division, f.competition].filter(Boolean).join(" · ");
+  const games = f.games == null ? "The draw could not be read just now, but the link is good. Its games sync by themselves."
+    : f.games === 0 ? "No games are published for this team yet. They sync by themselves once they are. If that is not right, check the link is your team's."
+    : `${plural(f.games, "game")} found. They sync by themselves.`;
+  return `${what ? what + ". " : ""}${games}`;
+};
+// What reading a Dribl link found, as the note under the field. The request
+// has been filled in whatever this says; the note is about its draw.
+export function driblFound({ draw, problem }) {
+  if (!draw) return { kind: "err", text: `The fixtures request is filled in, but Dribl did not give its draw: ${problem}` };
+  if (problem) return { kind: "err", text: problem };
+  if (!draw.games) return { kind: "warn", text: "The fixtures request is filled in. Dribl lists no games in this draw yet. Once it does, they sync whenever a coach opens the team." };
+  const what = [draw.competition, draw.league].filter(Boolean).join(" · ");
+  if (!draw.ours) return { kind: "warn", text: `${what ? what + ". " : ""}${plural(draw.games, "game")} found, but the draw does not show which team is yours. Choose it in the team name box above.` };
+  return { kind: "ok", text: `${[draw.ours, what].filter(Boolean).join(" · ")}. ${plural(draw.ourGames, "game")} found. They sync whenever a coach opens the team.` };
+}
+
+// How much text arrived in one change to a box: the length of what is new
+// between the part both values start with and the part both end with. Typing
+// adds a character or two; a paste, or a link the phone's keyboard offers from
+// its clipboard, adds a link's worth. Not every phone tells the page about a
+// paste, so a whole link arriving at once is treated as one however it came.
+const WHOLE_LINK = 10;
+export function arrived(before, after) {
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  let end = 0;
+  while (end < before.length - start && end < after.length - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end++;
+  return after.length - start - end;
+}
+
 // A draw's website link: the page it is on, kept beside its ids. It takes a
 // line of its own under the ids, and once what is typed is a web address a
-// link at the end of that line opens it in a new tab.
-function LinkField({ who, value, onChange }) {
+// link at the end of that line opens it in a new tab. When it is a fixtures
+// page on Squadi or Dribl, Read link fills the row in from it, and what was
+// found shows underneath. A link pasted in, or put in whole some other way,
+// is read straight away; one typed out waits for Read link or Enter.
+function LinkField({ who, value, note, onChange, onRead }) {
   const href = websiteLink(value);
+  const busy = note?.kind === "busy";
+  const readable = !!feedProvider(value);
+  const changed = (e) => {
+    const next = e.target.value;
+    onChange(next);
+    if (arrived(value, next) >= WHOLE_LINK && feedProvider(next.trim())) onRead(next.trim());
+  };
   return (
-    <div style={{ display: "flex", gap: 10, alignItems: "center", flex: "1 1 100%", minWidth: 0 }}>
-      <input className="adm-inp" style={{ flex: 1, minWidth: 0 }} aria-label={`${who} website link`} inputMode="url" autoComplete="off" spellCheck={false}
-        placeholder="Website link for this draw (https://…)" value={value} onChange={onChange} />
-      {href && (
-        <a className="adm-link" style={{ flexShrink: 0 }} href={href} target="_blank" rel="noopener noreferrer" aria-label={`Open the ${who} website link in a new tab`}>
-          Open<ExternalLink size={13} aria-hidden="true" />
-        </a>
+    <div style={{ flex: "1 1 100%", minWidth: 0 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0 }}>
+        <input className="adm-inp" style={{ flex: 1, minWidth: 0 }} aria-label={`${who} website link`} inputMode="url" autoComplete="off" autoCapitalize="none" spellCheck={false}
+          placeholder="Paste the draw's page link (https://…)" value={value} onChange={changed}
+          onPaste={(e) => { const pasted = (e.clipboardData?.getData("text") || "").trim(); if (feedProvider(pasted)) { e.preventDefault(); onChange(pasted); onRead(pasted); } }}
+          onKeyDown={(e) => { if (e.key === "Enter" && readable) { e.preventDefault(); if (!busy) onRead(value); } }} />
+        {href && (
+          <a className="adm-link" style={{ flexShrink: 0 }} href={href} target="_blank" rel="noopener noreferrer" aria-label={`Open the ${who} website link in a new tab`}>
+            Open<ExternalLink size={13} aria-hidden="true" />
+          </a>
+        )}
+        {readable && (
+          <button type="button" className="adm-btn soft sm" style={{ flexShrink: 0 }} disabled={busy} aria-label={`Read link for ${who}`} onClick={() => onRead(value)}>{busy ? "Reading…" : "Read link"}</button>
+        )}
+      </div>
+      {note && note.kind !== "busy" && (
+        <div className={"adm-msg " + (note.kind === "err" ? "err" : note.kind === "ok" ? "ok" : "warn")} role={note.kind === "err" ? "alert" : "status"} style={{ marginTop: 8 }}>{note.text}</div>
       )}
     </div>
   );
@@ -142,7 +216,7 @@ export default function TeamWizard({ onTeamsChanged }) {
       coachEmails: (t.coachEmails || []).join(", "),
       division: t.division || "", whatsapp: t.whatsapp || "", season: seasonForEdit(t.season),
       squadi: seasonFeedsForEdit(t.squadi),
-      competitions: (t.competitions || []).map((c) => ({ id: c.id, name: c.name || "", squadi: squadiForEdit(c.squadi), dribl: driblForEdit(c.dribl), link: c.link || "" })),
+      competitions: (t.competitions || []).map(competitionRow),
       importText: "", training: [],
       features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
       parentsSee: { ...DEFAULT_PARENTS_SEE, ...(t.parentsSee || {}) },
@@ -210,7 +284,50 @@ export default function TeamWizard({ onTeamsChanged }) {
     e.target.value = ""; // allow re-selecting the same file
   };
 
+  // Read the website link of a season row or a competition row and fill the
+  // row in from it. `list` is the form key the row lives in ("squadi" for the
+  // season, "competitions"). The row is found again by its link when the
+  // answer comes back, so a row removed or changed in the meantime is left as
+  // it is. A link that is not a fixtures page on Squadi or Dribl has nothing
+  // to read and is simply the website link it was.
+  const readLink = async (list, i, text) => {
+    const patch = (fn, only) => setForm((f) => (!f ? f : { ...f, [list]: f[list].map((r, k) => (k === i && (!only || r.link === only) ? fn(r) : r)) }));
+    if (!feedProvider(text)) return;
+    const parsed = parseFeedLink(text);
+    // A page on one of them that does not name a team's draw: said, and kept.
+    if (parsed.error) { patch((r) => ({ ...r, note: { kind: "warn", text: parsed.error } })); return; }
+    if (parsed.provider === "dribl" && list === "squadi") { patch((r) => ({ ...r, link: parsed.link, note: { kind: "warn", text: DRIBL_IN_SEASON } })); return; }
+    patch((r) => ({ ...r, link: parsed.link, note: { kind: "busy" } }));
+    try {
+      if (parsed.provider === "dribl") {
+        const got = await readDriblLink(parsed.link, { team: form?.competitions?.[i]?.dribl?.team || "" });
+        // One source to a row: the Dribl request takes the place of any Squadi ids.
+        patch((r) => ({
+          ...r, squadi: squadiForEdit(), dribl: { url: got.url, team: r.dribl.team }, teams: got.draw?.teams || [], note: driblFound(got),
+          name: r.name.trim() ? r.name : String(got.draw?.competition || "").slice(0, 40)
+        }), parsed.link);
+        return;
+      }
+      const res = await fetch("/api/feed-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ link: parsed.link }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.squadi) throw new Error(j.error || "Couldn't read that link. Try again.");
+      const ids = { competitionId: String(j.squadi.competitionId), divisionId: String(j.squadi.divisionId), teamId: String(j.squadi.teamId) };
+      const note = { kind: "ok", text: squadiFound(j.found) };
+      patch((r) => (list === "squadi"
+        ? { ...r, ...ids, note }
+        // The Squadi ids take the place of any Dribl request, and a competition
+        // with no name yet takes Squadi's name for it, which can be changed.
+        : { ...r, squadi: ids, dribl: driblForEdit(), teams: [], note, name: r.name.trim() ? r.name : String(j.found?.competition || "").slice(0, 40) }), parsed.link);
+    } catch (e) {
+      const said = String(e?.message || e);
+      patch((r) => ({ ...r, note: { kind: "err", text: parsed.provider === "dribl" ? `${said} ${DRIBL_BY_HAND}` : said } }), parsed.link);
+    }
+  };
+
   const submit = async () => {
+    // A link still being read has filled nothing in yet: saving now would keep
+    // the link and none of what it is about to find.
+    if ([...form.squadi, ...form.competitions].some((r) => r.note?.kind === "busy")) { setErr(LINK_BEING_READ); return; }
     // One filled row is sent as the single feed it always was; two filled
     // rows as the labelled pair. A label on a lone row is not sent.
     const rows = form.squadi.filter(rowFilled);
@@ -410,7 +527,9 @@ export default function TeamWizard({ onTeamsChanged }) {
             {form.squadi.map((row, i) => {
               const two = form.squadi.length === 2;
               const who = i === 0 ? "Squadi" : "Second Squadi";
-              const set = (key) => (e) => setForm((f) => ({ ...f, squadi: f.squadi.map((r, k) => (k === i ? { ...r, [key]: e.target.value } : r)) }));
+              // Typing in a row puts away what its link was last read as.
+              const patchRow = (patch) => setForm((f) => ({ ...f, squadi: f.squadi.map((r, k) => (k === i ? { ...r, ...patch, note: null } : r)) }));
+              const set = (key) => (e) => patchRow({ [key]: e.target.value });
               return (
                 <div key={i} className="adm-line" style={i === 0 ? { marginTop: 0 } : undefined}>
                   <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} team label`} placeholder={two ? "Label (e.g. McKay)" : "Label (for two teams)"}
@@ -418,7 +537,7 @@ export default function TeamWizard({ onTeamsChanged }) {
                   <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} competition ID`} placeholder="competitionId" value={row.competitionId} onChange={set("competitionId")} />
                   <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} division ID`} placeholder="divisionId" value={row.divisionId} onChange={set("divisionId")} />
                   <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} team ID`} placeholder="teamId" value={row.teamId} onChange={set("teamId")} />
-                  <LinkField who={who} value={row.link} onChange={set("link")} />
+                  <LinkField who={who} value={row.link} note={row.note} onChange={(link) => patchRow({ link })} onRead={(text) => readLink("squadi", i, text)} />
                   {i === 1 && (
                     <button type="button" className="adm-link" onClick={() => setForm((f) => ({ ...f, squadi: f.squadi.slice(0, 1) }))}>Remove the second team</button>
                   )}
@@ -430,7 +549,14 @@ export default function TeamWizard({ onTeamsChanged }) {
               : <div className="adm-note">Two rows make one squad that plays as two teams each round, like McKay and McKain.</div>}
             {form.competitions.map((c, i) => {
               const set = (patch) => setForm((f) => ({ ...f, competitions: f.competitions.map((r, k) => (k === i ? { ...r, ...patch } : r)) }));
-              const setId = (key, value) => set({ squadi: { ...c.squadi, [key]: value } });
+              // Typing a source in by hand puts away what the link was last read as.
+              const setId = (key, value) => set({ squadi: { ...c.squadi, [key]: value }, note: null });
+              const teamList = `adm-dribl-teams-${i}`;
+              // The page link and the request are easy to mix up: a whole
+              // fixtures page link put in the request box is moved to the
+              // link box and read there, which fills the request in.
+              const isPageLink = (text) => parseFeedLink(text).provider === "dribl";
+              const moveToLink = (text) => { set({ link: text, note: null }); readLink("competitions", i, text); };
               const who = c.name.trim() || `Competition ${i + 1}`;
               return (
                 <div key={i} className="adm-comp">
@@ -451,38 +577,51 @@ export default function TeamWizard({ onTeamsChanged }) {
                   <div className="adm-line">
                     <input className="adm-inp" style={{ flex: "1 1 100%" }} aria-label={`${who} Dribl fixtures request`} inputMode="url" autoComplete="off" spellCheck={false}
                       placeholder="Or, for a draw on Dribl, its fixtures request (https://mc-api.dribl.com/api/fixtures?…)" value={c.dribl.url}
-                      onChange={(e) => set({ dribl: { ...c.dribl, url: e.target.value } })} />
-                    {c.dribl.url.trim() && (
+                      onPaste={(e) => { const pasted = (e.clipboardData?.getData("text") || "").trim(); if (isPageLink(pasted)) { e.preventDefault(); moveToLink(pasted); } }}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        if (arrived(c.dribl.url, next) >= WHOLE_LINK && isPageLink(next.trim())) { moveToLink(next.trim()); return; }
+                        set({ dribl: { ...c.dribl, url: next }, note: null, teams: [] });
+                      }} />
+                    {c.dribl.url.trim() && (<>
+                      {/* The teams the draw listed when its link was read are offered as they are spelt there. */}
                       <input className="adm-inp" style={{ flex: "1 1 100%" }} aria-label={`${who} team name on Dribl`} placeholder="Your team's name as Dribl shows it"
-                        value={c.dribl.team} onChange={(e) => set({ dribl: { ...c.dribl, team: e.target.value } })} />
-                    )}
+                        list={c.teams.length ? teamList : undefined} autoComplete="off"
+                        value={c.dribl.team} onChange={(e) => set({ dribl: { ...c.dribl, team: e.target.value }, note: null })} />
+                      {c.teams.length > 0 && <datalist id={teamList}>{c.teams.map((name) => <option key={name} value={name} />)}</datalist>}
+                    </>)}
                   </div>
                   <div className="adm-line">
-                    <LinkField who={who} value={c.link} onChange={(e) => set({ link: e.target.value })} />
+                    <LinkField who={who} value={c.link} note={c.note} onChange={(link) => set({ link, note: null })} onRead={(text) => readLink("competitions", i, text)} />
                   </div>
                 </div>
               );
             })}
             {form.competitions.length < MAX_COMPETITIONS && (
               <button type="button" className="adm-btn soft sm" style={{ marginTop: 8 }}
-                onClick={() => setForm((f) => ({ ...f, competitions: [...f.competitions, { name: "", squadi: squadiForEdit(), dribl: driblForEdit(), link: "" }] }))}>
+                onClick={() => setForm((f) => ({ ...f, competitions: [...f.competitions, competitionRow()] }))}>
                 <Plus size={14} aria-hidden="true" />Add a competition
               </button>
             )}
             <div className="adm-note">
-              Squadi IDs come from the FQ widget via DevTools (see the README). Add a competition for anything played alongside the
-              season, such as a winter tournament. One with no IDs yet is kept, and synced once you add them with Edit. Its games
-              are labelled with its name and kept out of the season record.
+              The quickest way to fill a draw in is its link. Open your team's fixtures page on Squadi or Dribl, copy its address
+              and paste it into the row's link box: a Squadi link fills in the three IDs, and a Dribl link fills in the Dribl
+              fixtures request. What it found is shown under the box before you save.
             </div>
             <div className="adm-note">
-              A competition on Dribl takes its fixtures request instead of Squadi IDs: on its Dribl fixtures page, open DevTools,
-              choose Network and copy the address of the request that starts with https://mc-api.dribl.com/api/fixtures. Add your
-              team's name as Dribl shows it, so the app knows which side of each game is yours. Its games are then kept in step
-              whenever a coach opens the team.
+              Add a competition for anything played alongside the season, such as a winter tournament. One with no IDs yet is
+              kept, and synced once you add them with Edit. Its games are labelled with its name and kept out of the season
+              record. A draw on Squadi syncs for everyone; a draw on Dribl is kept in step whenever a coach opens the team.
             </div>
             <div className="adm-note">
-              The website link is a copy of the page each draw is on, kept here with the draw so it is easy to find again.
-              Nothing is synced from it.
+              Everything a link fills in can also be typed by hand. Squadi IDs come from the FQ widget via DevTools (see the
+              README). A Dribl fixtures request is the address of the request that starts with
+              https://mc-api.dribl.com/api/fixtures, in DevTools under Network on the competition's Dribl fixtures page; add your
+              team's name as Dribl shows it when the draw has more than one of your club's teams.
+            </div>
+            <div className="adm-note">
+              The link is kept with its draw and shown on the team's league page, so families can open the draw. A link to
+              any other site can go here too: it is kept and nothing is read from it.
             </div>
           </Step>
 

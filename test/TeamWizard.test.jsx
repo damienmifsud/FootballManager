@@ -695,11 +695,11 @@ describe("TeamWizard — a website link beside each draw", () => {
     for (const who of ["Squadi", "Winterfest", "Premier Invitational"]) {
       const field = screen.getByLabelText(`${who} website link`);
       expect(field.value).toBe("");
-      expect(field.getAttribute("placeholder")).toBe("Website link for this draw (https://…)");
+      expect(field.getAttribute("placeholder")).toBe("Paste the draw's page link (https://…)");
       expect(field.getAttribute("inputmode")).toBe("url");
     }
-    expect(step("Competitions").getByText(/The website link is a copy of the page each draw is on/).textContent)
-      .toBe("The website link is a copy of the page each draw is on, kept here with the draw so it is easy to find again. Nothing is synced from it.");
+    expect(step("Competitions").getByText(/The link is kept with its draw/).textContent)
+      .toBe("The link is kept with its draw and shown on the team's league page, so families can open the draw. A link to any other site can go here too: it is kept and nothing is read from it.");
     expect(screen.getByRole("heading", { level: 4, name: "Competitions" }).closest(".adm-step").textContent).not.toMatch(EMOJI);
   });
 
@@ -841,9 +841,11 @@ describe("TeamWizard — a competition on Dribl", () => {
     expect(screen.queryByLabelText("Premier Invitational team name on Dribl")).toBeNull();
     fill("Premier Invitational Dribl fixtures request", REQUEST);
     expect(screen.getByLabelText("Premier Invitational team name on Dribl").getAttribute("placeholder")).toBe("Your team's name as Dribl shows it");
-    // The step explains where the request comes from and what happens with it.
-    expect(screen.getByText(/A competition on Dribl takes its fixtures request instead of Squadi IDs/).textContent)
-      .toMatch(/copy the address of the request that starts with https:\/\/mc-api\.dribl\.com\/api\/fixtures\. Add your\s+team's name as Dribl shows it, so the app knows which side of each game is yours\. Its games are then kept in step\s+whenever a coach opens the team\.$/);
+    // The step explains where a request typed by hand comes from, and when a Dribl draw is synced.
+    expect(screen.getByText(/Everything a link fills in can also be typed by hand/).textContent)
+      .toMatch(/A Dribl fixtures request is the address of the request that starts with\s+https:\/\/mc-api\.dribl\.com\/api\/fixtures, in DevTools under Network on the competition's Dribl fixtures page; add your\s+team's name as Dribl shows it when the draw has more than one of your club's teams\.$/);
+    expect(screen.getByText(/Add a competition for anything played alongside the season/).textContent)
+      .toMatch(/A draw on Squadi syncs for everyone; a draw on Dribl is kept in step whenever a coach opens the team\.$/);
   });
 
   it("sends the request, trimmed, with the team's name; no Squadi ids are invented for it", async () => {
