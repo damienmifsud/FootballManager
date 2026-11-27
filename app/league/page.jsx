@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { AdminPage } from "@/components/AdminShell";
+import { syncDribl } from "@/lib/driblSync";
 
 // FQ Metro Region organisation key (from footballqueensland.com.au's own embeds).
 const FQ_METRO_ORG = "b0e92958-980b-4da0-9ec9-a9c2597b06f0";
@@ -55,6 +56,14 @@ async function errorText(res, fallback) {
   return fallback;
 }
 
+// Where a draw's link leads, in a few words: the service when it is one the
+// app knows, otherwise the site's own name.
+function whereOf(d) {
+  if (d.provider === "squadi") return "On Squadi";
+  if (d.provider === "dribl") return "On Dribl";
+  try { return new URL(d.link).hostname.replace(/^www\./, ""); } catch { return "Website"; }
+}
+
 export default function LeaguePage() {
   const [me, setMe] = useState(null); // /api/me: { mode, role, teamName, ... }
   const [meReady, setMeReady] = useState(false); // /api/me has answered, whatever it said
@@ -62,7 +71,7 @@ export default function LeaguePage() {
   const [loaded, setLoaded] = useState(false); // this team's set-up has arrived from /api/league
   const [teamSlug, setTeamSlug] = useState(""); // the team that set-up was loaded for
   const [hadSetup, setHadSetup] = useState(false); // the team had a set-up of its own when the page loaded
-  const [draws, setDraws] = useState([]); // every draw the club's set-up has a fixtures link for: { name, provider, link, season? }
+  const [draws, setDraws] = useState([]); // every draw the club's set-up has a website link for: { name, provider, link, season? }
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
@@ -76,24 +85,45 @@ export default function LeaguePage() {
   // never open on, and save over, a set-up it has not read.
   const canManage = loaded && !!me && (me.mode === "code" || me.role === "coach");
 
+  // One button syncs every draw the team has. Squadi's are pulled by the
+  // server (/api/sync). A draw on Dribl is fetched here in the browser and
+  // posted back, because Dribl turns servers away (lib/driblSync.js). Squadi
+  // first, then Dribl: one after the other, as both write the team's
+  // document. Neither waits on the other's luck: with Squadi down, a draw on
+  // Dribl is still synced.
   const syncNow = async () => {
     setSyncMsg("Syncing…");
+    let j = null, squadiError = "";
     try {
       const res = await fetch("/api/sync", { cache: "no-store" });
-      const j = await res.json();
-      if (!res.ok || !j.ok) { setSyncMsg("Sync failed: " + (j.error || res.status)); return; }
-      // Nothing to pull: no draw has its Squadi ids yet (they go in club admin).
-      if (j.skipped === "no squadi config") { setSyncMsg("No Squadi draw is set up for this team yet."); return; }
-      // A team can have several draws (its season, which is two feeds on a
-      // two-team squad, and other competitions). One that could not be fetched
-      // is named (the competition, or the side); the others were still applied.
-      const failed = Array.isArray(j.failed) && j.failed.length
-        ? " Could not sync " + j.failed.map((f) => `${f.name} (${f.error})`).join("; ") + "."
-        : "";
-      setSyncMsg((j.changes.length
-        ? `Updated ${j.changes.length} item${j.changes.length > 1 ? "s" : ""}: ` + j.changes.slice(0, 3).join(" · ") + (j.changes.length > 3 ? " …" : "")
-        : "Already up to date with Squadi.") + failed);
-    } catch (e) { setSyncMsg("Sync failed: " + e.message); }
+      const body = await res.json();
+      if (res.ok && body.ok) j = body; else squadiError = String(body.error || res.status);
+    } catch (e) { squadiError = e.message; }
+    let dribl;
+    try { dribl = await syncDribl({ force: true }); }
+    catch (e) { dribl = { changes: [], failed: [{ name: "Dribl", error: e.message }], synced: 0 }; }
+    // With no draw on Dribl, a sync that failed reads as it always has.
+    if (squadiError && dribl.skipped) { setSyncMsg("Sync failed: " + squadiError); return; }
+    const noSquadi = !!j && j.skipped === "no squadi config";
+    // Nothing to pull: no draw has been set up yet (that is done in club admin).
+    if (noSquadi && dribl.skipped) { setSyncMsg("No draw is set up for this team yet."); return; }
+    // A team can have several draws (its season, which is two feeds on a
+    // two-team squad, and other competitions). One that could not be fetched
+    // is named (the competition, the side, or Squadi as a whole); the others
+    // were still applied.
+    const changes = [...(Array.isArray(j?.changes) ? j.changes : []), ...(dribl.changes || [])];
+    const missed = [
+      ...(squadiError ? [{ name: "Squadi", error: squadiError }] : Array.isArray(j.failed) ? j.failed : []),
+      ...(dribl.failed || [])
+    ];
+    // The reason sits in brackets, so its own full stop is dropped.
+    const failed = missed.length ? "Could not sync " + missed.map((f) => `${f.name} (${String(f.error).replace(/\.+$/, "")})`).join("; ") + "." : "";
+    // "Up to date" is only said of what was actually checked.
+    const checked = [!!j && !noSquadi && "Squadi", dribl.synced > 0 && "Dribl"].filter(Boolean);
+    const head = changes.length
+      ? `Updated ${changes.length} item${changes.length > 1 ? "s" : ""}: ` + changes.slice(0, 3).join(" · ") + (changes.length > 3 ? " …" : "")
+      : checked.length ? `Already up to date with ${checked.join(" and ")}.` : "";
+    setSyncMsg([head, failed].filter(Boolean).join(" "));
   };
 
   useEffect(() => {
@@ -130,9 +160,10 @@ export default function LeaguePage() {
     return () => { cancelled = true; };
   }, []);
 
-  // The season's own draw, when the club's set-up has its Squadi fixtures link
-  // (pasted in the team wizard). It is what the page shows for a team with no
-  // set-up of its own.
+  // The season's own draw, when the club's set-up has its page on Squadi as
+  // its website link (pasted in the team wizard). It is what the page shows
+  // for a team with no set-up of its own. A link to any other site is listed
+  // to be opened, never shown in place.
   const seasonDraw = draws.find((d) => d.season && d.provider === "squadi") || null;
 
   // Nothing saved yet, nothing to show from the club's set-up either, and
@@ -258,7 +289,7 @@ export default function LeaguePage() {
           )}
           <button className="adm-btn block" style={{ marginTop: 14 }} onClick={save} disabled={saving}>{saving ? "Saving…" : "Save for everyone"}</button>
           {saveError && <div className="adm-msg err" role="alert" style={{ marginTop: 10 }}>{saveError}</div>}
-          <button className="adm-btn soft block" style={{ marginTop: 8 }} onClick={syncNow}>Sync fixtures from Squadi now</button>
+          <button className="adm-btn soft block" style={{ marginTop: 8 }} onClick={syncNow}>Sync fixtures now</button>
           {syncMsg && <div className="adm-note" role="status" style={{ marginTop: 10 }}>{syncMsg}</div>}
         </section>
       )}
@@ -268,7 +299,7 @@ export default function LeaguePage() {
           <h2 className="adm-label" id="league-draws" style={{ marginBottom: 4 }}>Draws</h2>
           {listed.map((d) => (
             <div className="adm-row" key={d.name + d.link}>
-              <div className="adm-row-main">{d.name}<div className="adm-row-sub">{d.provider === "dribl" ? "On Dribl" : "On Squadi"}</div></div>
+              <div className="adm-row-main">{d.name}<div className="adm-row-sub">{whereOf(d)}</div></div>
               <a href={d.link} target="_blank" rel="noopener noreferrer" className="adm-link">
                 Open the draw<ExternalLink size={13} aria-hidden="true" />
               </a>

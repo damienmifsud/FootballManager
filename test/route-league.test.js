@@ -594,12 +594,14 @@ describe("GET /api/league — the draws the club's set-up has a link for", () =>
   const KEY = "11111111-2222-4333-8444-555555555555";
   const SQ = `https://registration.squadi.com/liveScoreSeasonFixture?competitionUniqueKey=${KEY}&divisionId=20001&teamId=300001`;
   const DR = "https://winterleague.dribl.com/fixtures?season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468";
+  const REQUEST = "https://mc-api.dribl.com/api/fixtures?date_range=all&season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468&tenant=Tn12345678&timezone=Australia%2FBrisbane";
   const REGISTRY = {
     slug: "a", name: "U8 Blues", password: "secret-team-code", calendarKey: "secret-calendar-key", coachEmails: ["coach@a.com"],
     squadi: { competitionId: "777", divisionId: "20001", teamId: 300001, link: SQ },
     competitions: [
-      { id: "cdribl001", name: "Winter League", dribl: { link: DR, site: "winterleague", season: "AbCdEf1234", competition: "1pQrStUv90", league: "ZyXwVu5678", club: "MnOpQr2468" } },
-      { id: "cnolink01", name: "Cup", squadi: { competitionId: "888", divisionId: "30001", teamId: 400001 } }
+      { id: "cdribl001", name: "Winter League", dribl: { url: REQUEST, team: "Riverside FC U8 Blues" }, link: DR },
+      { id: "cnolink01", name: "Cup", squadi: { competitionId: "888", divisionId: "30001", teamId: 400001 } },
+      { id: "csite0001", name: "Gala Day", link: "https://www.example.org/gala-day" }
     ]
   };
 
@@ -611,10 +613,12 @@ describe("GET /api/league — the draws the club's set-up has a link for", () =>
       const json = await (await GET(fakeRequest())).json();
       expect(json.draws).toEqual([
         { name: "Season", provider: "squadi", link: SQ, season: true },
-        { name: "Winter League", provider: "dribl", link: DR }
+        { name: "Winter League", provider: "dribl", link: DR },
+        { name: "Gala Day", provider: "", link: "https://www.example.org/gala-day" }
       ]);
-      // The team's code, its calendar key, its coaches and its sync ids stay on the server.
-      expect(JSON.stringify(json)).not.toMatch(/secret-team-code|secret-calendar-key|coach@a\.com|competitionId|"777"|cdribl001/);
+      // The team's code, its calendar key, its coaches, its sync ids, its Dribl
+      // request and its team's name there stay on the server.
+      expect(JSON.stringify(json)).not.toMatch(/secret-team-code|secret-calendar-key|coach@a\.com|competitionId|"777"|cdribl001|mc-api|Tn12345678|Riverside/);
     }
   });
 
@@ -625,6 +629,6 @@ describe("GET /api/league — the draws the club's set-up has a link for", () =>
     teamBySlug.mockImplementation(() => REGISTRY);
     const json = await (await GET(fakeRequest())).json();
     expect(json).toMatchObject({ teamSlug: "a", squadi: SAVED, saved: true });
-    expect(json.draws).toHaveLength(2);
+    expect(json.draws).toHaveLength(3);
   });
 });

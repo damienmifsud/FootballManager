@@ -20,12 +20,13 @@ export const dynamic = "force-dynamic";
 // GET: any member of the team (or anyone with the team code in legacy mode).
 // Response: { teamSlug, squadi, saved, draws }. `saved` is whether the team
 // has a setup of its own; `squadi` is that setup, or null when it has none.
-// `draws` is every draw the club's set-up holds a fixtures link for (the
+// `draws` is every draw the club's set-up holds a website link for (the
 // wizard's Competitions step; lib/competitions.js drawLinks): the season's,
 // then each other competition's, as { name, provider, link, season?, side? }.
 // The page lists them to be opened, and shows the season's own draw in place
-// when the team has no setup of its own. With neither, it says "Not configured
-// yet." rather than showing anybody's draw. Links only: no ids are sent.
+// when it is on Squadi and the team has no setup of its own. With neither, it
+// says "Not configured yet." rather than showing anybody's draw. Links only:
+// no ids and no Dribl request are sent.
 // Only the original team (lib/leagueSetup.js isOriginalTeam: the legacy owner,
 // as for the pre-multi-team document, or the team whose own Squadi sync ids
 // are the original team's) falls back to the pre-multi-team default; on any

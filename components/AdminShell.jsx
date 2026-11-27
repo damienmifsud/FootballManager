@@ -166,10 +166,6 @@ label.adm-btn:focus-within{outline:2px solid var(--pitch);outline-offset:2px;}
 .adm-staff .top{display:flex;gap:8px;align-items:center;}
 .adm-staff .more{display:grid;grid-template-columns:1fr 1.4fr;gap:8px;margin-top:8px;}
 .adm-staff .w110{width:110px;font-size:12px;font-weight:700;color:var(--muted);flex-shrink:0;}
-/* one season draw: its fixtures link, then the ids the link filled in */
-.adm-feed{margin-top:12px;padding-top:4px;border-top:1px solid var(--line);}
-.adm-feed.first{margin-top:0;padding-top:0;border-top:none;}
-.adm-feed.first>.adm-line:first-child{margin-top:0;}
 .adm-comp{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);}
 .adm-comp .top{display:flex;gap:8px;align-items:center;}
 .adm-logo{width:44px;height:44px;object-fit:contain;border-radius:10px;background:var(--soft);}

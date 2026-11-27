@@ -2,12 +2,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, cleanup, waitFor, within } from "@testing-library/react";
 
-// The league page and the draws the club's set-up holds a fixtures link for
+// The league page and the draws the club's set-up holds a website link for
 // (pasted in the team wizard). The season's Squadi draw is shown in place for
 // a team with no set-up of its own, and every draw is listed to be opened: a
-// competition on Dribl is a link out, never something the page reads. In a
-// file of its own, beside test/league.test.jsx. Every key, id and name is
-// made up.
+// competition on Dribl, or on a site of its own, is a link out, never
+// something the page shows in place. In a file of its own, beside
+// test/league.test.jsx. Every key, id and name is made up.
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }) => <a href={href} {...rest}>{children}</a> }));
 import LeaguePage from "@/app/league/page";
 
@@ -17,7 +17,7 @@ const SQ2 = SQ.replace("20001", "20002").replace("300001", "300002");
 const DR = "https://winterleague.dribl.com/fixtures?season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468";
 const OWN = { mode: "url", url: "https://registration.squadi.com/liveScoreSeasonFixture?own=1", org: "o", yearId: "8", comp: "c", divisionId: "1", teamId: "2" };
 const SEASON = { name: "Season", provider: "squadi", link: SQ, season: true };
-const DRIBL = { name: "Premier Invitational", provider: "dribl", link: DR };
+const DRIBL = { name: "Winter League", provider: "dribl", link: DR };
 
 let me, league;
 beforeEach(() => {
@@ -78,7 +78,7 @@ describe("the list of draws", () => {
     league.draws = [SEASON, DRIBL];
     await show();
     await waitFor(() => expect(rows()).toHaveLength(2));
-    expect(rows()).toEqual([{ name: "Season", on: "On Squadi", href: SQ }, { name: "Premier Invitational", on: "On Dribl", href: DR }]);
+    expect(rows()).toEqual([{ name: "Season", on: "On Squadi", href: SQ }, { name: "Winter League", on: "On Dribl", href: DR }]);
     for (const a of drawsCard().getAllByRole("link", { name: "Open the draw" })) {
       expect([a.getAttribute("target"), a.getAttribute("rel")]).toEqual(["_blank", "noopener noreferrer"]);
     }
@@ -87,10 +87,32 @@ describe("the list of draws", () => {
   it("a competition on Dribl is a link out, never put in the page; a team with only that is not called not configured", async () => {
     league.draws = [DRIBL];
     await show();
-    await waitFor(() => expect(rows()).toEqual([{ name: "Premier Invitational", on: "On Dribl", href: DR }]));
+    await waitFor(() => expect(rows()).toEqual([{ name: "Winter League", on: "On Dribl", href: DR }]));
     expect(frame()).toBeNull();
     expect(screen.queryByText("Not configured yet.")).toBeNull();
     expect(document.body.innerHTML).not.toMatch(/<iframe/);
+  });
+
+  it("a link to any other site is listed under that site's own name, and never shown in place, the season's included", async () => {
+    league.draws = [
+      { name: "Season", provider: "", link: "https://www.example.org/metro/under-8/draw?round=all", season: true },
+      { name: "Gala Day", provider: "", link: "https://fixtures.example.net/gala" }
+    ];
+    await show();
+    await waitFor(() => expect(rows()).toHaveLength(2));
+    expect(rows()).toEqual([
+      { name: "Season", on: "example.org", href: "https://www.example.org/metro/under-8/draw?round=all" },
+      { name: "Gala Day", on: "fixtures.example.net", href: "https://fixtures.example.net/gala" }
+    ]);
+    expect(frame()).toBeNull();
+    expect(screen.queryByText("Not configured yet.")).toBeNull();
+  });
+
+  it("the season's page on Dribl is a link out too: only its page on Squadi is shown in place", async () => {
+    league.draws = [{ name: "Season", provider: "dribl", link: DR, season: true }];
+    await show();
+    await waitFor(() => expect(rows()).toEqual([{ name: "Season", on: "On Dribl", href: DR }]));
+    expect(frame()).toBeNull();
   });
 
   it("another competition's Squadi draw is listed, not shown in place of a season that has no link", async () => {
@@ -104,7 +126,7 @@ describe("the list of draws", () => {
     league.draws = [{ name: "Odd", provider: "dribl", link: "javascript:alert(1)" }, { name: "Plain", provider: "squadi", link: "http://registration.squadi.com/x", season: true }, null, "nope", DRIBL];
     await show();
     await waitFor(() => expect(rows()).toHaveLength(1));
-    expect(rows()[0].name).toBe("Premier Invitational");
+    expect(rows()[0].name).toBe("Winter League");
     expect(frame()).toBeNull();
     expect(document.body.innerHTML).not.toContain("javascript:");
   });

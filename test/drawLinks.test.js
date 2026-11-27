@@ -1,99 +1,85 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeSquadiIds, sanitizeCompetitions, squadiFeeds, squadiSources, drawLinks } from "@/lib/competitions";
+import { drawLinks, sanitizeCompetitions, squadiFeeds, squadiSources, driblSources } from "@/lib/competitions";
 
-// A draw keeps the fixtures link it was set up from (lib/feedLinks.js): a
-// Squadi draw beside its ids, a Dribl competition as the link and what it
-// names. In a file of its own, beside test/competitions.test.js. Every key
-// and id is made up.
+// Every draw a team has a website link for, as the league page lists them: the
+// season's (each side of a two-team squad), then each other competition's.
+// The link is the draw's website link from the wizard; `provider` says whether
+// it is a page on Squadi or Dribl. Every id, key and name here is made up.
 
-const KEY = "11111111-2222-4333-8444-555555555555";
-const SQ = `https://registration.squadi.com/liveScoreSeasonFixture?competitionUniqueKey=${KEY}&divisionId=20001&teamId=300001`;
-const SQ2 = `https://registration.squadi.com/liveScoreSeasonFixture?competitionUniqueKey=${KEY}&divisionId=20002&teamId=300002`;
-const DR = "https://winterleague.dribl.com/fixtures?season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468";
-const DRIBL = { link: DR, site: "winterleague", season: "AbCdEf1234", competition: "1pQrStUv90", league: "ZyXwVu5678", club: "MnOpQr2468" };
 const IDS = { competitionId: "777", divisionId: "20001", teamId: 300001 };
-const counter = () => { let n = 0; return () => `cnew${++n}`; };
-
-describe("sanitizeSquadiIds — the link beside the ids", () => {
-  it("keeps a Squadi link, normalised, and nothing that is not one", () => {
-    expect(sanitizeSquadiIds({ ...IDS, link: `  ${SQ} ` })).toEqual({ ...IDS, link: SQ });
-    for (const link of [DR, "https://example.com/x", "javascript:alert(1)", "", null, 7, { href: SQ }]) {
-      expect(sanitizeSquadiIds({ ...IDS, link })).toEqual(IDS);
-    }
-  });
-
-  it("a link with no ids is nothing the sync could use, so it is not a draw", () => {
-    expect(sanitizeSquadiIds({ link: SQ })).toBeNull();
-  });
-});
-
-describe("sanitizeCompetitions — a competition on Dribl", () => {
-  it("is kept as its link and what the link names, rebuilt from the link itself", () => {
-    const out = sanitizeCompetitions([{ name: "Premier Invitational", dribl: { link: DR, site: "someone-else", club: "<b>" } }], counter());
-    expect(out).toEqual([{ id: "cnew1", name: "Premier Invitational", dribl: DRIBL }]);
-  });
-
-  it("is kept even with no name yet, and dropped when the link is not a Dribl one", () => {
-    expect(sanitizeCompetitions([{ name: "", dribl: { link: DR } }], counter())).toEqual([{ id: "cnew1", name: "Competition 1", dribl: DRIBL }]);
-    expect(sanitizeCompetitions([{ name: "", dribl: { link: SQ } }, { name: " ", dribl: { link: "https://example.com/" } }, { name: "", dribl: null }], counter())).toEqual([]);
-    expect(sanitizeCompetitions([{ name: "Cup", dribl: { link: "nope" } }], counter())).toEqual([{ id: "cnew1", name: "Cup" }]);
-  });
-
-  it("is one draw to a row: Squadi ids sent with a Dribl link win, and the Squadi link is kept with them", () => {
-    const out = sanitizeCompetitions([{ id: "cwinter", name: "Winterfest", squadi: { ...IDS, link: SQ }, dribl: { link: DR } }], counter());
-    expect(out).toEqual([{ id: "cwinter", name: "Winterfest", squadi: { ...IDS, link: SQ } }]);
-  });
-});
-
-describe("squadiFeeds and squadiSources — links do not change what is synced", () => {
-  it("a season feed carries its link; two labelled feeds carry one each", () => {
-    expect(squadiFeeds({ squadi: { ...IDS, link: SQ } })).toEqual([{ ...IDS, link: SQ }]);
-    expect(squadiFeeds({ squadi: [{ label: "Red", ...IDS, link: SQ }, { label: "White", competitionId: "777", divisionId: "20002", teamId: 300002, link: SQ2 }] }))
-      .toEqual([{ label: "Red", ...IDS, link: SQ }, { label: "White", competitionId: "777", divisionId: "20002", teamId: 300002, link: SQ2 }]);
-    expect(squadiFeeds({ squadi: { ...IDS, link: DR } })).toEqual([IDS]); // a link from another site is not carried
-    expect(squadiFeeds({ squadi: IDS })).toEqual([IDS]);                  // and none is none
-  });
-
-  it("a Squadi draw with a link is a source as before; a Dribl competition never is", () => {
-    const team = { squadi: { ...IDS, link: SQ }, competitions: [
-      { id: "cdribl", name: "Premier Invitational", dribl: DRIBL },
-      { id: "cwinter", name: "Winterfest", squadi: { competitionId: "888", divisionId: "30001", teamId: 400001, link: SQ2 } }
-    ] };
-    const sources = squadiSources(team);
-    expect(sources.map((s) => [s.comp ? s.comp.name : "Season", s.squadi.competitionId])).toEqual([["Season", "777"], ["Winterfest", "888"]]);
-    // The same draw set up twice, once with a link and once without, is still one source.
-    expect(squadiSources({ squadi: { ...IDS, link: SQ }, competitions: [{ id: "c1", name: "Copy", squadi: IDS }] })).toHaveLength(1);
-  });
-});
+const SQ = "https://registration.squadi.com/liveScoreSeasonFixture?organisationKey=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee&yearId=8&competitionUniqueKey=11111111-2222-4333-8444-555555555555&divisionId=20001&teamId=300001";
+const SQ2 = SQ.replace("teamId=300001", "teamId=300002");
+const DR = "https://winterleague.dribl.com/fixtures?date_range=all&season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468&timezone=Australia%2FBrisbane";
+const REQUEST = "https://mc-api.dribl.com/api/fixtures?date_range=all&season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468&tenant=Tn12345678&timezone=Australia%2FBrisbane";
+const SITE = "https://www.example.org/winter-cup/draw";
 
 describe("drawLinks — every draw a team has a link for", () => {
-  it("lists the season, then each competition by name, with the site it is on", () => {
-    const team = { squadi: { ...IDS, link: SQ }, competitions: [
-      { id: "cdribl", name: "Premier Invitational", dribl: DRIBL },
-      { id: "cwinter", name: "Winterfest", squadi: { competitionId: "888", divisionId: "30001", teamId: 400001, link: SQ2 } },
-      { id: "cno", name: "No link", squadi: { competitionId: "999", divisionId: "1", teamId: 2 } },
-      { id: "cname", name: "Name only" }
-    ] };
+  it("lists the season, then each competition by name, with the service its link is a page of", () => {
+    const team = {
+      squadi: { ...IDS, link: SQ },
+      competitions: [
+        { id: "c1", name: "Winter League", dribl: { url: REQUEST }, link: DR },
+        { id: "c2", name: "State Cup", squadi: { competitionId: "888", divisionId: "20002", teamId: 300009 }, link: SQ2 },
+        { id: "c3", name: "Winter Cup", link: SITE },
+        { id: "c4", name: "No link yet", squadi: IDS }
+      ]
+    };
     expect(drawLinks(team)).toEqual([
       { name: "Season", provider: "squadi", link: SQ, season: true },
-      { name: "Premier Invitational", provider: "dribl", link: DR },
-      { name: "Winterfest", provider: "squadi", link: SQ2 }
+      { name: "Winter League", provider: "dribl", link: DR },
+      { name: "State Cup", provider: "squadi", link: SQ2 },
+      { name: "Winter Cup", provider: "", link: SITE }
     ]);
   });
 
-  it("names each side of a two-team squad, and holds no ids", () => {
-    const team = { squadi: [{ label: "Red", ...IDS, link: SQ }, { label: "White", competitionId: "777", divisionId: "20002", teamId: 300002, link: SQ2 }] };
+  it("names each side of a two-team squad, and passes nothing but the name, the service, the link and which draw it is", () => {
+    const team = { squadi: [{ label: "Reds", ...IDS, link: SQ }, { label: "Blues", ...IDS, teamId: 300002, link: SQ2 }] };
     expect(drawLinks(team)).toEqual([
-      { name: "Season · Red", provider: "squadi", link: SQ, season: true, side: "Red" },
-      { name: "Season · White", provider: "squadi", link: SQ2, season: true, side: "White" }
+      { name: "Season · Reds", provider: "squadi", link: SQ, season: true, side: "Reds" },
+      { name: "Season · Blues", provider: "squadi", link: SQ2, season: true, side: "Blues" }
     ]);
     expect(Object.keys(drawLinks(team)[0]).sort()).toEqual(["link", "name", "provider", "season", "side"]);
+    // One side with a link, the other without: only the one is listed.
+    expect(drawLinks({ squadi: [{ label: "Reds", ...IDS }, { label: "Blues", ...IDS, teamId: 300002, link: SQ2 }] })).toEqual([
+      { name: "Season · Blues", provider: "squadi", link: SQ2, season: true, side: "Blues" }
+    ]);
   });
 
-  it("is empty for a team with no links, and never passes on a link that is not one of the two sites'", () => {
-    expect(drawLinks({ squadi: IDS, competitions: [{ id: "c1", name: "Cup" }] })).toEqual([]);
+  it("lists a season that has only its link so far, and a link to a site that is neither service", () => {
+    expect(drawLinks({ squadi: { link: SITE } })).toEqual([{ name: "Season", provider: "", link: SITE, season: true }]);
+    expect(drawLinks({ squadi: { link: DR } })).toEqual([{ name: "Season", provider: "dribl", link: DR, season: true }]);
+  });
+
+  it("is empty for a team with no links, and never passes on something that is not a web address", () => {
+    expect(drawLinks({ squadi: IDS, competitions: [{ id: "c1", name: "Cup" }, { id: "c2", name: "Other", dribl: { url: REQUEST } }] })).toEqual([]);
     expect(drawLinks(null)).toEqual([]);
-    expect(drawLinks({ competitions: [null, "x", { id: "c1", name: "Cup", dribl: { link: "https://example.com/" } }, { id: "c2", name: "Other", squadi: { ...IDS, link: "javascript:alert(1)" } }] })).toEqual([]);
-    expect(drawLinks({ competitions: [{ id: "c3", dribl: { link: DR } }] })).toEqual([{ name: "Competition", provider: "dribl", link: DR }]);
+    expect(drawLinks({})).toEqual([]);
+    expect(drawLinks({ competitions: [null, "x", ["y"], { id: "c1", name: "Cup", link: "javascript:alert(1)" }, { id: "c2", name: "Other", link: "http://example.org/draw" },
+      { id: "c3", name: "Third", link: "https://user:pass@example.org/" }, { id: "c4", name: "Fourth", link: 42 }] })).toEqual([]);
+    expect(drawLinks({ competitions: [{ id: "c5", link: `  ${DR}  ` }] })).toEqual([{ name: "Competition", provider: "dribl", link: DR }]);
+  });
+
+  it("never lists a Dribl fixtures request: that is what the sync fetches, not a page to open", () => {
+    const team = { competitions: [{ id: "c1", name: "Winter League", dribl: { url: REQUEST, team: "Riverside FC U8 Blues" } }] };
+    expect(drawLinks(team)).toEqual([]);
+    expect(JSON.stringify(drawLinks({ competitions: [{ id: "c1", name: "Winter League", dribl: { url: REQUEST }, link: DR }] }))).not.toContain("mc-api");
+  });
+});
+
+describe("a draw set up from its link — what is stored and what is synced", () => {
+  it("a competition keeps its Dribl request, its team and its page link together", () => {
+    const [stored] = sanitizeCompetitions([{ name: "Winter League", dribl: { url: REQUEST, team: " Riverside FC U8 Blues " }, link: `  ${DR} ` }], () => "cnew00001");
+    expect(stored).toEqual({ id: "cnew00001", name: "Winter League", dribl: { url: REQUEST, team: "Riverside FC U8 Blues" }, link: DR });
+    expect(driblSources({ competitions: [stored] })).toEqual([{ comp: { id: "cnew00001", name: "Winter League" }, dribl: { url: REQUEST, team: "Riverside FC U8 Blues" } }]);
+  });
+
+  it("a link changes nothing about what is synced: the ids and the request decide", () => {
+    const withLink = { squadi: { ...IDS, link: SQ }, competitions: [{ id: "c1", name: "State Cup", squadi: { competitionId: "888", divisionId: "20002", teamId: 300009 }, link: SQ2 }, { id: "c2", name: "Winter Cup", link: DR }] };
+    const without = { squadi: IDS, competitions: [{ id: "c1", name: "State Cup", squadi: { competitionId: "888", divisionId: "20002", teamId: 300009 } }, { id: "c2", name: "Winter Cup" }] };
+    const idsOnly = (sources) => sources.map(({ comp, side, squadi }) => ({ comp, side, ids: [squadi.competitionId, squadi.divisionId, squadi.teamId] }));
+    expect(idsOnly(squadiSources(withLink))).toEqual(idsOnly(squadiSources(without)));
+    // A page link on its own is not a Dribl source: nothing is fetched until the request is there.
+    expect(driblSources(withLink)).toEqual([]);
+    expect(squadiFeeds(withLink)).toEqual([{ ...IDS, link: SQ }]);
   });
 });

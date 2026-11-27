@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { fakeRequest } from "./helpers/fakeRequest";
-import { NOT_A_FEED_LINK, SQUADI_NEEDS_TEAM, DRIBL_NOT_SYNCED } from "@/lib/feedLinks";
+import { NOT_A_FEED_LINK, SQUADI_NEEDS_TEAM, DRIBL_NEEDS_COMPETITION } from "@/lib/feedLinks";
 
 // POST /api/feed-link: reads a fixtures link pasted into the team wizard and
 // says what it found. The link reader is real; the session, the directory and
@@ -64,14 +64,14 @@ describe("POST /api/feed-link", () => {
     expect(await post(POST, { link: SQUADI })).toEqual({ status: 400, body: { error: "Squadi could not be reached just now. Try again in a minute." } });
   });
 
-  it("a Dribl link is read without asking Dribl anything, and says plainly that it is not synced", async () => {
+  it("a Dribl link is not read here: the browser reads it, and the server asks nobody anything", async () => {
     const POST = await loadRoute();
-    const res = await post(POST, { link: DRIBL });
-    expect(res).toEqual({ status: 200, body: {
-      ok: true, provider: "dribl", link: DRIBL, synced: false, note: DRIBL_NOT_SYNCED,
-      dribl: { link: DRIBL, site: "winterleague", season: "AbCdEf1234", competition: "1pQrStUv90", league: "ZyXwVu5678", club: "MnOpQr2468" }
-    } });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    expect(await post(POST, { link: DRIBL })).toEqual({ status: 400, body: { error: "A Dribl link is read by the browser, not by the server." } });
+    // One that does not name a draw is told that, as it would be in the wizard.
+    expect(await post(POST, { link: "https://winterleague.dribl.com/fixtures?date_range=all" })).toEqual({ status: 400, body: { error: DRIBL_NEEDS_COMPETITION } });
     expect(lookupSquadiLink).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("anything that is not a team's fixtures link is refused with what to do, and nothing is looked up", async () => {

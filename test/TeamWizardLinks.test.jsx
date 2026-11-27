@@ -1,19 +1,26 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
-import TeamWizard, { DRIBL_IN_SEASON, LINK_NOT_READ } from "@/components/TeamWizard";
-import { NOT_A_FEED_LINK, SQUADI_NEEDS_TEAM, DRIBL_NOT_SYNCED } from "@/lib/feedLinks";
+import TeamWizard, { DRIBL_IN_SEASON, LINK_BEING_READ, DRIBL_BY_HAND } from "@/components/TeamWizard";
+import { SQUADI_NEEDS_TEAM, DRIBL_NEEDS_COMPETITION } from "@/lib/feedLinks";
+import { NO_MATCH_CENTRE } from "@/lib/driblLink";
+import { UNREACHABLE } from "@/lib/dribl";
 
-// The Competitions step of the team wizard: a draw is set up by pasting the
-// address of the team's fixtures page. A Squadi link is looked up through
-// /api/feed-link and fills in the three ids, with what it found read back; a
-// Dribl link is kept with its competition and said not to sync. The link
-// reader is real; /api/teams and /api/feed-link are stood in for. Every key,
-// id and name is made up.
+// The Competitions step of the team wizard: a draw is set up from its website
+// link when that link is the team's fixtures page. A Squadi link is looked up
+// through /api/feed-link and fills in the three ids. A Dribl link is turned
+// into the competition's fixtures request by the browser itself, which asks
+// Dribl which match centre it is and reads the draw once. What was found is
+// read back under the field, and the link is kept as the draw's website link.
+// The link readers are real; /api/teams, /api/feed-link and Dribl are stood in
+// for. Every key, id and name is made up.
 
 const KEY = "11111111-2222-4333-8444-555555555555";
 const SQ = `https://registration.squadi.com/liveScoreSeasonFixture?organisationKey=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee&yearId=8&competitionUniqueKey=${KEY}&divisionId=20001&teamId=300001`;
 const DR = "https://winterleague.dribl.com/fixtures?date_range=all&season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468&timezone=Australia%2FBrisbane";
+const REQUEST = "https://mc-api.dribl.com/api/fixtures?date_range=all&season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468&tenant=Tn12345678&timezone=Australia%2FBrisbane";
+const LOOKUP = "https://mc-api.dribl.com/api/tenants?mc_link=winterleague.dribl.com&slug=winterleague";
+const OTHER_SITE = "https://www.example.org/winter-cup/draw";
 const FOUND = {
   ok: true, provider: "squadi", link: SQ, squadi: { competitionId: "777", divisionId: "20001", teamId: 300001 },
   found: { competition: "Metro | Winter League", division: "Under 8 Blues K1", team: "Riverside FC U8 Blues", games: 14 }
@@ -22,20 +29,41 @@ const READ_BACK = "Riverside FC U8 Blues · Under 8 Blues K1 · Metro | Winter L
 const SAVED = {
   slug: "u8-blues", name: "Riverside FC U8 Blues", ageGroup: "U8", password: "blue-kanga-42", calendarKey: "abc123", coachEmails: [], source: "stored",
   squadi: { competitionId: "777", divisionId: "20001", teamId: 300001, link: SQ },
-  competitions: [{ id: "cdribl001", name: "Winter League", dribl: { link: DR, site: "winterleague", season: "AbCdEf1234", competition: "1pQrStUv90", league: "ZyXwVu5678", club: "MnOpQr2468" } }]
+  competitions: [{ id: "cdribl001", name: "Winter League", dribl: { url: REQUEST, team: "Riverside FC U8 Blues" }, link: DR }]
 };
+
+const game = (id, home, away, more = {}) => ({
+  type: "fixtures", hash_id: id,
+  attributes: { date: "2031-06-07T23:30:00.000000Z", round: "R1", full_round: "Round 1", home_team_name: home, away_team_name: away, ground_name: "Riverside Park", field_name: "Field 2", competition_name: "Winter League", league_name: "Under 8", bye_flag: false, ...more }
+});
+const US = "Riverside FC U8 Blues";
+const ONE_TEAM = [game("g1", US, "Hilltop United U8"), game("g2", "Lakeside Rovers U8", US), game("g3", US, "Valley Wanderers U8")];
+const TWO_TEAMS = [game("g1", "Riverside FC U8 Blues", "Hilltop United U8"), game("g2", "Riverside FC U8 Golds", "Lakeside Rovers U8"), game("g3", "Hilltop United U8", "Riverside FC U8 Golds"), game("g4", "Riverside FC U8 Blues", "Riverside FC U8 Golds")];
+const FOUND_ON_DRIBL = "Riverside FC U8 Blues · Winter League · Under 8. 3 games found. They sync whenever a coach opens the team.";
+const WHICH_IS_OURS = "Winter League · Under 8. 4 games found, but the draw does not show which team is yours. Choose it in the team name box above.";
 
 let teams;
 let saves;      // bodies sent to /api/teams (POST or PATCH)
 let lookups;    // links sent to /api/feed-link
-let lookup;     // what /api/feed-link answers: { ok, status, json } or a function of the link
-let hold;       // a promise /api/feed-link waits on before answering
+let lookup;     // what /api/feed-link answers: { ok, status, json }, an Error, or a function of the link
+let hold;       // a promise the first request of a read waits on before answering
+let dribl;      // what Dribl answers: { centre, draw }, each { status, json } or an Error
+let asked;      // every request this browser made of Dribl: { url, opts }
 beforeEach(() => {
   teams = [SAVED];
-  saves = []; lookups = []; hold = null;
+  saves = []; lookups = []; asked = []; hold = null;
   lookup = { ok: true, status: 200, json: FOUND };
+  dribl = { centre: { status: 200, json: { data: { type: "tenants", id: "Tn12345678", attributes: { slug: "winterleague", mc_link: "winterleague.dribl.com" } } } }, draw: { status: 200, json: { data: ONE_TEAM } } };
   global.fetch = vi.fn(async (url, opts = {}) => {
     const u = String(url), method = opts.method || "GET";
+    if (u.startsWith("https://mc-api.dribl.com/")) {
+      asked.push({ url: u, opts });
+      const isLookup = u.startsWith("https://mc-api.dribl.com/api/tenants");
+      if (isLookup && hold) await hold;
+      const answer = isLookup ? dribl.centre : dribl.draw;
+      if (answer instanceof Error) throw answer;
+      return { ok: answer.status >= 200 && answer.status < 300, status: answer.status, json: async () => answer.json };
+    }
     if (u.includes("/api/feed-link")) {
       const { link } = JSON.parse(opts.body);
       lookups.push(link);
@@ -55,6 +83,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const step = () => within(screen.getByRole("heading", { level: 4, name: "Competitions" }).closest(".adm-step"));
 const field = (label) => step().getByLabelText(label);
+const link = (who) => field(`${who} website link`);
 const startCreate = async () => {
   render(<TeamWizard />);
   await screen.findByText("Riverside FC U8 Blues");
@@ -65,133 +94,160 @@ const startEdit = async () => {
   render(<TeamWizard />);
   fireEvent.click(await screen.findByRole("button", { name: "Edit Riverside FC U8 Blues" }));
 };
-const paste = (label, text) => fireEvent.paste(field(label), { clipboardData: { getData: () => text } });
+// Pasting returns false when the field took the paste over to read it.
+const paste = (who, text) => fireEvent.paste(link(who), { clipboardData: { getData: () => text } });
+const type = (who, text) => fireEvent.change(link(who), { target: { value: text } });
 const ids = (who) => ["competition ID", "division ID", "team ID"].map((k) => field(`${who} ${k}`).value);
-const readButton = (label) => field(label).closest(".adm-line").querySelector("button");
-const noteUnder = (label) => field(label).closest(".adm-line").nextElementSibling;
-const addCompetition = () => fireEvent.click(step().getByRole("button", { name: "Add a competition" }));
+const readButton = (who) => step().queryByRole("button", { name: `Read the ${who} website link` });
+// The note sits under the field's own line, inside the field.
+const noteUnder = (who) => link(who).parentElement.nextElementSibling;
+const noteOf = (who) => { const n = noteUnder(who); return n ? [n.textContent, n.className, n.getAttribute("role")] : null; };
+const request = (who) => field(`${who} Dribl fixtures request`);
+const teamBox = (who) => step().queryByLabelText(`${who} team name on Dribl`);
+const offered = (who) => { const id = teamBox(who).getAttribute("list"); return id ? [...document.getElementById(id).querySelectorAll("option")].map((o) => o.value) : null; };
+const addCompetition = (name) => {
+  fireEvent.click(step().getByRole("button", { name: "Add a competition" }));
+  const n = step().getAllByLabelText(/^Competition \d+ name$/).length;
+  if (name) fireEvent.change(field(`Competition ${n} name`), { target: { value: name } });
+};
 const create = async () => { fireEvent.click(screen.getByRole("button", { name: "Create team" })); await waitFor(() => expect(saves).toHaveLength(1)); return saves[0].body; };
 
-describe("the season's fixtures link", () => {
-  it("pasting a Squadi link looks it up, fills in the three ids and reads back what it found; saving keeps the link with them", async () => {
+describe("the season's link", () => {
+  it("pasting the team's Squadi fixtures link looks it up, fills in the three ids and reads back what it found; the link is saved with them", async () => {
     await startCreate();
-    expect(field("Squadi fixtures link").getAttribute("placeholder")).toBe("Paste your team's Squadi fixtures link");
-    paste("Squadi fixtures link", `  ${SQ}\n`);
+    expect(link("Squadi").getAttribute("placeholder")).toBe("Paste the draw's page link (https://…)");
+    expect(paste("Squadi", `  ${SQ}\n`)).toBe(false);
     await waitFor(() => expect(ids("Squadi")).toEqual(["777", "20001", "300001"]));
     expect(lookups).toEqual([SQ]); // the link as read, without the stray space
-    expect(field("Squadi fixtures link").value).toBe(SQ);
-    const note = noteUnder("Squadi fixtures link");
-    expect(note.textContent).toBe(READ_BACK);
-    expect([note.className, note.getAttribute("role")]).toEqual(["adm-msg ok", "status"]);
+    expect(link("Squadi").value).toBe(SQ);
+    expect(noteOf("Squadi")).toEqual([READ_BACK, "adm-msg ok", "status"]);
+    expect(asked).toEqual([]); // Dribl is asked nothing about a Squadi link
     expect((await create()).squadi).toEqual({ competitionId: "777", divisionId: "20001", teamId: "300001", link: SQ });
   });
 
-  it("typing the link and pressing Read link, or Enter, does the same; the button waits for a link and says when it is reading", async () => {
+  it("Read link appears once what is typed is a page on Squadi or Dribl; pressing it, or Enter, reads it, once at a time", async () => {
     await startCreate();
-    expect(readButton("Squadi fixtures link").disabled).toBe(true);
-    fireEvent.change(field("Squadi fixtures link"), { target: { value: SQ } });
+    expect(readButton("Squadi")).toBeNull();
+    type("Squadi", SQ.slice(0, 20));
+    expect(readButton("Squadi")).toBeNull();
+    type("Squadi", SQ);
     expect(lookups).toEqual([]); // typing alone asks nothing
+    expect(readButton("Squadi").textContent).toBe("Read link");
+    // It sits after the Open link, at the end of the field's line.
+    expect(readButton("Squadi").previousElementSibling.getAttribute("aria-label")).toBe("Open the Squadi website link in a new tab");
     let release;
     hold = new Promise((r) => { release = r; });
-    fireEvent.click(readButton("Squadi fixtures link"));
-    await waitFor(() => expect(readButton("Squadi fixtures link").textContent).toBe("Reading…"));
-    expect(readButton("Squadi fixtures link").disabled).toBe(true);
-    fireEvent.keyDown(field("Squadi fixtures link"), { key: "Enter" }); // not asked twice while one is on its way
+    fireEvent.click(readButton("Squadi"));
+    await waitFor(() => expect(readButton("Squadi").textContent).toBe("Reading…"));
+    expect(readButton("Squadi").disabled).toBe(true);
+    fireEvent.keyDown(link("Squadi"), { key: "Enter" }); // not asked twice while one is on its way
     release();
     await waitFor(() => expect(ids("Squadi")).toEqual(["777", "20001", "300001"]));
-    expect(readButton("Squadi fixtures link").textContent).toBe("Read link");
+    expect(readButton("Squadi").textContent).toBe("Read link");
     expect(lookups).toEqual([SQ]);
     hold = null;
-    fireEvent.keyDown(field("Squadi fixtures link"), { key: "Enter" });
+    fireEvent.keyDown(link("Squadi"), { key: "Enter" });
     await waitFor(() => expect(lookups).toEqual([SQ, SQ]));
+    fireEvent.keyDown(link("Squadi"), { key: "a" });
+    expect(lookups).toHaveLength(2);
   });
 
-  it("something that is not a team's link is said so under the field, and Squadi is not asked", async () => {
+  it("a link to any other site is simply the website link it always was: nothing to read, nothing asked, saved as typed", async () => {
     await startCreate();
-    for (const [text, sentence] of [["https://example.com/fixtures", NOT_A_FEED_LINK], ["just some words", NOT_A_FEED_LINK], [SQ.replace("&teamId=300001", ""), SQUADI_NEEDS_TEAM], [DR, DRIBL_IN_SEASON]]) {
-      paste("Squadi fixtures link", text);
-      const note = noteUnder("Squadi fixtures link");
-      expect(note.textContent).toBe(sentence);
-      expect([note.className, note.getAttribute("role")]).toEqual(["adm-msg err", "alert"]);
-    }
-    expect(lookups).toEqual([]);
+    expect(paste("Squadi", OTHER_SITE)).toBe(true); // an ordinary paste, left to the browser
+    type("Squadi", OTHER_SITE);
+    expect(readButton("Squadi")).toBeNull();
+    fireEvent.keyDown(link("Squadi"), { key: "Enter" });
+    expect(noteUnder("Squadi")).toBeNull();
+    expect(step().getByRole("link", { name: "Open the Squadi website link in a new tab" }).getAttribute("href")).toBe(OTHER_SITE);
+    expect((await create()).squadi).toEqual({ competitionId: "", divisionId: "", teamId: "", link: OTHER_SITE });
+    expect([lookups, asked]).toEqual([[], []]);
+  });
+
+  it("a Squadi page that does not name one team is said so, gently, and kept as the link it is", async () => {
+    await startCreate();
+    const wholeDivision = SQ.replace("&teamId=300001", "");
+    paste("Squadi", wholeDivision);
+    expect(noteOf("Squadi")).toEqual([SQUADI_NEEDS_TEAM, "adm-msg warn", "status"]);
     expect(ids("Squadi")).toEqual(["", "", ""]);
-    // Nothing from a refused link is saved.
-    expect("squadi" in (await create())).toBe(false);
+    expect(lookups).toEqual([]);
+    expect(link("Squadi").value).toBe(wholeDivision);
+    type("Squadi", wholeDivision + "&round=3");
+    expect(noteUnder("Squadi")).toBeNull(); // typing puts the note away
+    expect((await create()).squadi).toEqual({ competitionId: "", divisionId: "", teamId: "", link: wholeDivision + "&round=3" });
+  });
+
+  it("a Dribl link here is pointed to a competition row, and Dribl is asked nothing", async () => {
+    await startCreate();
+    paste("Squadi", DR);
+    expect(noteOf("Squadi")).toEqual([DRIBL_IN_SEASON, "adm-msg warn", "status"]);
+    expect(link("Squadi").value).toBe(DR);
+    expect([lookups, asked]).toEqual([[], []]);
+    expect(ids("Squadi")).toEqual(["", "", ""]);
   });
 
   it("what Squadi could not tell us is shown as it was said, and the ids are left alone", async () => {
     await startCreate();
     fireEvent.change(field("Squadi competition ID"), { target: { value: "55" } });
     lookup = { ok: false, status: 400, json: { error: "Squadi did not recognise the competition in that link." } };
-    paste("Squadi fixtures link", SQ);
-    await waitFor(() => expect(noteUnder("Squadi fixtures link")?.textContent).toBe("Squadi did not recognise the competition in that link."));
-    expect(noteUnder("Squadi fixtures link").getAttribute("role")).toBe("alert");
+    paste("Squadi", SQ);
+    await waitFor(() => expect(noteOf("Squadi")).toEqual(["Squadi did not recognise the competition in that link.", "adm-msg err", "alert"]));
     expect(ids("Squadi")).toEqual(["55", "", ""]);
     lookup = new Error("network down");
-    fireEvent.click(readButton("Squadi fixtures link"));
-    await waitFor(() => expect(noteUnder("Squadi fixtures link").textContent).toBe("network down"));
+    fireEvent.click(readButton("Squadi"));
+    await waitFor(() => expect(noteUnder("Squadi").textContent).toBe("network down"));
     lookup = { ok: true, status: 200, json: { ok: true } }; // an answer with no ids in it is not trusted
-    fireEvent.click(readButton("Squadi fixtures link"));
-    await waitFor(() => expect(noteUnder("Squadi fixtures link").textContent).toBe("Couldn't read that link. Try again."));
+    fireEvent.click(readButton("Squadi"));
+    await waitFor(() => expect(noteUnder("Squadi").textContent).toBe("Couldn't read that link. Try again."));
     expect(ids("Squadi")).toEqual(["55", "", ""]);
+    expect(link("Squadi").value).toBe(SQ); // the link is still the link
   });
 
   it("says so when no games are out yet, or when the draw could not be read", async () => {
     await startCreate();
     lookup = { ok: true, status: 200, json: { ...FOUND, found: { ...FOUND.found, team: "", games: 0 } } };
-    paste("Squadi fixtures link", SQ);
-    await waitFor(() => expect(noteUnder("Squadi fixtures link")?.textContent).toBe(
+    paste("Squadi", SQ);
+    await waitFor(() => expect(noteUnder("Squadi")?.textContent).toBe(
       "Under 8 Blues K1 · Metro | Winter League. No games are published for this team yet. They sync by themselves once they are. If that is not right, check the link is your team's."));
     lookup = { ok: true, status: 200, json: { ...FOUND, found: { ...FOUND.found, team: "", games: null } } };
-    fireEvent.click(readButton("Squadi fixtures link"));
-    await waitFor(() => expect(noteUnder("Squadi fixtures link").textContent).toBe(
+    fireEvent.click(readButton("Squadi"));
+    await waitFor(() => expect(noteUnder("Squadi").textContent).toBe(
       "Under 8 Blues K1 · Metro | Winter League. The draw could not be read just now, but the link is good. Its games sync by themselves."));
     lookup = { ok: true, status: 200, json: { ...FOUND, found: { ...FOUND.found, games: 1 } } };
-    fireEvent.click(readButton("Squadi fixtures link"));
-    await waitFor(() => expect(noteUnder("Squadi fixtures link").textContent).toMatch(/\. 1 game found\. They sync by themselves\.$/));
+    fireEvent.click(readButton("Squadi"));
+    await waitFor(() => expect(noteUnder("Squadi").textContent).toMatch(/\. 1 game found\. They sync by themselves\.$/));
   });
 
-  it("an id changed by hand is no longer what the link said: the read-back goes, and the link is not saved beside ids it does not match", async () => {
+  it("an id changed by hand puts the read-back away; the link stays the draw's link", async () => {
     await startCreate();
-    paste("Squadi fixtures link", SQ);
+    paste("Squadi", SQ);
     await waitFor(() => expect(ids("Squadi")).toEqual(["777", "20001", "300001"]));
     fireEvent.change(field("Squadi team ID"), { target: { value: "300002" } });
-    expect(field("Squadi fixtures link").closest(".adm-line").nextElementSibling.className).not.toContain("adm-msg");
-    expect((await create()).squadi).toEqual({ competitionId: "777", divisionId: "20001", teamId: "300002" });
+    expect(noteUnder("Squadi")).toBeNull();
+    expect((await create()).squadi).toEqual({ competitionId: "777", divisionId: "20001", teamId: "300002", link: SQ });
   });
 
-  it("a link typed in and never read is not quietly dropped: saving waits until it has been read", async () => {
+  it("a save pressed while a link is still being read waits for it, rather than keeping the link and none of what it finds", async () => {
     await startCreate();
-    fireEvent.change(field("Squadi fixtures link"), { target: { value: SQ } });
+    let release;
+    hold = new Promise((r) => { release = r; });
+    paste("Squadi", SQ);
+    await waitFor(() => expect(readButton("Squadi").textContent).toBe("Reading…"));
     fireEvent.click(screen.getByRole("button", { name: "Create team" }));
-    expect(await screen.findByText(LINK_NOT_READ)).toBeTruthy();
+    expect(await screen.findByText(LINK_BEING_READ)).toBeTruthy();
     expect(saves).toEqual([]);
-    fireEvent.click(readButton("Squadi fixtures link"));
+    release();
     await waitFor(() => expect(ids("Squadi")).toEqual(["777", "20001", "300001"]));
     expect((await create()).squadi).toEqual({ competitionId: "777", divisionId: "20001", teamId: "300001", link: SQ });
-    // The same goes for a competition's; a Dribl link needs no reading, and neither do ids typed by hand.
-    cleanup(); saves = [];
-    await startCreate();
-    addCompetition();
-    fireEvent.change(field("Competition 1 fixtures link"), { target: { value: SQ } });
-    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
-    expect(await screen.findByText(LINK_NOT_READ)).toBeTruthy();
-    expect(saves).toEqual([]);
-    fireEvent.change(field("Competition 1 fixtures link"), { target: { value: DR } });
-    fireEvent.change(field("Squadi competition ID"), { target: { value: "55" } });
-    const body = await create();
-    expect(body.competitions).toEqual([{ name: "", dribl: { link: DR } }]);
-    expect(body.squadi).toEqual({ competitionId: "55", divisionId: "", teamId: "" });
   });
 
   it("each of two teams has its own link", async () => {
     await startCreate();
     fireEvent.click(step().getByRole("button", { name: "Add a second team" }));
     const SQ2 = SQ.replace("divisionId=20001", "divisionId=20002").replace("teamId=300001", "teamId=300002");
-    lookup = (link) => ({ ok: true, status: 200, json: link === SQ ? FOUND : { ...FOUND, link: SQ2, squadi: { competitionId: "777", divisionId: "20002", teamId: 300002 } } });
-    paste("Squadi fixtures link", SQ);
-    paste("Second Squadi fixtures link", SQ2);
+    lookup = (asked) => ({ ok: true, status: 200, json: asked === SQ ? FOUND : { ...FOUND, link: SQ2, squadi: { competitionId: "777", divisionId: "20002", teamId: 300002 } } });
+    paste("Squadi", SQ);
+    paste("Second Squadi", SQ2);
     await waitFor(() => expect([ids("Squadi"), ids("Second Squadi")]).toEqual([["777", "20001", "300001"], ["777", "20002", "300002"]]));
     fireEvent.change(field("Squadi team label"), { target: { value: "Red" } });
     fireEvent.change(field("Second Squadi team label"), { target: { value: "White" } });
@@ -205,96 +261,248 @@ describe("the season's fixtures link", () => {
     await startCreate();
     let release;
     hold = new Promise((r) => { release = r; });
-    paste("Squadi fixtures link", SQ);
+    paste("Squadi", SQ);
     await waitFor(() => expect(lookups).toEqual([SQ]));
-    fireEvent.change(field("Squadi fixtures link"), { target: { value: "" } }); // cleared while Squadi was answering
+    type("Squadi", ""); // cleared while Squadi was answering
     release();
     await new Promise((r) => setTimeout(r, 20));
     expect(ids("Squadi")).toEqual(["", "", ""]);
-    expect(field("Squadi fixtures link").value).toBe("");
+    expect(link("Squadi").value).toBe("");
+    expect(noteUnder("Squadi")).toBeNull();
   });
 });
 
-describe("a competition's fixtures link", () => {
-  it("a Squadi link fills in its ids and, when it has no name yet, takes Squadi's name for the competition", async () => {
+describe("a competition's link — on Squadi", () => {
+  it("fills in its ids and, when it has no name yet, takes Squadi's name for the competition", async () => {
     await startCreate();
     addCompetition();
-    expect(field("Competition 1 fixtures link").getAttribute("placeholder")).toBe("Paste the team's fixtures link (Squadi or Dribl)");
-    paste("Competition 1 fixtures link", SQ);
+    paste("Competition 1", SQ);
     await waitFor(() => expect(field("Competition 1 name").value).toBe("Metro | Winter League"));
     expect(ids("Metro | Winter League")).toEqual(["777", "20001", "300001"]);
-    expect(noteUnder("Metro | Winter League fixtures link").textContent).toBe(READ_BACK);
-    expect((await create()).competitions).toEqual([{ name: "Metro | Winter League", squadi: { competitionId: "777", divisionId: "20001", teamId: "300001", link: SQ } }]);
+    expect(noteOf("Metro | Winter League")).toEqual([READ_BACK, "adm-msg ok", "status"]);
+    expect((await create()).competitions).toEqual([{ name: "Metro | Winter League", squadi: { competitionId: "777", divisionId: "20001", teamId: "300001" }, link: SQ }]);
   });
 
-  it("a name already typed is kept", async () => {
+  it("keeps a name already typed", async () => {
     await startCreate();
-    addCompetition();
-    fireEvent.change(field("Competition 1 name"), { target: { value: "Winterfest" } });
-    paste("Winterfest fixtures link", SQ);
+    addCompetition("Winterfest");
+    paste("Winterfest", SQ);
     await waitFor(() => expect(ids("Winterfest")).toEqual(["777", "20001", "300001"]));
     expect(field("Competition 1 name").value).toBe("Winterfest");
   });
 
-  it("a Dribl link is kept without asking anyone anything, says plainly that it is not synced, and puts the Squadi boxes away", async () => {
+  it("takes the place of a Dribl request on the row: a competition has one source", async () => {
+    await startCreate();
+    addCompetition("Winterfest");
+    fireEvent.change(request("Winterfest"), { target: { value: REQUEST } });
+    fireEvent.change(teamBox("Winterfest"), { target: { value: US } });
+    paste("Winterfest", SQ);
+    await waitFor(() => expect(ids("Winterfest")).toEqual(["777", "20001", "300001"]));
+    expect(request("Winterfest").value).toBe("");
+    expect(teamBox("Winterfest")).toBeNull();
+    expect((await create()).competitions).toEqual([{ name: "Winterfest", squadi: { competitionId: "777", divisionId: "20001", teamId: "300001" }, link: SQ }]);
+  });
+});
+
+describe("a competition's link — on Dribl", () => {
+  it("pasting the fixtures page link asks Dribl which match centre it is, fills in the fixtures request and reads back the draw", async () => {
     await startCreate();
     addCompetition();
-    fireEvent.change(field("Competition 1 name"), { target: { value: "Premier Invitational" } });
-    fireEvent.change(field("Premier Invitational competition ID"), { target: { value: "55" } }); // left over from an earlier try
-    paste("Premier Invitational fixtures link", DR);
-    const note = noteUnder("Premier Invitational fixtures link");
-    expect(note.textContent).toBe(DRIBL_NOT_SYNCED);
-    expect([note.className, note.getAttribute("role")]).toEqual(["adm-msg warn", "status"]);
+    expect(paste("Competition 1", ` ${DR} `)).toBe(false);
+    await waitFor(() => expect(request("Winter League").value).toBe(REQUEST));
+    // A competition with no name yet takes the draw's own name for it.
+    expect(field("Competition 1 name").value).toBe("Winter League");
+    expect(link("Winter League").value).toBe(DR);
+    expect(noteOf("Winter League")).toEqual([FOUND_ON_DRIBL, "adm-msg ok", "status"]);
+    // Two plain requests, both to Dribl's API and both without cookies; our own server is not asked to read it.
+    expect(asked).toEqual([
+      { url: LOOKUP, opts: { headers: { Accept: "application/json" }, credentials: "omit", cache: "no-store" } },
+      { url: REQUEST, opts: { headers: { Accept: "application/json" }, credentials: "omit", cache: "no-store" } }
+    ]);
     expect(lookups).toEqual([]);
-    expect(step().queryByLabelText("Premier Invitational competition ID")).toBeNull();
-    expect(step().queryByLabelText("Premier Invitational team ID")).toBeNull();
-    // Taking the link away brings the boxes back empty: the stray id went when the Dribl link came.
-    fireEvent.change(field("Premier Invitational fixtures link"), { target: { value: "" } });
-    expect(ids("Premier Invitational")).toEqual(["", "", ""]);
-    paste("Premier Invitational fixtures link", DR);
-    // Saved as the link alone: the server reads what it names.
-    expect((await create()).competitions).toEqual([{ name: "Premier Invitational", dribl: { link: DR } }]);
+    // The team's name is left for the sync to work out, as the draw shows it.
+    expect(teamBox("Winter League").value).toBe("");
+    expect((await create()).competitions).toEqual([{ name: "Winter League", dribl: { url: REQUEST, team: "" }, link: DR }]);
   });
 
-  it("a Dribl row with no name is still kept; swapping its link for a Squadi one brings the boxes back", async () => {
+  it("typing the link and pressing Read link, or Enter, does the same, and says when it is reading", async () => {
     await startCreate();
-    addCompetition();
-    paste("Competition 1 fixtures link", DR);
-    expect(step().queryByLabelText("Competition 1 competition ID")).toBeNull();
-    paste("Competition 1 fixtures link", SQ);
-    await waitFor(() => expect(ids("Metro | Winter League")).toEqual(["777", "20001", "300001"]));
-    fireEvent.change(field("Competition 1 name"), { target: { value: "" } });
-    paste("Competition 1 fixtures link", DR);
-    expect((await create()).competitions).toEqual([{ name: "", dribl: { link: DR } }]);
+    addCompetition("Cup");
+    type("Cup", DR);
+    expect(asked).toEqual([]);
+    let release;
+    hold = new Promise((r) => { release = r; });
+    fireEvent.click(readButton("Cup"));
+    await waitFor(() => expect(readButton("Cup").textContent).toBe("Reading…"));
+    fireEvent.keyDown(link("Cup"), { key: "Enter" });
+    release();
+    await waitFor(() => expect(request("Cup").value).toBe(REQUEST));
+    expect(asked.map((a) => a.url)).toEqual([LOOKUP, REQUEST]);
+    expect(field("Competition 1 name").value).toBe("Cup"); // a name already typed is kept
+    hold = null;
+    fireEvent.keyDown(link("Cup"), { key: "Enter" });
+    await waitFor(() => expect(asked).toHaveLength(4));
+  });
+
+  it("when the draw has more than one of the club's teams, it asks which is ours and offers the names as Dribl spells them", async () => {
+    dribl.draw = { status: 200, json: { data: TWO_TEAMS } };
+    await startCreate();
+    addCompetition("Cup");
+    paste("Cup", DR);
+    await waitFor(() => expect(noteOf("Cup")).toEqual([WHICH_IS_OURS, "adm-msg warn", "status"]));
+    expect(request("Cup").value).toBe(REQUEST);
+    expect(offered("Cup")).toEqual(["Riverside FC U8 Golds", "Hilltop United U8", "Riverside FC U8 Blues", "Lakeside Rovers U8"]);
+    fireEvent.change(teamBox("Cup"), { target: { value: "Riverside FC U8 Golds" } });
+    expect(noteUnder("Cup")).toBeNull(); // answered
+    expect(offered("Cup")).toHaveLength(4); // still offered, should it need changing
+    expect((await create()).competitions).toEqual([{ name: "Cup", dribl: { url: REQUEST, team: "Riverside FC U8 Golds" }, link: DR }]);
+  });
+
+  it("reads the draw for the team name already in the row, and says so when that name is not in it", async () => {
+    dribl.draw = { status: 200, json: { data: TWO_TEAMS } };
+    await startCreate();
+    addCompetition("Cup");
+    fireEvent.change(request("Cup"), { target: { value: REQUEST } });
+    fireEvent.change(teamBox("Cup"), { target: { value: "Golds" } });
+    paste("Cup", DR);
+    await waitFor(() => expect(noteOf("Cup")).toEqual(["Riverside FC U8 Golds · Winter League · Under 8. 3 games found. They sync whenever a coach opens the team.", "adm-msg ok", "status"]));
+    expect(teamBox("Cup").value).toBe("Golds"); // what was typed is kept
+    fireEvent.change(teamBox("Cup"), { target: { value: "Seaside FC" } });
+    fireEvent.click(readButton("Cup"));
+    await waitFor(() => expect(noteOf("Cup")).toEqual(['No team called "Seaside FC" is in this Dribl draw.', "adm-msg err", "alert"]));
+    expect(request("Cup").value).toBe(REQUEST);
+  });
+
+  it("takes the place of Squadi ids on the row: a competition has one source", async () => {
+    await startCreate();
+    addCompetition("Cup");
+    fireEvent.change(field("Cup competition ID"), { target: { value: "55" } }); // left over from an earlier try
+    paste("Cup", DR);
+    await waitFor(() => expect(request("Cup").value).toBe(REQUEST));
+    expect(ids("Cup")).toEqual(["", "", ""]);
+    expect((await create()).competitions).toEqual([{ name: "Cup", dribl: { url: REQUEST, team: "" }, link: DR }]);
+  });
+
+  it("when Dribl cannot be asked, says so, keeps the link, and leaves the row's source as it was", async () => {
+    dribl.centre = new TypeError("Failed to fetch");
+    await startCreate();
+    addCompetition("Cup");
+    paste("Cup", DR);
+    await waitFor(() => expect(noteOf("Cup")).toEqual([`${UNREACHABLE} ${DRIBL_BY_HAND}`, "adm-msg err", "alert"]));
+    expect(request("Cup").value).toBe("");
+    expect(link("Cup").value).toBe(DR);
+    expect(asked.map((a) => a.url)).toEqual([LOOKUP]);
+    expect((await create()).competitions).toEqual([{ name: "Cup", link: DR }]);
+  });
+
+  it("when Dribl does not name the match centre, says what it answered and how to carry on by hand", async () => {
+    dribl.centre = { status: 200, json: { data: [] } };
+    await startCreate();
+    addCompetition("Cup");
+    fireEvent.change(field("Cup competition ID"), { target: { value: "55" } });
+    paste("Cup", DR);
+    await waitFor(() => expect(noteUnder("Cup")?.textContent).toBe(`${NO_MATCH_CENTRE} Its answer has: data. ${DRIBL_BY_HAND}`));
+    expect(asked.map((a) => a.url)).toEqual([LOOKUP, "https://mc-api.dribl.com/api/tenants?slug=winterleague"]);
+    expect(ids("Cup")).toEqual(["55", "", ""]); // nothing was found, so nothing was replaced
+    expect(request("Cup").value).toBe("");
+  });
+
+  it("fills the request in even when its draw could not be read, and says why", async () => {
+    dribl.draw = { status: 503, json: {} };
+    await startCreate();
+    addCompetition("Cup");
+    paste("Cup", DR);
+    await waitFor(() => expect(noteOf("Cup")).toEqual(["The fixtures request is filled in, but Dribl did not give its draw: Dribl responded 503", "adm-msg err", "alert"]));
+    expect(request("Cup").value).toBe(REQUEST);
+    expect(offered("Cup")).toBeNull();
+  });
+
+  it("says when the draw is not published yet", async () => {
+    dribl.draw = { status: 200, json: { data: [] } };
+    await startCreate();
+    addCompetition("Cup");
+    paste("Cup", DR);
+    await waitFor(() => expect(noteOf("Cup")).toEqual(["The fixtures request is filled in. Dribl lists no games in this draw yet. Once it does, they sync whenever a coach opens the team.", "adm-msg warn", "status"]));
+    expect(request("Cup").value).toBe(REQUEST);
+    expect(field("Competition 1 name").value).toBe("Cup");
+  });
+
+  it("a Dribl page that names no competition is said so, and Dribl is asked nothing", async () => {
+    await startCreate();
+    addCompetition("Cup");
+    paste("Cup", "https://winterleague.dribl.com/fixtures?date_range=all");
+    expect(noteOf("Cup")).toEqual([DRIBL_NEEDS_COMPETITION, "adm-msg warn", "status"]);
+    expect(asked).toEqual([]);
+  });
+
+  it("typing the request in by hand puts away what the link was read as, the offered names with it", async () => {
+    dribl.draw = { status: 200, json: { data: TWO_TEAMS } };
+    await startCreate();
+    addCompetition("Cup");
+    paste("Cup", DR);
+    await waitFor(() => expect(offered("Cup")).toHaveLength(4));
+    const byHand = REQUEST.replace("league=ZyXwVu5678", "league=OtHeR12345");
+    fireEvent.change(request("Cup"), { target: { value: byHand } });
+    expect(noteUnder("Cup")).toBeNull();
+    expect(offered("Cup")).toBeNull();
+    expect((await create()).competitions).toEqual([{ name: "Cup", dribl: { url: byHand, team: "" }, link: DR }]);
+  });
+
+  it("an answer that comes back after the link was changed is not written over the row", async () => {
+    await startCreate();
+    addCompetition("Cup");
+    let release;
+    hold = new Promise((r) => { release = r; });
+    paste("Cup", DR);
+    await waitFor(() => expect(asked).toHaveLength(1));
+    type("Cup", OTHER_SITE);
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(request("Cup").value).toBe("");
+    expect(link("Cup").value).toBe(OTHER_SITE);
+    expect(noteUnder("Cup")).toBeNull();
+  });
+
+  it("a save pressed while Dribl is still answering waits for it", async () => {
+    await startCreate();
+    addCompetition("Cup");
+    let release;
+    hold = new Promise((r) => { release = r; });
+    paste("Cup", DR);
+    await waitFor(() => expect(readButton("Cup").textContent).toBe("Reading…"));
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    expect(await screen.findByText(LINK_BEING_READ)).toBeTruthy();
+    expect(saves).toEqual([]);
+    release();
+    await waitFor(() => expect(request("Cup").value).toBe(REQUEST));
+    expect((await create()).competitions).toEqual([{ name: "Cup", dribl: { url: REQUEST, team: "" }, link: DR }]);
   });
 });
 
 describe("a team that was set up from links", () => {
-  it("shows them again on Edit: the season's link in its field, the Dribl competition with its note and no Squadi boxes", async () => {
+  it("shows them again on Edit, and opening the form asks nobody anything", async () => {
     await startEdit();
-    expect(field("Squadi fixtures link").value).toBe(SQ);
+    expect(link("Squadi").value).toBe(SQ);
     expect(ids("Squadi")).toEqual(["777", "20001", "300001"]);
-    expect(field("Winter League fixtures link").value).toBe(DR);
-    expect(noteUnder("Winter League fixtures link").textContent).toBe(DRIBL_NOT_SYNCED);
-    expect(step().queryByLabelText("Winter League competition ID")).toBeNull();
-    expect(lookups).toEqual([]); // opening a team asks Squadi nothing
+    expect(link("Winter League").value).toBe(DR);
+    expect(request("Winter League").value).toBe(REQUEST);
+    expect(teamBox("Winter League").value).toBe(US);
+    expect(offered("Winter League")).toBeNull(); // names are only offered once a draw has been read
+    expect([noteUnder("Squadi"), noteUnder("Winter League")]).toEqual([null, null]);
+    expect(readButton("Squadi").textContent).toBe("Read link");
+    expect(readButton("Winter League").textContent).toBe("Read link");
+    expect([lookups, asked]).toEqual([[], []]);
   });
 
-  it("saving without touching them sends them back as they were; clearing a link takes it away", async () => {
+  it("saving without touching them sends them back as they were, and nothing of what a read showed", async () => {
     await startEdit();
+    fireEvent.click(readButton("Winter League"));
+    await waitFor(() => expect(noteUnder("Winter League")?.textContent).toBe(FOUND_ON_DRIBL));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(saves).toHaveLength(1));
     expect(saves[0].method).toBe("PATCH");
     expect(saves[0].body.squadi).toEqual({ competitionId: "777", divisionId: "20001", teamId: 300001, link: SQ });
-    expect(saves[0].body.competitions).toEqual([{ id: "cdribl001", name: "Winter League", dribl: { link: DR } }]);
-    cleanup();
-    saves = [];
-    await startEdit();
-    fireEvent.change(field("Squadi fixtures link"), { target: { value: "" } });
-    fireEvent.change(field("Winter League fixtures link"), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(saves).toHaveLength(1));
-    expect(saves[0].body.squadi).toEqual({ competitionId: "777", divisionId: "20001", teamId: 300001 });
-    expect(saves[0].body.competitions).toEqual([{ id: "cdribl001", name: "Winter League" }]); // the competition stays, without a draw
+    expect(saves[0].body.competitions).toEqual([{ id: "cdribl001", name: "Winter League", dribl: { url: REQUEST, team: US }, link: DR }]);
+    expect(JSON.stringify(saves[0].body)).not.toMatch(/"note"|"teams"|games found/);
   });
 });
