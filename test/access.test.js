@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isPublicPath, legacyPasswords, decideAccess } from "@/lib/access";
+import { isPublicPath, legacyPasswords, decideAccess, isKeyedPath, hasBearer, KEYED_PATHS } from "@/lib/access";
 
 describe("isPublicPath", () => {
   it("allows the public entries and their subpaths", () => {
@@ -81,3 +81,36 @@ describe("decideAccess", () => {
     });
   });
 });
+
+// A scheduled job reaches /api/dribl with its key as a Bearer token. The gate
+// passes such a request to the route, which checks the key itself; without a
+// token, or on any other path, the gate decides as it always has.
+describe("a scheduled job's keyed calls", () => {
+  const base = { authOn: true, authed: false, cookie: "", passwords: [] };
+
+  it("lets a request with a Bearer token through to the Dribl route, signed in or not, in either mode", () => {
+    expect(KEYED_PATHS).toEqual(["/api/dribl"]);
+    expect(decideAccess({ ...base, pathname: "/api/dribl", bearer: true })).toBe("allow");
+    expect(decideAccess({ ...base, authOn: false, pathname: "/api/dribl", bearer: true })).toBe("allow");
+  });
+
+  it("without a token the Dribl route is guarded as before", () => {
+    expect(decideAccess({ ...base, pathname: "/api/dribl" })).toBe("unauthorized");
+    expect(decideAccess({ ...base, pathname: "/api/dribl", bearer: false })).toBe("unauthorized");
+    expect(decideAccess({ ...base, authOn: false, pathname: "/api/dribl" })).toBe("unauthorized");
+    expect(decideAccess({ ...base, pathname: "/api/dribl", authed: true })).toBe("allow");
+  });
+
+  it("a token opens no other path, and no path that only starts like it", () => {
+    for (const pathname of ["/api/data", "/api/teams", "/api/dribl/x", "/api/driblx", "/api/dribl.json", "/", "/admin", "/league"]) {
+      expect(isKeyedPath(pathname), pathname).toBe(false);
+      expect(decideAccess({ ...base, pathname, bearer: true }), pathname).not.toBe("allow");
+    }
+  });
+
+  it("hasBearer: a Bearer token with something in it, and nothing else", () => {
+    expect(hasBearer("Bearer abc")).toBe(true);
+    for (const h of [null, undefined, "", "Bearer", "Bearer ", "bearer abc", "Basic abc", " Bearer abc", "abc", 7]) expect(hasBearer(h), String(h)).toBe(false);
+  });
+});
+

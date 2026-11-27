@@ -1,7 +1,7 @@
 import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import { authConfig } from "@/auth.config";
-import { decideAccess, legacyPasswords } from "@/lib/access";
+import { decideAccess, legacyPasswords, hasBearer } from "@/lib/access";
 import { storedPasswords } from "@/lib/edgeTeams";
 
 const { auth } = NextAuth(authConfig);
@@ -26,7 +26,9 @@ export default auth(async (req) => {
     authOn: AUTH_ON,
     authed: !!req.auth, // signed in via Google / Microsoft / magic-link
     cookie,
-    passwords
+    passwords,
+    // A scheduled job's key goes to the route to be checked (lib/access.js KEYED_PATHS).
+    bearer: hasBearer(req.headers.get("authorization"))
   });
 
   if (action === "allow") return NextResponse.next();

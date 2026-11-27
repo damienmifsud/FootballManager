@@ -9,14 +9,14 @@ import { READ_ONLY_MESSAGE, PICK_TEAM_MESSAGE } from "@/lib/viewer";
 // exactly as a Squadi draw is applied. The route sits on the REAL lib/viewer,
 // lib/hats, lib/competitions, lib/dribl and lib/applyDraws, over a mocked
 // store; applySync is the real one too, so what is saved is what a sync saves.
-const { auth, getData, setData, getMeta, setMeta, teamBySlug, teamFromCookieHeader, membershipsForEmail, viewingAs } = vi.hoisted(() => ({
+const { auth, getData, setData, getMeta, setMeta, teamBySlug, teamFromCookieHeader, getTeams, membershipsForEmail, viewingAs } = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(), getMeta: vi.fn(), setMeta: vi.fn(),
-  teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(),
+  teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(), getTeams: vi.fn(),
   membershipsForEmail: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/store", () => ({ getData, setData, getMeta, setMeta }));
-vi.mock("@/lib/teams", () => ({ teamBySlug, teamFromCookieHeader }));
+vi.mock("@/lib/teams", () => ({ teamBySlug, teamFromCookieHeader, getTeams }));
 vi.mock("@/lib/directory", () => ({ membershipsForEmail, viewingAs }));
 
 const REQUEST = "https://mc-api.dribl.com/api/fixtures?date_range=all&season=S1&competition=C1&league=L1&club=CL1&tenant=T1&timezone=Australia%2FBrisbane";
@@ -469,5 +469,128 @@ describe("POST /api/dribl — applying a draw", () => {
       expect(sent[0].body.text).toMatch(/^Fixture changes for Team a just came through from Dribl:/);
       expect(sent[0].body.text).toMatch(/Premier Invitational Round 3 vs Opponent 3: time /);
     } finally { global.fetch = realFetch; }
+  });
+});
+
+// The scheduled Dribl reader (scripts/dribl-sync.mjs) uses the same two calls
+// with the scheduled-job key, CRON_SECRET, in the Authorization header. It is
+// asked for every team's Dribl draws, and posts each team's draws by slug.
+describe("/api/dribl — the scheduled reader", () => {
+  const KEY = { authorization: "Bearer cr0n-key" };
+  const OTHER = { id: "cother", name: "Shield", dribl: { url: REQUEST.replace("club=CL1", "club=CL2"), team: "Riverside FC U10" } };
+  let savedCron;
+  beforeEach(() => {
+    savedCron = process.env.CRON_SECRET;
+    process.env.CRON_SECRET = "cr0n-key";
+    const club = [TEAM("a"), TEAM("b", [WINTER, LATER]), TEAM("c", [OTHER])];
+    getTeams.mockResolvedValue(club);
+    teamBySlug.mockImplementation((slug) => club.find((t) => t.slug === slug) || null);
+  });
+  afterEach(() => { if (savedCron === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = savedCron; });
+
+  it("GET lists every team's Dribl draws, by slug, and skips a team with none", async () => {
+    const { GET } = await loadRoute({ authOn: true });
+    const res = await GET(fakeRequest({ headers: KEY }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ teams: [
+      { team: "a", sources: SOURCES },
+      { team: "c", sources: [{ comp: "cother", name: "Shield", url: OTHER.dribl.url, team: "Riverside FC U10" }] }
+    ] });
+    // Nobody signed in, and no team document or sync clock was read to answer.
+    expect(auth).not.toHaveBeenCalled();
+    expect(getData).not.toHaveBeenCalled();
+    expect(getMeta).not.toHaveBeenCalled();
+  });
+
+  it("GET with no Dribl draws anywhere is an empty list", async () => {
+    getTeams.mockResolvedValue([TEAM("b", [WINTER, LATER])]);
+    const { GET } = await loadRoute({ authOn: true });
+    expect(await (await GET(fakeRequest({ headers: KEY }))).json()).toEqual({ teams: [] });
+  });
+
+  it("the key goes only in the Authorization header: a wrong one, ?key=, or none is treated as an ordinary visitor", async () => {
+    auth.mockResolvedValue(null);
+    const { GET, POST } = await loadRoute({ authOn: true });
+    for (const extra of [{}, { headers: { authorization: "Bearer wrong" } }, { headers: { authorization: "cr0n-key" } }, { url: "https://x.test/api/dribl?key=cr0n-key" }]) {
+      expect((await GET(fakeRequest(extra))).status, JSON.stringify(extra)).toBe(401);
+      expect((await post(POST, { team: "a", ...draws() }, extra)).status, JSON.stringify(extra)).toBe(401);
+    }
+    expect(getTeams).not.toHaveBeenCalled();
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("with no CRON_SECRET set, nothing is the scheduled reader, whatever is sent", async () => {
+    delete process.env.CRON_SECRET;
+    auth.mockResolvedValue(null);
+    const { GET, POST } = await loadRoute({ authOn: true });
+    for (const headers of [{ authorization: "Bearer " }, { authorization: "Bearer undefined" }, KEY]) {
+      expect((await GET(fakeRequest({ headers }))).status).toBe(401);
+      expect((await post(POST, { team: "a", ...draws() }, { headers })).status).toBe(401);
+    }
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("POST applies one team's draws, named by slug, exactly as a coach's are", async () => {
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await post(POST, { team: "a", ...draws() }, { headers: KEY });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ ok: true, matchesSeen: 2, created: 2 });
+    expect(teamBySlug).toHaveBeenCalledWith("a");
+    expect(auth).not.toHaveBeenCalled();
+    const [slug, saved] = setData.mock.calls[0];
+    expect(slug).toBe("a");
+    const added = saved.fixtures.filter((f) => f.comp === "cprem");
+    expect(added.map((f) => [f.squadiId, f.compName, f.opponent])).toEqual([["dribl:g1", PREMIER.name, "Opponent 1"], ["dribl:g2", PREMIER.name, "Opponent 2"]]);
+    // Everything the team had is still there, untouched.
+    expect(saved.fixtures.find((f) => f.id === "f1").availability).toEqual({ p1: { status: "in", by: "Mum", at: 1 } });
+    expect(saved.players).toEqual(DATA().players);
+    expect(setMeta.mock.calls.at(-1)).toEqual(["a", { lastDriblSyncAt: NOW.getTime() }]);
+  });
+
+  it("POST checks a team's draws as a coach's are checked: only its own Dribl competitions, and only real games", async () => {
+    const { POST, NOT_A_DRIBL_COMPETITION } = await loadRoute({ authOn: true });
+    // Another team's competition, a Squadi competition, one named twice: refused with the sentence.
+    for (const body of [{ team: "a", ...draws(undefined, "cother") }, { team: "a", ...draws(undefined, "cwinter") }, { team: "b", ...draws() },
+      { team: "a", draws: [{ comp: "cprem", records: [game(1)] }, { comp: "cprem", records: [game(2)] }] }]) {
+      const res = await post(POST, body, { headers: KEY });
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(await res.json()).toEqual({ error: NOT_A_DRIBL_COMPETITION });
+    }
+    expect((await post(POST, { team: "a", draws: [{ comp: "cprem", records: "games" }] }, { headers: KEY })).status).toBe(400);
+    // A record that is not a game is dropped, and nothing rides along on one that is.
+    await post(POST, { team: "a", draws: [{ comp: "cprem", records: [game(1, { us: 9, notes: "x", availability: { p1: "out" } }), { squadiId: "dribl:x" }, "y"] }] }, { headers: KEY });
+    const added = setData.mock.calls[0][1].fixtures.filter((f) => f.comp === "cprem");
+    expect(added).toHaveLength(1);
+    expect([added[0].us, added[0].notes, added[0].availability]).toEqual([null, "", undefined]);
+  });
+
+  it("POST to a slug that is no team is a 404 with a sentence; one with no document yet is a 404 too", async () => {
+    teamBySlug.mockImplementation((slug) => (slug === "a" ? TEAM("a") : null));
+    const { POST, NO_SUCH_TEAM } = await loadRoute({ authOn: true });
+    expect(NO_SUCH_TEAM).toBe("There is no team with that slug.");
+    for (const team of ["nope", "", undefined, 7, ["a"]]) {
+      const res = await post(POST, { team, ...draws() }, { headers: KEY });
+      expect(res.status, String(team)).toBe(404);
+      expect(await res.json()).toEqual({ error: NO_SUCH_TEAM });
+    }
+    getData.mockResolvedValue(null);
+    expect((await post(POST, { team: "a", ...draws() }, { headers: KEY })).status).toBe(404);
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("a malformed body is refused before the key is looked at", async () => {
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await POST(fakeRequest({ headers: KEY }))).status).toBe(400);
+    for (const body of [[], { team: "a" }, { team: "a", draws: [] }, { team: "a", draws: [{ records: [] }] }]) {
+      expect((await post(POST, body, { headers: KEY })).status).toBe(400);
+    }
+    expect(teamBySlug).not.toHaveBeenCalled();
+  });
+
+  it("works the same in legacy team-code mode: the key, not the code, decides", async () => {
+    const { GET, POST } = await loadRoute({ authOn: false });
+    expect((await (await GET(fakeRequest({ headers: KEY }))).json()).teams).toHaveLength(2);
+    expect((await post(POST, { team: "a", ...draws() }, { headers: KEY })).status).toBe(200);
   });
 });
