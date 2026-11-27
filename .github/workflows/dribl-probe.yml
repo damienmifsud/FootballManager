@@ -1,0 +1,28 @@
+# Temporary: can GitHub's runners read Dribl's public match centre? Runs once, on a push to
+# its own branch, and prints statuses and field names only. The branch is deleted afterwards.
+name: Dribl probe
+
+on:
+  push:
+    branches: ["claude/dribl-probe"]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Plain requests
+        run: node scripts/dribl-probe.mjs plain
+      - name: Install a browser
+        run: |
+          npm install --no-save --no-package-lock --ignore-scripts playwright@1.63.0
+          npx playwright install --with-deps chromium
+      - name: Browser
+        run: node scripts/dribl-probe.mjs browser
