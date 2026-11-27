@@ -522,6 +522,13 @@ For a team defined in `TEAMS`, the same list goes on the team entry:
 `"competitions":[{"id":"winterfest","name":"Winterfest","squadi":{"competitionId":"…","divisionId":"…","teamId":0}}]`.
 `id` is permanent (a game is tagged with it) and `name` can change.
 
+Each draw has the name the club knows it by. A competition's is the name box at the top
+of its row (a link read fills it in only while it is empty, and it can be typed over at
+any time), and its games are labelled with it. The season can have one too, **Season
+name** at the top of the step (for example "FQ Season"): it names the season's draw on
+the league page and in the Sync button's report when it could not be fetched, and left
+empty the season is simply "Season". In `TEAMS` it is `"seasonName":"…"` on the team.
+
 Every draw's row, the season's and each competition's, also takes a **website link**: the
 address of the page the draw is on (its Squadi or Dribl fixtures page, a competition's
 page on Majestri, or a tournament's own site). It is kept beside the IDs, has an **Open** link beside it once saved, and is

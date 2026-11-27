@@ -13,7 +13,7 @@ import { Plus, RefreshCw, X, Check, ExternalLink } from "lucide-react";
 import { parsePlayerImport, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES, seasonLabel } from "@/lib/teamSetup";
 import { downscaleImage } from "@/lib/clientImage";
-import { MAX_COMPETITIONS, websiteLink } from "@/lib/competitions";
+import { MAX_COMPETITIONS, websiteLink, SEASON_NAME_MAX } from "@/lib/competitions";
 import { parseFeedLink, feedProvider } from "@/lib/feedLinks";
 import { parseMajestriLink, majestriCompUrl } from "@/lib/majestriDraw";
 import { readDriblLink } from "@/lib/driblLink";
@@ -50,6 +50,7 @@ const BLANK = {
   name: "", ageGroup: "U8", password: "", coachEmails: "",
   division: "", whatsapp: "", season: { ...BLANK_SEASON },
   squadi: [squadiRow()], // the season: one row, or two for a two-team squad
+  seasonName: "", // what the club calls the season ("FQ Season"); blank is "Season"
   competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId }, dribl: { url, team }, majestri: { url, team, teamId }, scores, link, note, teams }
   importText: "",
   training: [], // { weekday, time, endTime, location }
@@ -275,7 +276,7 @@ export default function TeamWizard({ onTeamsChanged }) {
       name: t.name, ageGroup: t.ageGroup || "U8", password: t.password,
       coachEmails: (t.coachEmails || []).join(", "),
       division: t.division || "", whatsapp: t.whatsapp || "", season: seasonForEdit(t.season),
-      squadi: seasonFeedsForEdit(t.squadi),
+      squadi: seasonFeedsForEdit(t.squadi), seasonName: t.seasonName || "",
       competitions: (t.competitions || []).map(competitionRow),
       importText: "", training: [],
       features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
@@ -438,6 +439,8 @@ export default function TeamWizard({ onTeamsChanged }) {
       name: form.name, ageGroup: form.ageGroup, password: form.password.trim(),
       // On an edit the season is always sent, so emptying its rows removes it.
       coachEmails: form.coachEmails, ...(squadi ? { squadi } : editSlug ? { squadi: {} } : {}),
+      // Always sent, so emptying the name makes the season "Season" again.
+      seasonName: form.seasonName.trim(),
       // On an edit the list is always sent, so removing a row removes it.
       ...(editSlug || competitions.length ? { competitions } : {}),
       division: form.division, whatsapp: form.whatsapp, season, features: form.features, parentsSee: form.parentsSee,
@@ -605,6 +608,8 @@ export default function TeamWizard({ onTeamsChanged }) {
 
           <Step n={++stepNo} title="Competitions" optional lead="Where this team's games come from. Fill in each draw when it is published and leave the rest until then.">
             <div className="adm-fl">Season</div>
+            <input className="adm-inp" style={{ width: "100%" }} aria-label="Season name" placeholder="Name (e.g. FQ Season)" maxLength={SEASON_NAME_MAX}
+              value={form.seasonName} onChange={(e) => setForm((f) => ({ ...f, seasonName: e.target.value }))} />
             {form.squadi.map((row, i) => {
               const two = form.squadi.length === 2;
               const who = i === 0 ? "Squadi" : "Second Squadi";
@@ -612,7 +617,7 @@ export default function TeamWizard({ onTeamsChanged }) {
               const patchRow = (patch) => setForm((f) => ({ ...f, squadi: f.squadi.map((r, k) => (k === i ? { ...r, ...patch, note: null } : r)) }));
               const set = (key) => (e) => patchRow({ [key]: e.target.value });
               return (
-                <div key={i} className="adm-line" style={i === 0 ? { marginTop: 0 } : undefined}>
+                <div key={i} className="adm-line">
                   <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} team label`} placeholder={two ? "Label (e.g. McKay)" : "Label (for two teams)"}
                     maxLength={SIDE_LABEL_MAX} required={two} aria-required={two} value={row.label} onChange={set("label")} />
                   <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} competition ID`} placeholder="competitionId" value={row.competitionId} onChange={set("competitionId")} />
@@ -650,6 +655,7 @@ export default function TeamWizard({ onTeamsChanged }) {
               const who = c.name.trim() || `Competition ${i + 1}`;
               return (
                 <div key={i} className="adm-comp">
+                  <div className="adm-fl">Competition</div>
                   <div className="top">
                     <input className="adm-inp" style={{ flex: 1, minWidth: 0 }} aria-label={`Competition ${i + 1} name`} placeholder="Name (e.g. Winterfest)" value={c.name}
                       onChange={(e) => set({ name: e.target.value })} />
@@ -723,7 +729,9 @@ export default function TeamWizard({ onTeamsChanged }) {
               you to choose yours. What it found is shown under the box before you save.
             </div>
             <div className="adm-note">
-              Add a competition for anything played alongside the season, such as a winter tournament. One with no IDs yet is
+              Give the season and each competition the name the club knows it by, such as FQ Season, Winterfest or Summer Fives:
+              a competition's games are labelled with it, and a name a link fills in can be typed over. Add a competition for
+              anything played alongside the season, such as a winter tournament. One with no IDs yet is
               kept, and synced once you add them with Edit. Its games are labelled with its name and kept out of the season
               record. A draw on Squadi or Majestri syncs for everyone; a draw on Dribl is kept in step whenever a coach opens
               the team. The season's scores are entered by hand. Any other competition can take its scores from its draw

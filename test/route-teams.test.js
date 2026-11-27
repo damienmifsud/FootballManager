@@ -992,3 +992,32 @@ describe("a competition on Majestri", () => {
     expect(stored()).toEqual([{ id: "cfives", name: "Winter Fives" }]);
   });
 });
+
+describe("the season's own name", () => {
+  it("POST keeps the name the club calls the season, tidied and cut to size, on the registry only", async () => {
+    const { POST } = await asAdmin();
+    const res = await POST(fakeRequest({ body: { name: "U10 Academy", ageGroup: "U10", password: "gold-roo-77", seasonName: "  Academy   League  " } }));
+    expect(res.status).toBe(200);
+    const stored = setStoredTeams.mock.calls[0][0].find((t) => t.name === "U10 Academy");
+    expect(stored.seasonName).toBe("Academy League");
+    expect(JSON.stringify(setData.mock.calls[0][1])).not.toMatch(/Academy League/);
+    const long = await (await asAdmin()).POST(fakeRequest({ body: { name: "U11 Academy", ageGroup: "U11", password: "gold-roo-78", seasonName: "x".repeat(60) } }));
+    expect(long.status).toBe(200);
+    expect(setStoredTeams.mock.calls.at(-1)[0].find((t) => t.name === "U11 Academy").seasonName).toHaveLength(40);
+  });
+
+  it("GET returns it for the edit form, and PATCH changes it or, sent empty, takes it away", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "u10", name: "U10 Academy", password: "code-u10", seasonName: "Academy League" }]);
+    const { GET, PATCH } = await asAdmin();
+    expect((await (await GET()).json()).teams.find((t) => t.slug === "u10").seasonName).toBe("Academy League");
+    const stored = () => setStoredTeams.mock.calls.at(-1)[0].find((t) => t.slug === "u10");
+    expect((await PATCH(fakeRequest({ body: { slug: "u10", seasonName: "Spring League" } }))).status).toBe(200);
+    expect(stored().seasonName).toBe("Spring League");
+    expect((await PATCH(fakeRequest({ body: { slug: "u10", seasonName: "  " } }))).status).toBe(200);
+    expect(stored()).not.toHaveProperty("seasonName");
+    // Not sent at all, it is left as it was.
+    getStoredTeams.mockResolvedValue([{ slug: "u10", name: "U10 Academy", password: "code-u10", seasonName: "Academy League" }]);
+    expect((await PATCH(fakeRequest({ body: { slug: "u10", name: "U10 Academy Blue" } }))).status).toBe(200);
+    expect(stored().seasonName).toBe("Academy League");
+  });
+});

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getData, getMeta } from "@/lib/store";
 import { fetchSquadi } from "@/lib/squadiSync";
 import { applyDraws } from "@/lib/applyDraws";
-import { squadiSources, majestriSources } from "@/lib/competitions";
+import { squadiSources, majestriSources, seasonNameOf } from "@/lib/competitions";
 import { fetchMajestri } from "@/lib/majestriDraw";
 import { getTeams } from "@/lib/teams";
 import { resolveViewer, viewerError } from "@/lib/viewer";
@@ -48,7 +48,7 @@ async function syncTeam(team, ifStale) {
   }));
   // A failed draw is named the way people know it: the competition, the side
   // of a two-feed squad, or simply the season.
-  const failed = draws.filter((d) => d.error).map((d) => ({ name: d.comp ? d.comp.name : d.side || "Season", ...(d.side ? { side: d.side } : {}), error: d.error }));
+  const failed = draws.filter((d) => d.error).map((d) => ({ name: d.comp ? d.comp.name : d.side || seasonNameOf(team), ...(d.side ? { side: d.side } : {}), error: d.error }));
   if (failed.length === draws.length) throw new Error(failed[0].error);
 
   // The rest is the same for any draw, wherever it was fetched (lib/applyDraws.js).

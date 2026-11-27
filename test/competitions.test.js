@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, squadiFeeds, knownCompetitions, sanitizeSquad, MAX_COMPETITIONS, competitionsError, driblSources, websiteLink, websiteLinkProblem, websiteLinksError, LINK_MAX, NOT_A_WEBSITE_LINK, LINK_TOO_LONG, majestriSources, drawLinks } from "@/lib/competitions";
+import { sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, squadiFeeds, knownCompetitions, sanitizeSquad, MAX_COMPETITIONS, competitionsError, driblSources, websiteLink, websiteLinkProblem, websiteLinksError, LINK_MAX, NOT_A_WEBSITE_LINK, LINK_TOO_LONG, majestriSources, drawLinks, seasonNameOf, sanitizeSeasonName } from "@/lib/competitions";
 import { NOT_A_DRIBL_REQUEST, ONE_SOURCE } from "@/lib/dribl";
 
 // lib/competitions: a team's competitions beyond its season (a winter
@@ -570,6 +570,15 @@ describe("a competition whose draw is on Majestri", () => {
     ]);
     // The season's draw never carries the choice, even with the same ids as a competition that does.
     expect(squadiSources({ ...team, squadi: { competitionId: "9", divisionId: "8", teamId: 7 } }).map((s) => [s.comp?.name ?? "Season", !!s.scores])).toEqual([["Season", false], ["Winter Cup", true]]);
+  });
+
+  it("the season is listed by the name the club gives it, each side of a two-team squad under it; without one it is Season", () => {
+    const SQ = "https://registration.squadi.com/liveScoreSeasonFixture?x=1";
+    expect(drawLinks({ seasonName: " Academy  League ", squadi: { competitionId: "1", divisionId: "2", teamId: 3, link: SQ } }).map((d) => d.name)).toEqual(["Academy League"]);
+    expect(drawLinks({ seasonName: "Academy League", squadi: [{ label: "Reds", competitionId: "1", divisionId: "2", teamId: 3, link: SQ }, { label: "Blues", competitionId: "1", divisionId: "4", teamId: 5, link: SQ }] }).map((d) => d.name))
+      .toEqual(["Academy League · Reds", "Academy League · Blues"]);
+    expect(drawLinks({ seasonName: "  ", squadi: { competitionId: "1", divisionId: "2", teamId: 3, link: SQ } }).map((d) => d.name)).toEqual(["Season"]);
+    expect([seasonNameOf({}), seasonNameOf(null), seasonNameOf({ seasonName: 7 }), sanitizeSeasonName("y".repeat(50)).length]).toEqual(["Season", "Season", "Season", 40]);
   });
 
   it("its page is listed on the league page as being on Majestri", () => {

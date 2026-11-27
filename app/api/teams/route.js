@@ -7,7 +7,7 @@ import { isAdminEmail, isClubAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
 import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE, sanitizeSeason } from "@/lib/teamSetup";
-import { sanitizeCompetitions, competitionsError, squadiFeeds, websiteLinksError } from "@/lib/competitions";
+import { sanitizeCompetitions, competitionsError, squadiFeeds, websiteLinksError, sanitizeSeasonName } from "@/lib/competitions";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +64,11 @@ function sanitizeTeam(input, existing = {}) {
     else if (feeds.length === 1) t.squadi = feeds[0];
     else delete t.squadi;
   }
+  // The season's own name ("FQ Season"); sent empty, the season is just "Season" again.
+  if (input.seasonName != null) {
+    const name = sanitizeSeasonName(input.seasonName);
+    if (name) t.seasonName = name; else delete t.seasonName;
+  }
   // Every other competition the team plays in (lib/competitions.js). The list
   // is replaced whole: a row left out has been removed. A row keeps the id it
   // came with, so the games already tagged with it stay its games.
@@ -116,6 +121,7 @@ export async function GET() {
       slug: t.slug, name: t.name, password: t.password, calendarKey: t.calendarKey || "",
       ageGroup: t.ageGroup || "", coachEmails: t.coachEmails || [],
       squadi: feeds.length === 2 ? feeds : (feeds[0] || null),
+      seasonName: sanitizeSeasonName(t.seasonName),
       competitions: Array.isArray(t.competitions) ? t.competitions : [],
       source: t.stored ? "stored" : (t.legacy ? "legacy" : "env"),
       division: doc?.team?.division || "",
