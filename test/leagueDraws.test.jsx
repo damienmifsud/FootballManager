@@ -108,6 +108,14 @@ describe("the list of draws", () => {
     expect(screen.queryByText("Not configured yet.")).toBeNull();
   });
 
+  it("a competition on Majestri is listed as being on Majestri, and opened in a new tab", async () => {
+    const MAJ = "https://riversidefc.majestri.com.au/comp-summary?compID=9001";
+    league.draws = [{ name: "Winter Fives", provider: "majestri", link: MAJ }];
+    await show();
+    await waitFor(() => expect(rows()).toEqual([{ name: "Winter Fives", on: "On Majestri", href: MAJ }]));
+    expect(frame()).toBeNull();
+  });
+
   it("the season's page on Dribl is a link out too: only its page on Squadi is shown in place", async () => {
     league.draws = [{ name: "Season", provider: "dribl", link: DR, season: true }];
     await show();

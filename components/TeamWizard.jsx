@@ -15,6 +15,7 @@ import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABE
 import { downscaleImage } from "@/lib/clientImage";
 import { MAX_COMPETITIONS, websiteLink } from "@/lib/competitions";
 import { parseFeedLink, feedProvider } from "@/lib/feedLinks";
+import { parseMajestriLink, majestriCompUrl } from "@/lib/majestriDraw";
 import { readDriblLink } from "@/lib/driblLink";
 import { AdminSwitch } from "@/components/AdminShell";
 
@@ -48,7 +49,7 @@ const BLANK = {
   name: "", ageGroup: "U8", password: "", coachEmails: "",
   division: "", whatsapp: "", season: { ...BLANK_SEASON },
   squadi: [squadiRow()], // the season: one row, or two for a two-team squad
-  competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId }, dribl: { url, team }, link, note, teams }
+  competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId }, dribl: { url, team }, majestri: { url, team, teamId }, link, note, teams }
   importText: "",
   training: [], // { weekday, time, endTime, location }
   features: { ...DEFAULT_FEATURES },
@@ -64,21 +65,38 @@ const hasSquadiIds = (s) => !!(s.competitionId || s.divisionId || s.teamId);
 // A competition whose draw is on Dribl instead: its fixtures request and our
 // team's name there, which says which side of each game is ours.
 const driblForEdit = (d) => ({ url: d?.url || "", team: d?.team || "" });
+// Or on a club's Majestri site: the competition's page, our team's name there
+// and Majestri's number for it. The page is the row's link, so there is no box
+// for it of its own.
+const majestriForEdit = (m) => ({ url: m?.url || "", team: m?.team || "", teamId: m?.teamId ? String(m.teamId) : "" });
+// The row's Majestri draw, while its link is still that competition's page.
+// A link changed to anything else takes the draw away with it.
+const onMajestri = (c) => {
+  if (!c.majestri.url) return false;
+  const p = parseMajestriLink(c.link.trim());
+  return !p.error && majestriCompUrl(p.host, p.compId) === c.majestri.url;
+};
 
 // Another competition's row as the form holds it. `note` is what reading its
-// link found and `teams` the team names a Dribl draw listed, offered in the
-// team name box; neither is sent.
-const competitionRow = (c = {}) => ({ ...(c.id ? { id: c.id } : {}), name: c.name || "", squadi: squadiForEdit(c.squadi), dribl: driblForEdit(c.dribl), link: c.link || "", note: null, teams: [] });
+// link found and `teams` the team names its draw listed, offered in the team
+// box; neither is sent. A Majestri draw saved without a link shows its page
+// as the link, since that is where it is read from.
+const competitionRow = (c = {}) => ({
+  ...(c.id ? { id: c.id } : {}), name: c.name || "", squadi: squadiForEdit(c.squadi), dribl: driblForEdit(c.dribl), majestri: majestriForEdit(c.majestri),
+  link: c.link || c.majestri?.url || "", note: null, teams: []
+});
 
 // ---- Setting a draw up from its link ----------------------------------------
 // A draw's website link is the address of its page, and when that page is the
-// team's fixtures on Squadi or on Dribl, the row can be filled in from it
-// (lib/feedLinks.js). A Squadi link is looked up through /api/feed-link for
-// the three ids the sync uses. A Dribl link is turned into the competition's
+// team's fixtures on Squadi or on Dribl, or a competition's page on a club's
+// Majestri site, the row can be filled in from it (lib/feedLinks.js). A Squadi
+// link is looked up through /api/feed-link for the three ids the sync uses. A
+// Majestri link is read there too, for the competition's teams to choose ours
+// from (lib/majestriDraw.js). A Dribl link is turned into the competition's
 // fixtures request by this browser (lib/driblLink.js), since Dribl turns
-// servers away. Either way what was found is read back under the field before
-// anything is saved, and the link itself is kept as the website link.
-export const DRIBL_IN_SEASON = "The season's games come from Squadi. For a draw on Dribl, use Add a competition below and paste its link there.";
+// servers away. Whichever it is, what was found is read back under the field
+// before anything is saved, and the link itself is kept as the website link.
+export const DRIBL_IN_SEASON = "The season's games come from Squadi. For a draw on Dribl or Majestri, use Add a competition below and paste its link there.";
 export const LINK_BEING_READ = "A link is still being read. Give it a moment, then save.";
 export const DRIBL_BY_HAND = "The link is kept. To sync this draw, its fixtures request can still be pasted in the Dribl box by hand (see the note below).";
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -101,6 +119,19 @@ export function driblFound({ draw, problem }) {
   if (!draw.ours) return { kind: "warn", text: `${what ? what + ". " : ""}${plural(draw.games, "game")} found, but the draw does not show which team is yours. Choose it in the team name box above.` };
   return { kind: "ok", text: `${[draw.ours, what].filter(Boolean).join(" · ")}. ${plural(draw.ourGames, "game")} found. They sync whenever a coach opens the team.` };
 }
+// What reading a Majestri link found, as the note under the field.
+export function majestriFound(found) {
+  const f = found && typeof found === "object" ? found : {};
+  const what = [f.competition, f.division].filter(Boolean).join(" · ");
+  const teams = Array.isArray(f.teams) ? f.teams.length : 0;
+  if (!f.ours) {
+    const games = f.games ? `${plural(f.games, "game")} found for ${plural(teams, "team")}` : `No games are published yet for its ${plural(teams, "team")}`;
+    return { kind: "warn", text: `${what ? what + ". " : ""}${games}. Choose yours in the team box above.` };
+  }
+  return { kind: "ok", text: `${[f.ours, what].filter(Boolean).join(" · ")}. ${f.ourGames
+    ? `${plural(f.ourGames, "game")} found. They sync by themselves.`
+    : "No games are published for this team yet. They sync by themselves once they are."}` };
+}
 
 // How much text arrived in one change to a box: the length of what is new
 // between the part both values start with and the part both end with. Typing
@@ -119,7 +150,7 @@ export function arrived(before, after) {
 // A draw's website link: the page it is on, kept beside its ids. It takes a
 // line of its own under the ids, and once what is typed is a web address a
 // link at the end of that line opens it in a new tab. When it is a fixtures
-// page on Squadi or Dribl, Read link fills the row in from it, and what was
+// page on Squadi, Dribl or Majestri, Read link fills the row in from it, and what was
 // found shows underneath. A link pasted in, or put in whole some other way,
 // is read straight away; one typed out waits for Read link or Enter.
 function LinkField({ who, value, note, onChange, onRead }) {
@@ -288,39 +319,57 @@ export default function TeamWizard({ onTeamsChanged }) {
   // row in from it. `list` is the form key the row lives in ("squadi" for the
   // season, "competitions"). The row is found again by its link when the
   // answer comes back, so a row removed or changed in the meantime is left as
-  // it is. A link that is not a fixtures page on Squadi or Dribl has nothing
-  // to read and is simply the website link it was.
-  const readLink = async (list, i, text) => {
+  // it is. A link that is not a fixtures page on Squadi, Dribl or Majestri has
+  // nothing to read and is simply the website link it was. `team` is the
+  // Majestri team just chosen, when this read is to check it.
+  const readLink = async (list, i, text, { team: chosen } = {}) => {
     const patch = (fn, only) => setForm((f) => (!f ? f : { ...f, [list]: f[list].map((r, k) => (k === i && (!only || r.link === only) ? fn(r) : r)) }));
     if (!feedProvider(text)) return;
     const parsed = parseFeedLink(text);
     // A page on one of them that does not name a team's draw: said, and kept.
     if (parsed.error) { patch((r) => ({ ...r, note: { kind: "warn", text: parsed.error } })); return; }
-    if (parsed.provider === "dribl" && list === "squadi") { patch((r) => ({ ...r, link: parsed.link, note: { kind: "warn", text: DRIBL_IN_SEASON } })); return; }
+    if (parsed.provider !== "squadi" && list === "squadi") { patch((r) => ({ ...r, link: parsed.link, note: { kind: "warn", text: DRIBL_IN_SEASON } })); return; }
+    // A Majestri page is read for the team the row already has, so the answer
+    // can say whether it is in this competition. An answer for a team since
+    // changed in the box is left to the read for the new one.
+    const team = parsed.provider === "majestri" ? String(chosen ?? form?.competitions?.[i]?.majestri?.team ?? "").trim() : "";
+    const current = (r) => parsed.provider !== "majestri" || r.majestri.team.trim() === team;
     patch((r) => ({ ...r, link: parsed.link, note: { kind: "busy" } }));
     try {
       if (parsed.provider === "dribl") {
         const got = await readDriblLink(parsed.link, { team: form?.competitions?.[i]?.dribl?.team || "" });
         // One source to a row: the Dribl request takes the place of any Squadi ids.
         patch((r) => ({
-          ...r, squadi: squadiForEdit(), dribl: { url: got.url, team: r.dribl.team }, teams: got.draw?.teams || [], note: driblFound(got),
+          ...r, squadi: squadiForEdit(), dribl: { url: got.url, team: r.dribl.team }, majestri: majestriForEdit(), teams: got.draw?.teams || [], note: driblFound(got),
           name: r.name.trim() ? r.name : String(got.draw?.competition || "").slice(0, 40)
         }), parsed.link);
         return;
       }
-      const res = await fetch("/api/feed-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ link: parsed.link }) });
+      const res = await fetch("/api/feed-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ link: parsed.link, ...(team ? { team } : {}) }) });
       const j = await res.json().catch(() => ({}));
+      if (parsed.provider === "majestri") {
+        if (!res.ok || !j.majestri) throw new Error(j.error || "Couldn't read that link. Try again.");
+        // The competition's page takes the place of any other source on the
+        // row. Our team is the one Majestri found, or none: a name that is not
+        // one of its teams is cleared, so it is chosen again from them.
+        patch((r) => (!current(r) ? r : {
+          ...r, squadi: squadiForEdit(), dribl: driblForEdit(), majestri: majestriForEdit(j.majestri),
+          teams: Array.isArray(j.found?.teams) ? j.found.teams : [], note: majestriFound(j.found),
+          name: r.name.trim() ? r.name : String(j.found?.competition || "").slice(0, 40)
+        }), parsed.link);
+        return;
+      }
       if (!res.ok || !j.squadi) throw new Error(j.error || "Couldn't read that link. Try again.");
       const ids = { competitionId: String(j.squadi.competitionId), divisionId: String(j.squadi.divisionId), teamId: String(j.squadi.teamId) };
       const note = { kind: "ok", text: squadiFound(j.found) };
       patch((r) => (list === "squadi"
         ? { ...r, ...ids, note }
-        // The Squadi ids take the place of any Dribl request, and a competition
+        // The Squadi ids take the place of any other source, and a competition
         // with no name yet takes Squadi's name for it, which can be changed.
-        : { ...r, squadi: ids, dribl: driblForEdit(), teams: [], note, name: r.name.trim() ? r.name : String(j.found?.competition || "").slice(0, 40) }), parsed.link);
+        : { ...r, squadi: ids, dribl: driblForEdit(), majestri: majestriForEdit(), teams: [], note, name: r.name.trim() ? r.name : String(j.found?.competition || "").slice(0, 40) }), parsed.link);
     } catch (e) {
       const said = String(e?.message || e);
-      patch((r) => ({ ...r, note: { kind: "err", text: parsed.provider === "dribl" ? `${said} ${DRIBL_BY_HAND}` : said } }), parsed.link);
+      patch((r) => (!current(r) ? r : { ...r, note: { kind: "err", text: parsed.provider === "dribl" ? `${said} ${DRIBL_BY_HAND}` : said } }), parsed.link);
     }
   };
 
@@ -350,6 +399,8 @@ export default function TeamWizard({ onTeamsChanged }) {
         ...(c.id ? { id: c.id } : {}), name: c.name.trim(),
         ...(hasSquadiIds(c.squadi) ? { squadi: c.squadi } : {}),
         ...(c.dribl.url.trim() ? { dribl: { url: c.dribl.url.trim(), team: c.dribl.team.trim() } } : {}),
+        // A Majestri row with no team chosen is sent as it is, and the server says what is missing.
+        ...(onMajestri(c) ? { majestri: { url: c.majestri.url, team: c.majestri.team.trim(), ...(c.majestri.teamId ? { teamId: c.majestri.teamId } : {}) } } : {}),
         ...linkOf(c)
       }));
     const season = form.season.startISO || form.season.endISO ? { startISO: form.season.startISO, endISO: form.season.endISO } : null;
@@ -557,6 +608,14 @@ export default function TeamWizard({ onTeamsChanged }) {
               // link box and read there, which fills the request in.
               const isPageLink = (text) => parseFeedLink(text).provider === "dribl";
               const moveToLink = (text) => { set({ link: text, note: null }); readLink("competitions", i, text); };
+              // A Majestri team chosen from the page's names is checked against
+              // the page straight away, which also finds Majestri's number for it.
+              const pickMajestriTeam = (name) => {
+                set({ majestri: { ...c.majestri, team: name, teamId: "" }, note: null });
+                if (name) readLink("competitions", i, c.link, { team: name });
+              };
+              // Until the page has been read there are no names to choose from, and the team saved is typed.
+              const majestriTeams = !c.teams.length ? [] : c.majestri.team && !c.teams.includes(c.majestri.team) ? [c.majestri.team, ...c.teams] : c.teams;
               const who = c.name.trim() || `Competition ${i + 1}`;
               return (
                 <div key={i} className="adm-comp">
@@ -591,6 +650,20 @@ export default function TeamWizard({ onTeamsChanged }) {
                       {c.teams.length > 0 && <datalist id={teamList}>{c.teams.map((name) => <option key={name} value={name} />)}</datalist>}
                     </>)}
                   </div>
+                  {onMajestri(c) && (
+                    <div className="adm-line">
+                      {/* Majestri lists every team in the competition, so ours is chosen from them once the link is read. */}
+                      {majestriTeams.length ? (
+                        <select className="adm-inp" style={{ flex: "1 1 100%" }} aria-label={`${who} team on Majestri`} value={c.majestri.team} onChange={(e) => pickMajestriTeam(e.target.value)}>
+                          <option value="">Choose your team</option>
+                          {majestriTeams.map((name) => <option key={name} value={name}>{name}</option>)}
+                        </select>
+                      ) : (
+                        <input className="adm-inp" style={{ flex: "1 1 100%" }} aria-label={`${who} team on Majestri`} placeholder="Your team's name as Majestri shows it" autoComplete="off"
+                          value={c.majestri.team} onChange={(e) => set({ majestri: { ...c.majestri, team: e.target.value, teamId: "" }, note: null })} />
+                      )}
+                    </div>
+                  )}
                   <div className="adm-line">
                     <LinkField who={who} value={c.link} note={c.note} onChange={(link) => set({ link, note: null })} onRead={(text) => readLink("competitions", i, text)} />
                   </div>
@@ -604,14 +677,16 @@ export default function TeamWizard({ onTeamsChanged }) {
               </button>
             )}
             <div className="adm-note">
-              The quickest way to fill a draw in is its link. Open your team's fixtures page on Squadi or Dribl, copy its address
-              and paste it into the row's link box: a Squadi link fills in the three IDs, and a Dribl link fills in the Dribl
-              fixtures request. What it found is shown under the box before you save.
+              The quickest way to fill a draw in is its link. Open your team's fixtures page on Squadi or Dribl, or the
+              competition's page on Majestri, copy its address and paste it into the row's link box: a Squadi link fills in the
+              three IDs, a Dribl link fills in the Dribl fixtures request, and a Majestri link lists the competition's teams for
+              you to choose yours. What it found is shown under the box before you save.
             </div>
             <div className="adm-note">
               Add a competition for anything played alongside the season, such as a winter tournament. One with no IDs yet is
               kept, and synced once you add them with Edit. Its games are labelled with its name and kept out of the season
-              record. A draw on Squadi syncs for everyone; a draw on Dribl is kept in step whenever a coach opens the team.
+              record. A draw on Squadi or Majestri syncs for everyone; a draw on Dribl is kept in step whenever a coach opens
+              the team.
             </div>
             <div className="adm-note">
               Everything a link fills in can also be typed by hand. Squadi IDs come from the FQ widget via DevTools (see the

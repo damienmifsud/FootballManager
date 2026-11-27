@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, squadiFeeds, knownCompetitions, sanitizeSquad, MAX_COMPETITIONS,
-  competitionsError, driblSources,
-  websiteLink, websiteLinkProblem, websiteLinksError, LINK_MAX, NOT_A_WEBSITE_LINK, LINK_TOO_LONG
-} from "@/lib/competitions";
+import { sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, squadiFeeds, knownCompetitions, sanitizeSquad, MAX_COMPETITIONS, competitionsError, driblSources, websiteLink, websiteLinkProblem, websiteLinksError, LINK_MAX, NOT_A_WEBSITE_LINK, LINK_TOO_LONG, majestriSources, drawLinks } from "@/lib/competitions";
 import { NOT_A_DRIBL_REQUEST, ONE_SOURCE } from "@/lib/dribl";
 
 // lib/competitions: a team's competitions beyond its season (a winter
@@ -461,7 +457,7 @@ describe("a competition whose draw is on Dribl", () => {
     expect(competitionsError([{ name: "", dribl: { url: "not a link" } }])).toBe(NOT_A_DRIBL_REQUEST);
     expect(competitionsError([{ name: "Both", squadi: IDS, dribl: { url: REQUEST } }])).toBe(`Both: ${ONE_SOURCE}`);
     expect(competitionsError([{ squadi: { competitionId: "1" }, dribl: { url: REQUEST } }])).toBe(ONE_SOURCE);
-    expect(ONE_SOURCE).toBe("A competition gets its draw from Squadi or from Dribl, not both.");
+    expect(ONE_SOURCE).toBe("A competition gets its draw from one place: Squadi, Dribl or Majestri.");
     // The first problem in the list is the one reported.
     expect(competitionsError([{ name: "Fine", dribl: { url: REQUEST } }, { name: "Second", dribl: { url: "x" } }, { name: "Third", squadi: IDS, dribl: { url: REQUEST } }])).toBe(`Second: ${NOT_A_DRIBL_REQUEST}`);
   });
@@ -497,5 +493,65 @@ describe("a competition whose draw is on Dribl", () => {
     ];
     expect(driblSources({ competitions: comps })).toEqual([{ comp: { id: "c4", name: "Competition" }, dribl: { url: REQUEST } }]);
     for (const none of [null, undefined, {}, { competitions: "x" }]) expect(driblSources(none)).toEqual([]);
+  });
+});
+
+// A competition whose draw is on a club's Majestri site (lib/majestriDraw.js):
+// its source is the competition's page and our team there.
+describe("a competition whose draw is on Majestri", () => {
+  const MCOMP = "https://riversidefc.majestri.com.au/comp-summary?compID=9001";
+  const MTEAM = "https://riversidefc.majestri.com.au/team-summary?teamID=7001&compID=9001";
+  const makeId = (() => { let n = 0; return () => `cm${String(++n).padStart(6, "0")}`; })();
+
+  it("is kept as the competition's page in its stored form with our team, or the team's number from a team's own page", () => {
+    const [a, b] = sanitizeCompetitions([
+      { name: "Winter Fives", majestri: { url: `${MCOMP}&x=1`, team: " Riverside  Rockets " } },
+      { name: "Gala Fives", majestri: { url: MTEAM } }
+    ], makeId);
+    expect(a).toMatchObject({ name: "Winter Fives", majestri: { url: MCOMP, team: "Riverside Rockets" } });
+    expect(b).toMatchObject({ name: "Gala Fives", majestri: { url: MCOMP, teamId: "7001" } });
+    expect("squadi" in a || "dribl" in a).toBe(false);
+  });
+
+  it("is one source to a row: Squadi ids, then a Dribl request, win over it; one that names no team is not kept", () => {
+    const [withIds, withDribl, noTeam] = sanitizeCompetitions([
+      { name: "Ids", squadi: { competitionId: "1", divisionId: "2", teamId: 3 }, majestri: { url: MCOMP, team: "Riverside Rockets" } },
+      { name: "Request", dribl: { url: "https://mc-api.dribl.com/api/fixtures?club=CL1&tenant=T1" }, majestri: { url: MCOMP, team: "Riverside Rockets" } },
+      { name: "No team", majestri: { url: MCOMP } }
+    ], makeId);
+    expect(withIds.majestri).toBeUndefined();
+    expect([withDribl.dribl?.url ? "dribl" : "", withDribl.majestri]).toEqual(["dribl", undefined]);
+    expect(noTeam).toMatchObject({ name: "No team" });
+    expect(noTeam.majestri).toBeUndefined();
+  });
+
+  it("competitionsError says why a row cannot be saved: not a Majestri link, no team chosen, or two sources", () => {
+    expect(competitionsError([{ name: "Fives", majestri: { url: "https://example.com/x", team: "A" } }])).toBe("Fives: That is not a Majestri link. Open the competition on Majestri, copy the page's address and paste it here.");
+    expect(competitionsError([{ name: "Fives", majestri: { url: "https://riversidefc.majestri.com.au/", team: "A" } }])).toMatch(/^Fives: That Majestri link does not name a competition\./);
+    expect(competitionsError([{ name: "Fives", majestri: { url: MCOMP } }])).toBe("Fives: Choose your team from the names on the Majestri page.");
+    expect(competitionsError([{ name: "Both", squadi: { competitionId: "1" }, majestri: { url: MCOMP, team: "A" } }])).toBe(`Both: ${ONE_SOURCE}`);
+    expect(competitionsError([{ dribl: { url: "https://mc-api.dribl.com/api/fixtures?club=CL1&tenant=T1" }, majestri: { url: MCOMP, team: "A" } }])).toBe(ONE_SOURCE);
+    expect(competitionsError([{ name: "Fine", majestri: { url: MCOMP, team: "A" } }, { name: "Also", majestri: { url: MTEAM } }])).toBeNull();
+  });
+
+  it("majestriSources lists the competitions the server reads from Majestri, and no other", () => {
+    const team = { competitions: [
+      { id: "c1", name: "Winter Fives", majestri: { url: MCOMP, team: "Riverside Rockets" } },
+      { id: "c2", name: "No team", majestri: { url: MCOMP } },
+      { id: "c3", name: "Squadi", squadi: { competitionId: "1", divisionId: "2", teamId: 3 }, majestri: { url: MCOMP, team: "A" } },
+      { id: "c4", name: "Dribl", dribl: { url: "https://mc-api.dribl.com/api/fixtures?club=CL1&tenant=T1" }, majestri: { url: MCOMP, team: "A" } },
+      { id: "", name: "No id", majestri: { url: MCOMP, team: "A" } },
+      { id: "c5", majestri: { url: MTEAM } }
+    ] };
+    expect(majestriSources(team)).toEqual([
+      { comp: { id: "c1", name: "Winter Fives" }, majestri: { url: MCOMP, team: "Riverside Rockets" } },
+      { comp: { id: "c5", name: "Competition" }, majestri: { url: MCOMP, teamId: "7001" } }
+    ]);
+    expect(majestriSources(null)).toEqual([]);
+    expect(driblSources(team).map((s) => s.comp.id)).toEqual(["c4"]);
+  });
+
+  it("its page is listed on the league page as being on Majestri", () => {
+    expect(drawLinks({ competitions: [{ id: "c1", name: "Winter Fives", majestri: { url: MCOMP, team: "A" }, link: MTEAM }] })).toEqual([{ name: "Winter Fives", provider: "majestri", link: MTEAM }]);
   });
 });

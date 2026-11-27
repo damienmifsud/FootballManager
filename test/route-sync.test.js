@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { fakeRequest } from "./helpers/fakeRequest";
+import { COMP as MAJESTRI_COMP, PAGE as MAJESTRI_PAGE } from "./helpers/majestriPage";
 
 // /api/sync has three auth lanes: a cron/pinger secret (syncs every team), a
 // signed-in account (syncs only their team: the throttled ?ifStale=1
@@ -270,7 +271,7 @@ describe("two Squadi feeds on one squad", () => {
     expect(m.fetchSquadi).toHaveBeenCalledWith(TEAM.squadi);
     expect(m.applySync.mock.calls[0][2]).toEqual({ comp: null }); // the season, and no side
     expect(m.setData).toHaveBeenCalledTimes(1);
-    expect(r).toEqual({ team: "a", matchesSeen: 0, created: 0, changes: ["Round 1 vs X: time a → b"], emailStatus: "email not configured" });
+    expect(r).toEqual({ team: "a", matchesSeen: 0, created: 0, changes: ["Round 1 vs X: time a → b"], emailStatus: "email not configured", checked: ["Squadi"] });
   });
 });
 
@@ -524,3 +525,102 @@ describe("a two-team squad that also plays another competition", () => {
     expect(r.created).toBe(5);
   });
 });
+
+// A competition whose draw is on a club's Majestri site is read here, on the
+// server, beside Squadi's (lib/majestriDraw.js is the real module; the network
+// is a stand-in serving a made-up competition page).
+describe("a competition on Majestri", () => {
+  const SEASON = { competitionId: "777", divisionId: "2", teamId: 3 };
+  const FIVES = { id: "cfives", name: "Winter Fives", majestri: { url: MAJESTRI_COMP, team: "Riverside Rockets" } };
+  const cron = (GET) => GET(fakeRequest({ url: "https://x.test/api/sync", headers: { authorization: "Bearer s3cret" } }));
+  const applyLikeReal = (data, records, opts) => {
+    const fixtures = [...(data.fixtures || []), ...records.filter((r) => !r.bye).map((r) => ({ id: "f-" + r.squadiId, squadiId: r.squadiId, opponent: r.opponent, ...(opts?.comp ? { comp: opts.comp.id, compName: opts.comp.name } : {}) }))];
+    return { data: { ...data, fixtures }, changes: records.filter((r) => !r.bye).map((r) => `NEW — ${r.squadiId}`), created: records.filter((r) => !r.bye).length, mutated: records.length > 0 };
+  };
+  let realFetch, savedResend, savedNotify, asked, emails;
+  beforeEach(() => {
+    realFetch = global.fetch; savedResend = process.env.RESEND_API_KEY; savedNotify = process.env.NOTIFY_EMAILS;
+    delete process.env.RESEND_API_KEY; delete process.env.NOTIFY_EMAILS;
+    asked = []; emails = [];
+    global.fetch = vi.fn(async (url, opts = {}) => {
+      asked.push(String(url));
+      if (String(url) === "https://api.resend.com/emails") { emails.push(JSON.parse(opts.body)); return { ok: true, status: 200, json: async () => ({}) }; }
+      if (String(url) === MAJESTRI_COMP) return { ok: true, status: 200, text: async () => MAJESTRI_PAGE };
+      throw new TypeError("unexpected " + url);
+    });
+    m.fetchSquadi.mockResolvedValue([{ squadiId: "s1", opponent: "Wests" }]);
+    m.applySync.mockImplementation(applyLikeReal);
+  });
+  afterEach(() => {
+    global.fetch = realFetch;
+    if (savedResend === undefined) delete process.env.RESEND_API_KEY; else process.env.RESEND_API_KEY = savedResend;
+    if (savedNotify === undefined) delete process.env.NOTIFY_EMAILS; else process.env.NOTIFY_EMAILS = savedNotify;
+  });
+
+  it("reads the competition's page on the server and applies our games to the competition, beside the season's", async () => {
+    m.getTeams.mockReturnValue([{ slug: "a", name: "Team A", squadi: SEASON, competitions: [FIVES] }]);
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await cron(GET)).json();
+    expect(asked).toEqual([MAJESTRI_COMP]); // one request to Majestri, at the stored address
+    expect(m.fetchSquadi).toHaveBeenCalledTimes(1);
+    expect(m.applySync).toHaveBeenCalledTimes(2);
+    expect(m.applySync.mock.calls[1][2]).toEqual({ comp: { id: "cfives", name: "Winter Fives" } });
+    const records = m.applySync.mock.calls[1][1];
+    expect(records.filter((r) => !r.bye).map((r) => [r.squadiId, r.opponent, r.homeAway])).toEqual([
+      ["majestri:9001:rnd9f9f9f9:0", "Valley Vipers", "H"], ["majestri:9001:rnd0a1b2c3:0", "Hilltop Hawks", "H"], ["majestri:9001:rnd4d5e6f7:0", "Valley Vipers", "A"],
+      ["majestri:9001:rnd1c1c1c1:0", "Lakeside Lions & Co", "H"], ["majestri:9001:rnd1c1c1c1:1", "Hilltop Hawks", "A"]
+    ]);
+    expect(body.results[0]).toMatchObject({ team: "a", checked: ["Squadi", "Majestri"], created: 6 });
+    expect(m.setData).toHaveBeenCalledTimes(1);
+  });
+
+  it("a team whose only draw is on Majestri is synced, on a visit too, and its email says where the changes came from", async () => {
+    process.env.RESEND_API_KEY = "re_test"; process.env.NOTIFY_EMAILS = "coach@example.com";
+    const fivesOnly = { slug: "a", name: "Team A", competitions: [{ ...FIVES, majestri: { url: MAJESTRI_COMP, team: "Hilltop Hawks" } }] };
+    m.getTeams.mockReturnValue([fivesOnly]);
+    m.teamBySlug.mockResolvedValue(fivesOnly);
+    m.auth.mockResolvedValue({ user: { email: "coach@a.com" } });
+    m.membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "coach" }] });
+    // Two of its games already came in, so the rest are news, not a first import.
+    m.getData.mockResolvedValue({ fixtures: [{ id: "x1", squadiId: "majestri:9001:rnd9f9f9f9:0" }, { id: "x2", squadiId: "majestri:9001:rnd0a1b2c3:0" }] });
+    m.applySync.mockImplementation((data, records, opts) => ({ data, changes: ["Winter Fives Round 2 vs Riverside Rovers: time 4:30 → 5:10"], created: 0, mutated: true }));
+    const { GET } = await loadRoute({ authOn: true });
+    const res = await GET(fakeRequest({ url: "https://x.test/api/sync?ifStale=1" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: true, checked: ["Majestri"], emailStatus: "emailed" });
+    expect(m.fetchSquadi).not.toHaveBeenCalled();
+    expect(emails[0].text).toContain("just came through from Majestri");
+  });
+
+  it("a Majestri draw that cannot be read is named, and the season's is still applied", async () => {
+    m.getTeams.mockReturnValue([{ slug: "a", name: "Team A", squadi: SEASON, competitions: [FIVES] }]);
+    global.fetch = vi.fn(async () => ({ ok: false, status: 403, text: async () => "" }));
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await cron(GET)).json();
+    expect(body.results[0]).toMatchObject({ checked: ["Squadi"], failed: [{ name: "Winter Fives", error: "Majestri responded 403" }] });
+    expect(m.applySync).toHaveBeenCalledTimes(1);
+  });
+
+  it("when the Majestri draw is the only one and fails, the sync fails with its words", async () => {
+    const fivesOnly = { slug: "a", name: "Team A", competitions: [FIVES] };
+    m.getTeams.mockReturnValue([fivesOnly]);
+    global.fetch = vi.fn(async () => { throw new TypeError("fetch failed"); });
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await cron(GET)).json();
+    expect(body.results[0]).toEqual({ team: "a", ok: false, error: "Majestri could not be reached." });
+    expect(m.setData).not.toHaveBeenCalled();
+  });
+
+  it("a Majestri draw with no team chosen, or behind Squadi ids on the same row, is never read", async () => {
+    m.getTeams.mockReturnValue([{ slug: "a", name: "Team A", squadi: SEASON, competitions: [
+      { id: "c1", name: "No team", majestri: { url: MAJESTRI_COMP } },
+      { id: "c2", name: "Squadi first", squadi: { competitionId: "5", divisionId: "6", teamId: 7 }, majestri: { url: MAJESTRI_COMP, team: "Riverside Rockets" } }
+    ] }]);
+    const { GET } = await loadRoute({ authOn: true });
+    await cron(GET);
+    expect(asked).toEqual([]);
+    expect(m.fetchSquadi).toHaveBeenCalledTimes(2);
+  });
+});
+

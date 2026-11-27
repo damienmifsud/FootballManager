@@ -2,18 +2,20 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 import TeamWizard, { DRIBL_IN_SEASON, LINK_BEING_READ, DRIBL_BY_HAND, arrived } from "@/components/TeamWizard";
-import { SQUADI_NEEDS_TEAM, DRIBL_NEEDS_COMPETITION } from "@/lib/feedLinks";
+import { SQUADI_NEEDS_TEAM, DRIBL_NEEDS_COMPETITION, feedProvider as feedProviderOf } from "@/lib/feedLinks";
 import { NO_MATCH_CENTRE } from "@/lib/driblLink";
 import { UNREACHABLE } from "@/lib/dribl";
+import { COMP as MJ_COMP, TEAM_PAGE as MJ_TEAM_PAGE } from "./helpers/majestriPage";
 
 // The Competitions step of the team wizard: a draw is set up from its website
 // link when that link is the team's fixtures page. A Squadi link is looked up
 // through /api/feed-link and fills in the three ids. A Dribl link is turned
 // into the competition's fixtures request by the browser itself, which asks
-// Dribl which match centre it is and reads the draw once. What was found is
-// read back under the field, and the link is kept as the draw's website link.
-// The link readers are real; /api/teams, /api/feed-link and Dribl are stood in
-// for. Every key, id and name is made up.
+// Dribl which match centre it is and reads the draw once. A Majestri link is
+// read by the server too, which lists the competition's teams to choose ours
+// from. What was found is read back under the field, and the link is kept as
+// the draw's website link. The link readers are real; /api/teams,
+// /api/feed-link and Dribl are stood in for. Every key, id and name is made up.
 
 const KEY = "11111111-2222-4333-8444-555555555555";
 const SQ = `https://registration.squadi.com/liveScoreSeasonFixture?organisationKey=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee&yearId=8&competitionUniqueKey=${KEY}&divisionId=20001&teamId=300001`;
@@ -45,13 +47,14 @@ const WHICH_IS_OURS = "Winter League · Under 8. 4 games found, but the draw doe
 let teams;
 let saves;      // bodies sent to /api/teams (POST or PATCH)
 let lookups;    // links sent to /api/feed-link
+let teamsSent;  // the team name sent with each of them, or null
 let lookup;     // what /api/feed-link answers: { ok, status, json }, an Error, or a function of the link
 let hold;       // a promise the first request of a read waits on before answering
 let dribl;      // what Dribl answers: { centre, draw }, each { status, json } or an Error
 let asked;      // every request this browser made of Dribl: { url, opts }
 beforeEach(() => {
   teams = [SAVED];
-  saves = []; lookups = []; asked = []; hold = null;
+  saves = []; lookups = []; teamsSent = []; asked = []; hold = null;
   lookup = { ok: true, status: 200, json: FOUND };
   dribl = { centre: { status: 200, json: { data: { type: "tenants", id: "Tn12345678", attributes: { slug: "winterleague", mc_link: "winterleague.dribl.com" } } } }, draw: { status: 200, json: { data: ONE_TEAM } } };
   global.fetch = vi.fn(async (url, opts = {}) => {
@@ -65,10 +68,10 @@ beforeEach(() => {
       return { ok: answer.status >= 200 && answer.status < 300, status: answer.status, json: async () => answer.json };
     }
     if (u.includes("/api/feed-link")) {
-      const { link } = JSON.parse(opts.body);
-      lookups.push(link);
+      const { link, team } = JSON.parse(opts.body);
+      lookups.push(link); teamsSent.push(team ?? null);
       if (hold) await hold;
-      const answer = typeof lookup === "function" ? lookup(link) : lookup;
+      const answer = typeof lookup === "function" ? lookup(link, team) : lookup;
       if (answer instanceof Error) throw answer;
       return { ok: answer.ok, status: answer.status, json: async () => answer.json };
     }
@@ -530,6 +533,186 @@ describe("a competition's link — on Dribl", () => {
     release();
     await waitFor(() => expect(request("Cup").value).toBe(REQUEST));
     expect((await create()).competitions).toEqual([{ name: "Cup", dribl: { url: REQUEST, team: "" }, link: DR }]);
+  });
+});
+
+describe("a competition's link — on Majestri", () => {
+  const TEAMS = ["Riverside Rockets", "Hilltop Hawks", "Lakeside Lions & Co", "Valley Vipers", "Riverside Rovers"];
+  const NUMBERS = { "Riverside Rockets": "7001", "Valley Vipers": "7004" };
+  const GAMES = { "Riverside Rockets": 5, "Valley Vipers": 3 };
+  const OTHER_COMP = MJ_COMP.replace("compID=9001", "compID=9002");
+  // /api/feed-link as it answers a Majestri link: our team is the one the link
+  // is the page of, else the name sent when it is one of the page's teams.
+  const majestri = (link, team) => {
+    const ours = link === MJ_TEAM_PAGE ? "Riverside Rockets" : TEAMS.find((n) => n === team) || "";
+    const url = link.startsWith(OTHER_COMP) ? OTHER_COMP : MJ_COMP;
+    return {
+      ok: true, status: 200, json: {
+        ok: true, provider: "majestri", link, majestri: { url, ...(ours ? { team: ours, ...(NUMBERS[ours] ? { teamId: NUMBERS[ours] } : {}) } : {}) },
+        found: { competition: "Winter Fives 2031", division: "Under 9 Mixed", season: "2031", teams: TEAMS, games: 9, ours, ourGames: GAMES[ours] || 0 }
+      }
+    };
+  };
+  const CHOOSE = "Winter Fives 2031 · Under 9 Mixed. 9 games found for 5 teams. Choose yours in the team box above.";
+  const ROCKETS = "Riverside Rockets · Winter Fives 2031 · Under 9 Mixed. 5 games found. They sync by themselves.";
+  const VIPERS = "Valley Vipers · Winter Fives 2031 · Under 9 Mixed. 3 games found. They sync by themselves.";
+  const teamOn = (who) => step().queryByLabelText(`${who} team on Majestri`);
+  const choices = (who) => [...teamOn(who).querySelectorAll("option")].map((o) => o.value);
+  const choose = (who, name) => fireEvent.change(teamOn(who), { target: { value: name } });
+  beforeEach(() => { lookup = majestri; });
+
+  it("pasting the competition's page link has the server read it, takes its name, and asks which of its teams is ours", async () => {
+    await startCreate();
+    addCompetition();
+    expect(teamOn("Competition 1")).toBeNull();
+    expect(paste("Competition 1", `${MJ_COMP} `)).toBe(false);
+    await waitFor(() => expect(noteOf("Winter Fives 2031")).toEqual([CHOOSE, "adm-msg warn", "status"]));
+    expect(field("Competition 1 name").value).toBe("Winter Fives 2031");
+    expect([lookups, teamsSent, asked]).toEqual([[MJ_COMP], [null], []]); // read by the server; Dribl is asked nothing
+    expect(teamOn("Winter Fives 2031").tagName).toBe("SELECT");
+    expect(choices("Winter Fives 2031")).toEqual(["", ...TEAMS]);
+    expect(teamOn("Winter Fives 2031").value).toBe("");
+    // Choosing ours checks it against the page, which finds Majestri's number for it.
+    choose("Winter Fives 2031", "Valley Vipers");
+    await waitFor(() => expect(noteOf("Winter Fives 2031")).toEqual([VIPERS, "adm-msg ok", "status"]));
+    expect([lookups, teamsSent]).toEqual([[MJ_COMP, MJ_COMP], [null, "Valley Vipers"]]);
+    expect(ids("Winter Fives 2031")).toEqual(["", "", ""]);
+    expect((await create()).competitions).toEqual([{ name: "Winter Fives 2031", majestri: { url: MJ_COMP, team: "Valley Vipers", teamId: "7004" }, link: MJ_COMP }]);
+  });
+
+  it("a team's own page names our team, so there is nothing to choose, and a name already typed is kept", async () => {
+    await startCreate();
+    addCompetition("Winter cup");
+    paste("Winter cup", MJ_TEAM_PAGE);
+    await waitFor(() => expect(noteOf("Winter cup")).toEqual([ROCKETS, "adm-msg ok", "status"]));
+    expect(teamOn("Winter cup").value).toBe("Riverside Rockets");
+    expect((await create()).competitions).toEqual([{ name: "Winter cup", majestri: { url: MJ_COMP, team: "Riverside Rockets", teamId: "7001" }, link: MJ_TEAM_PAGE }]);
+  });
+
+  it("takes the place of Squadi ids or a Dribl request on the row, and a Squadi link read after it takes its place", async () => {
+    lookup = (l, team) => (feedProviderOf(l) === "majestri" ? majestri(l, team) : { ok: true, status: 200, json: FOUND });
+    await startCreate();
+    addCompetition("Winter cup");
+    fireEvent.change(field("Winter cup competition ID"), { target: { value: "5" } });
+    fireEvent.change(request("Winter cup"), { target: { value: REQUEST } });
+    expect(teamBox("Winter cup")).not.toBeNull();
+    paste("Winter cup", MJ_COMP);
+    await waitFor(() => expect(noteOf("Winter cup")?.[0]).toBe(CHOOSE));
+    expect([ids("Winter cup"), request("Winter cup").value, teamBox("Winter cup")]).toEqual([["", "", ""], "", null]);
+    choose("Winter cup", "Valley Vipers");
+    await waitFor(() => expect(noteOf("Winter cup")?.[0]).toBe(VIPERS));
+    paste("Winter cup", SQ);
+    await waitFor(() => expect(ids("Winter cup")).toEqual(["777", "20001", "300001"]));
+    expect(teamOn("Winter cup")).toBeNull();
+    expect((await create()).competitions).toEqual([{ name: "Winter cup", squadi: { competitionId: "777", divisionId: "20001", teamId: "300001" }, link: SQ }]);
+  });
+
+  it("the draw goes with its link: changed to another site or another competition it is gone; the same competition's page in another form keeps it", async () => {
+    await startCreate();
+    addCompetition("Winter cup");
+    paste("Winter cup", MJ_COMP);
+    await waitFor(() => expect(noteOf("Winter cup")?.[0]).toBe(CHOOSE));
+    choose("Winter cup", "Valley Vipers");
+    await waitFor(() => expect(noteOf("Winter cup")?.[0]).toBe(VIPERS));
+    typeOut("Winter cup", OTHER_COMP); // typed out, so not read
+    expect([teamOn("Winter cup"), noteUnder("Winter cup"), lookups.length]).toEqual([null, null, 2]);
+    typeOut("Winter cup", MJ_TEAM_PAGE.replace("teamID=7001", "teamID=7004"));
+    expect(teamOn("Winter cup").value).toBe("Valley Vipers");
+    type("Winter cup", OTHER_SITE);
+    expect(teamOn("Winter cup")).toBeNull();
+    expect((await create()).competitions).toEqual([{ name: "Winter cup", link: OTHER_SITE }]);
+  });
+
+  it("an answer for a team since changed in the box is not written over the newer one", async () => {
+    await startCreate();
+    addCompetition("Winter cup");
+    paste("Winter cup", MJ_COMP);
+    await waitFor(() => expect(noteOf("Winter cup")?.[0]).toBe(CHOOSE));
+    let release;
+    hold = new Promise((r) => { release = r; });
+    choose("Winter cup", "Riverside Rockets");
+    await waitFor(() => expect(lookups).toHaveLength(2));
+    hold = null;
+    choose("Winter cup", "Valley Vipers");
+    await waitFor(() => expect(noteOf("Winter cup")?.[0]).toBe(VIPERS));
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect([noteOf("Winter cup")?.[0], teamOn("Winter cup").value]).toEqual([VIPERS, "Valley Vipers"]);
+    expect((await create()).competitions[0].majestri).toEqual({ url: MJ_COMP, team: "Valley Vipers", teamId: "7004" });
+  });
+
+  it("a team chosen while Majestri cannot be read is saved by its name alone, not under the number of the team before it", async () => {
+    await startCreate();
+    addCompetition("Winter cup");
+    paste("Winter cup", MJ_TEAM_PAGE);
+    await waitFor(() => expect(noteOf("Winter cup")?.[0]).toBe(ROCKETS));
+    lookup = { ok: false, status: 400, json: { error: "Majestri could not be reached." } };
+    choose("Winter cup", "Valley Vipers");
+    await waitFor(() => expect(noteOf("Winter cup")).toEqual(["Majestri could not be reached.", "adm-msg err", "alert"]));
+    expect((await create()).competitions).toEqual([{ name: "Winter cup", majestri: { url: MJ_COMP, team: "Valley Vipers" }, link: MJ_TEAM_PAGE }]);
+  });
+
+  it("a row with no team chosen is saved as it is, for the server to say what is missing", async () => {
+    await startCreate();
+    addCompetition("Winter cup");
+    paste("Winter cup", MJ_COMP);
+    await waitFor(() => expect(noteOf("Winter cup")?.[0]).toBe(CHOOSE));
+    expect((await create()).competitions).toEqual([{ name: "Winter cup", majestri: { url: MJ_COMP, team: "" }, link: MJ_COMP }]);
+  });
+
+  it("on the season's row it is pointed to a competition row, and nobody is asked anything", async () => {
+    await startCreate();
+    paste("Squadi", MJ_COMP);
+    await waitFor(() => expect(noteOf("Squadi")).toEqual([DRIBL_IN_SEASON, "adm-msg warn", "status"]));
+    expect(DRIBL_IN_SEASON).toBe("The season's games come from Squadi. For a draw on Dribl or Majestri, use Add a competition below and paste its link there.");
+    expect([lookups, asked]).toEqual([[], []]);
+  });
+
+  describe("one already saved", () => {
+    const SAVED_MJ = { id: "cmaj001", name: "Winter Fives", majestri: { url: MJ_COMP, team: "Riverside Rockets", teamId: "7001" }, link: MJ_COMP };
+    beforeEach(() => { teams = [{ ...SAVED, competitions: [SAVED_MJ, { id: "cmaj002", name: "Spring Fives", majestri: { url: OTHER_COMP, team: "Hilltop Hawks" } }] }]; });
+
+    it("shows its team again on Edit, and one saved without a link shows its page as the link; opening the form asks nobody anything", async () => {
+      await startEdit();
+      expect([link("Winter Fives").value, teamOn("Winter Fives").tagName, teamOn("Winter Fives").value]).toEqual([MJ_COMP, "INPUT", "Riverside Rockets"]);
+      expect([link("Spring Fives").value, teamOn("Spring Fives").value]).toEqual([OTHER_COMP, "Hilltop Hawks"]);
+      expect([noteUnder("Winter Fives"), lookups]).toEqual([null, []]);
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(saves[0].body.competitions).toEqual([SAVED_MJ, { id: "cmaj002", name: "Spring Fives", majestri: { url: OTHER_COMP, team: "Hilltop Hawks" }, link: OTHER_COMP }]);
+    });
+
+    it("Read link reads it for the saved team; a name that is no longer one of its teams is cleared, to be chosen again", async () => {
+      await startEdit();
+      fireEvent.click(readButton("Winter Fives"));
+      await waitFor(() => expect(noteOf("Winter Fives")).toEqual([ROCKETS, "adm-msg ok", "status"]));
+      expect([teamsSent, teamOn("Winter Fives").tagName, teamOn("Winter Fives").value]).toEqual([["Riverside Rockets"], "SELECT", "Riverside Rockets"]);
+      fireEvent.change(teamOn("Spring Fives"), { target: { value: "Mountain Goats" } });
+      fireEvent.click(readButton("Spring Fives"));
+      await waitFor(() => expect(noteOf("Spring Fives")?.[0]).toBe(CHOOSE));
+      expect([teamsSent[1], teamOn("Spring Fives").value]).toEqual(["Mountain Goats", ""]);
+    });
+
+    it("a team typed in by hand is saved by its name alone, not under Majestri's number for the team before it", async () => {
+      await startEdit();
+      fireEvent.change(teamOn("Winter Fives"), { target: { value: "Valley Vipers" } });
+      expect(noteUnder("Winter Fives")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(saves[0].body.competitions[0]).toEqual({ id: "cmaj001", name: "Winter Fives", majestri: { url: MJ_COMP, team: "Valley Vipers" }, link: MJ_COMP });
+      expect(lookups).toEqual([]);
+    });
+
+    it("when Majestri cannot be read, says so and leaves the row as it was", async () => {
+      lookup = { ok: false, status: 400, json: { error: "Majestri could not be reached." } };
+      await startEdit();
+      fireEvent.click(readButton("Winter Fives"));
+      await waitFor(() => expect(noteOf("Winter Fives")).toEqual(["Majestri could not be reached.", "adm-msg err", "alert"]));
+      expect(teamOn("Winter Fives").value).toBe("Riverside Rockets");
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await waitFor(() => expect(saves).toHaveLength(1));
+      expect(saves[0].body.competitions[0]).toEqual(SAVED_MJ);
+    });
   });
 });
 

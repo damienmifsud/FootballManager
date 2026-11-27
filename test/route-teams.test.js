@@ -924,7 +924,7 @@ describe("a competition on Dribl", () => {
     expect((await res.json()).error).toBe("Premier Invitational: That is not a Dribl fixtures request. It should start with https://mc-api.dribl.com/api/fixtures?");
     res = await create([{ name: "Both", squadi: IDS, dribl: { url: REQUEST } }]);
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe("Both: A competition gets its draw from Squadi or from Dribl, not both.");
+    expect((await res.json()).error).toBe("Both: A competition gets its draw from one place: Squadi, Dribl or Majestri.");
     expect(setStoredTeams).not.toHaveBeenCalled();
     expect(setData).not.toHaveBeenCalled();
   });
@@ -953,5 +953,42 @@ describe("a competition on Dribl", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/^Premier Invitational: That is not a Dribl fixtures request\./);
     expect(setStoredTeams).not.toHaveBeenCalled();
+  });
+});
+
+describe("a competition on Majestri", () => {
+  const MCOMP = "https://riversidefc.majestri.com.au/comp-summary?compID=9001";
+  const create = async (competitions) => {
+    const { POST } = await asAdmin();
+    return POST(fakeRequest({ body: { name: "U9 Academy", ageGroup: "U9", password: "gold-roo-99", competitions } }));
+  };
+
+  it("POST stores the competition's page with our team, and its website link, on the registry only", async () => {
+    const res = await create([{ name: "Winter Fives", majestri: { url: `${MCOMP}&x=1`, team: " Riverside Rockets " }, link: "https://riversidefc.majestri.com.au/team-summary?teamID=7001&compID=9001" }]);
+    expect(res.status).toBe(200);
+    const stored = setStoredTeams.mock.calls[0][0].find((t) => t.name === "U9 Academy");
+    expect(stored.competitions.map(({ id: _id, ...rest }) => rest)).toEqual([
+      { name: "Winter Fives", majestri: { url: MCOMP, team: "Riverside Rockets" }, link: "https://riversidefc.majestri.com.au/team-summary?teamID=7001&compID=9001" }
+    ]);
+    expect(JSON.stringify(setData.mock.calls[0][1])).not.toMatch(/majestri/i);
+  });
+
+  it("POST refuses one with no team chosen, or with another source beside it, and stores nothing", async () => {
+    let res = await create([{ name: "Winter Fives", majestri: { url: MCOMP } }]);
+    expect([res.status, (await res.json()).error]).toEqual([400, "Winter Fives: Choose your team from the names on the Majestri page."]);
+    res = await create([{ name: "Both", squadi: { competitionId: "1", divisionId: "2", teamId: 3 }, majestri: { url: MCOMP, team: "A" } }]);
+    expect([res.status, (await res.json()).error]).toEqual([400, "Both: A competition gets its draw from one place: Squadi, Dribl or Majestri."]);
+    expect(setStoredTeams).not.toHaveBeenCalled();
+  });
+
+  it("GET returns it for the edit form, and PATCH can change its team and take it away", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "u9", name: "U9 Academy", password: "code-u9", competitions: [{ id: "cfives", name: "Winter Fives", majestri: { url: MCOMP, team: "Riverside Rockets" } }] }]);
+    const { GET, PATCH } = await asAdmin();
+    expect((await (await GET()).json()).teams.find((t) => t.slug === "u9").competitions).toEqual([{ id: "cfives", name: "Winter Fives", majestri: { url: MCOMP, team: "Riverside Rockets" } }]);
+    const stored = () => setStoredTeams.mock.calls.at(-1)[0].find((t) => t.slug === "u9").competitions;
+    expect((await PATCH(fakeRequest({ body: { slug: "u9", competitions: [{ id: "cfives", name: "Winter Fives", majestri: { url: MCOMP, team: "Hilltop Hawks" } }] } }))).status).toBe(200);
+    expect(stored()).toEqual([{ id: "cfives", name: "Winter Fives", majestri: { url: MCOMP, team: "Hilltop Hawks" } }]);
+    expect((await PATCH(fakeRequest({ body: { slug: "u9", competitions: [{ id: "cfives", name: "Winter Fives" }] } }))).status).toBe(200);
+    expect(stored()).toEqual([{ id: "cfives", name: "Winter Fives" }]);
   });
 });
