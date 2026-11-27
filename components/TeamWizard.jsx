@@ -102,20 +102,40 @@ export function driblFound({ draw, problem }) {
   return { kind: "ok", text: `${[draw.ours, what].filter(Boolean).join(" · ")}. ${plural(draw.ourGames, "game")} found. They sync whenever a coach opens the team.` };
 }
 
+// How much text arrived in one change to a box: the length of what is new
+// between the part both values start with and the part both end with. Typing
+// adds a character or two; a paste, or a link the phone's keyboard offers from
+// its clipboard, adds a link's worth. Not every phone tells the page about a
+// paste, so a whole link arriving at once is treated as one however it came.
+const WHOLE_LINK = 10;
+export function arrived(before, after) {
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  let end = 0;
+  while (end < before.length - start && end < after.length - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end++;
+  return after.length - start - end;
+}
+
 // A draw's website link: the page it is on, kept beside its ids. It takes a
 // line of its own under the ids, and once what is typed is a web address a
 // link at the end of that line opens it in a new tab. When it is a fixtures
-// page on Squadi or Dribl, Read link fills the row in from it (pasting one
-// reads it straight away), and what was found shows underneath.
+// page on Squadi or Dribl, Read link fills the row in from it, and what was
+// found shows underneath. A link pasted in, or put in whole some other way,
+// is read straight away; one typed out waits for Read link or Enter.
 function LinkField({ who, value, note, onChange, onRead }) {
   const href = websiteLink(value);
   const busy = note?.kind === "busy";
   const readable = !!feedProvider(value);
+  const changed = (e) => {
+    const next = e.target.value;
+    onChange(next);
+    if (arrived(value, next) >= WHOLE_LINK && feedProvider(next.trim())) onRead(next.trim());
+  };
   return (
     <div style={{ flex: "1 1 100%", minWidth: 0 }}>
       <div style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0 }}>
         <input className="adm-inp" style={{ flex: 1, minWidth: 0 }} aria-label={`${who} website link`} inputMode="url" autoComplete="off" autoCapitalize="none" spellCheck={false}
-          placeholder="Paste the draw's page link (https://…)" value={value} onChange={(e) => onChange(e.target.value)}
+          placeholder="Paste the draw's page link (https://…)" value={value} onChange={changed}
           onPaste={(e) => { const pasted = (e.clipboardData?.getData("text") || "").trim(); if (feedProvider(pasted)) { e.preventDefault(); onChange(pasted); onRead(pasted); } }}
           onKeyDown={(e) => { if (e.key === "Enter" && readable) { e.preventDefault(); if (!busy) onRead(value); } }} />
         {href && (
@@ -124,7 +144,7 @@ function LinkField({ who, value, note, onChange, onRead }) {
           </a>
         )}
         {readable && (
-          <button type="button" className="adm-btn soft sm" style={{ flexShrink: 0 }} disabled={busy} aria-label={`Read the ${who} website link`} onClick={() => onRead(value)}>{busy ? "Reading…" : "Read link"}</button>
+          <button type="button" className="adm-btn soft sm" style={{ flexShrink: 0 }} disabled={busy} aria-label={`Read link for ${who}`} onClick={() => onRead(value)}>{busy ? "Reading…" : "Read link"}</button>
         )}
       </div>
       {note && note.kind !== "busy" && (
@@ -532,6 +552,11 @@ export default function TeamWizard({ onTeamsChanged }) {
               // Typing a source in by hand puts away what the link was last read as.
               const setId = (key, value) => set({ squadi: { ...c.squadi, [key]: value }, note: null });
               const teamList = `adm-dribl-teams-${i}`;
+              // The page link and the request are easy to mix up: a whole
+              // fixtures page link put in the request box is moved to the
+              // link box and read there, which fills the request in.
+              const isPageLink = (text) => parseFeedLink(text).provider === "dribl";
+              const moveToLink = (text) => { set({ link: text, note: null }); readLink("competitions", i, text); };
               const who = c.name.trim() || `Competition ${i + 1}`;
               return (
                 <div key={i} className="adm-comp">
@@ -552,7 +577,12 @@ export default function TeamWizard({ onTeamsChanged }) {
                   <div className="adm-line">
                     <input className="adm-inp" style={{ flex: "1 1 100%" }} aria-label={`${who} Dribl fixtures request`} inputMode="url" autoComplete="off" spellCheck={false}
                       placeholder="Or, for a draw on Dribl, its fixtures request (https://mc-api.dribl.com/api/fixtures?…)" value={c.dribl.url}
-                      onChange={(e) => set({ dribl: { ...c.dribl, url: e.target.value }, note: null, teams: [] })} />
+                      onPaste={(e) => { const pasted = (e.clipboardData?.getData("text") || "").trim(); if (isPageLink(pasted)) { e.preventDefault(); moveToLink(pasted); } }}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        if (arrived(c.dribl.url, next) >= WHOLE_LINK && isPageLink(next.trim())) { moveToLink(next.trim()); return; }
+                        set({ dribl: { ...c.dribl, url: next }, note: null, teams: [] });
+                      }} />
                     {c.dribl.url.trim() && (<>
                       {/* The teams the draw listed when its link was read are offered as they are spelt there. */}
                       <input className="adm-inp" style={{ flex: "1 1 100%" }} aria-label={`${who} team name on Dribl`} placeholder="Your team's name as Dribl shows it"

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
-import TeamWizard, { DRIBL_IN_SEASON, LINK_BEING_READ, DRIBL_BY_HAND } from "@/components/TeamWizard";
+import TeamWizard, { DRIBL_IN_SEASON, LINK_BEING_READ, DRIBL_BY_HAND, arrived } from "@/components/TeamWizard";
 import { SQUADI_NEEDS_TEAM, DRIBL_NEEDS_COMPETITION } from "@/lib/feedLinks";
 import { NO_MATCH_CENTRE } from "@/lib/driblLink";
 import { UNREACHABLE } from "@/lib/dribl";
@@ -96,9 +96,12 @@ const startEdit = async () => {
 };
 // Pasting returns false when the field took the paste over to read it.
 const paste = (who, text) => fireEvent.paste(link(who), { clipboardData: { getData: () => text } });
+// The whole text arriving in one change, as when a phone's keyboard puts a copied link in without a paste.
 const type = (who, text) => fireEvent.change(link(who), { target: { value: text } });
+// Typed out, a few characters at a time.
+const typeOut = (who, text) => { for (let n = Math.min(3, text.length); ; n = Math.min(n + 3, text.length)) { type(who, text.slice(0, n)); if (n === text.length) break; } };
 const ids = (who) => ["competition ID", "division ID", "team ID"].map((k) => field(`${who} ${k}`).value);
-const readButton = (who) => step().queryByRole("button", { name: `Read the ${who} website link` });
+const readButton = (who) => step().queryByRole("button", { name: `Read link for ${who}` });
 // The note sits under the field's own line, inside the field.
 const noteUnder = (who) => link(who).parentElement.nextElementSibling;
 const noteOf = (who) => { const n = noteUnder(who); return n ? [n.textContent, n.className, n.getAttribute("role")] : null; };
@@ -128,9 +131,10 @@ describe("the season's link", () => {
   it("Read link appears once what is typed is a page on Squadi or Dribl; pressing it, or Enter, reads it, once at a time", async () => {
     await startCreate();
     expect(readButton("Squadi")).toBeNull();
-    type("Squadi", SQ.slice(0, 20));
+    typeOut("Squadi", SQ.slice(0, 20));
     expect(readButton("Squadi")).toBeNull();
-    type("Squadi", SQ);
+    typeOut("Squadi", SQ);
+    expect(link("Squadi").value).toBe(SQ);
     expect(lookups).toEqual([]); // typing alone asks nothing
     expect(readButton("Squadi").textContent).toBe("Read link");
     // It sits after the Open link, at the end of the field's line.
@@ -149,6 +153,25 @@ describe("the season's link", () => {
     fireEvent.keyDown(link("Squadi"), { key: "Enter" });
     await waitFor(() => expect(lookups).toEqual([SQ, SQ]));
     fireEvent.keyDown(link("Squadi"), { key: "a" });
+    expect(lookups).toHaveLength(2);
+  });
+
+  it("a link put in whole is read even when the browser never said it was pasted; the same link typed out is not", async () => {
+    await startCreate();
+    type("Squadi", `${SQ} `); // one change holding the whole link, as a phone keyboard's clipboard does it
+    await waitFor(() => expect(ids("Squadi")).toEqual(["777", "20001", "300001"]));
+    expect(lookups).toEqual([SQ]);
+    expect(link("Squadi").value).toBe(SQ);
+    expect(noteUnder("Squadi").textContent).toBe(READ_BACK);
+    // Replacing it whole with another link reads the new one too.
+    const SQ2 = SQ.replace("divisionId=20001", "divisionId=20444").replace("teamId=300001", "teamId=399999");
+    lookup = { ok: true, status: 200, json: { ...FOUND, link: SQ2, squadi: { competitionId: "777", divisionId: "20444", teamId: 399999 } } };
+    type("Squadi", SQ2);
+    await waitFor(() => expect(ids("Squadi")).toEqual(["777", "20444", "399999"]));
+    expect(lookups).toEqual([SQ, SQ2]);
+    // Cutting most of it away is not a link arriving, and neither is a letter typed.
+    type("Squadi", SQ2.slice(0, 40));
+    type("Squadi", SQ2.slice(0, 41));
     expect(lookups).toHaveLength(2);
   });
 
@@ -172,9 +195,9 @@ describe("the season's link", () => {
     expect(ids("Squadi")).toEqual(["", "", ""]);
     expect(lookups).toEqual([]);
     expect(link("Squadi").value).toBe(wholeDivision);
-    type("Squadi", wholeDivision + "&round=3");
+    type("Squadi", wholeDivision + "&r=3");
     expect(noteUnder("Squadi")).toBeNull(); // typing puts the note away
-    expect((await create()).squadi).toEqual({ competitionId: "", divisionId: "", teamId: "", link: wholeDivision + "&round=3" });
+    expect((await create()).squadi).toEqual({ competitionId: "", divisionId: "", teamId: "", link: wholeDivision + "&r=3" });
   });
 
   it("a Dribl link here is pointed to a competition row, and Dribl is asked nothing", async () => {
@@ -263,11 +286,13 @@ describe("the season's link", () => {
     hold = new Promise((r) => { release = r; });
     paste("Squadi", SQ);
     await waitFor(() => expect(lookups).toEqual([SQ]));
-    type("Squadi", ""); // cleared while Squadi was answering
+    const another = SQ.replace("teamId=300001", "teamId=300009");
+    type("Squadi", another); // changed while Squadi was answering
+    expect(readButton("Squadi").textContent).toBe("Read link"); // not left reading for ever
     release();
     await new Promise((r) => setTimeout(r, 20));
     expect(ids("Squadi")).toEqual(["", "", ""]);
-    expect(link("Squadi").value).toBe("");
+    expect(link("Squadi").value).toBe(another);
     expect(noteUnder("Squadi")).toBeNull();
   });
 });
@@ -283,12 +308,16 @@ describe("a competition's link — on Squadi", () => {
     expect((await create()).competitions).toEqual([{ name: "Metro | Winter League", squadi: { competitionId: "777", divisionId: "20001", teamId: "300001" }, link: SQ }]);
   });
 
-  it("keeps a name already typed", async () => {
+  it("keeps a name already typed, and an id changed by hand puts the read-back away", async () => {
     await startCreate();
     addCompetition("Winterfest");
     paste("Winterfest", SQ);
     await waitFor(() => expect(ids("Winterfest")).toEqual(["777", "20001", "300001"]));
     expect(field("Competition 1 name").value).toBe("Winterfest");
+    expect(noteUnder("Winterfest").textContent).toBe(READ_BACK);
+    fireEvent.change(field("Winterfest division ID"), { target: { value: "20009" } });
+    expect(noteUnder("Winterfest")).toBeNull();
+    expect((await create()).competitions).toEqual([{ name: "Winterfest", squadi: { competitionId: "777", divisionId: "20009", teamId: "300001" }, link: SQ }]);
   });
 
   it("takes the place of a Dribl request on the row: a competition has one source", async () => {
@@ -328,7 +357,7 @@ describe("a competition's link — on Dribl", () => {
   it("typing the link and pressing Read link, or Enter, does the same, and says when it is reading", async () => {
     await startCreate();
     addCompetition("Cup");
-    type("Cup", DR);
+    typeOut("Cup", DR);
     expect(asked).toEqual([]);
     let release;
     hold = new Promise((r) => { release = r; });
@@ -435,6 +464,28 @@ describe("a competition's link — on Dribl", () => {
     expect(asked).toEqual([]);
   });
 
+  it("the page link put in the request box by mistake is moved to the link box and read there, pasted or not", async () => {
+    await startCreate();
+    addCompetition("Cup");
+    // Pasted over nothing.
+    expect(fireEvent.paste(request("Cup"), { clipboardData: { getData: () => ` ${DR}\n` } })).toBe(false);
+    await waitFor(() => expect(request("Cup").value).toBe(REQUEST));
+    expect(link("Cup").value).toBe(DR);
+    expect(noteUnder("Cup").textContent).toBe(FOUND_ON_DRIBL);
+    expect(asked.map((a) => a.url)).toEqual([LOOKUP, REQUEST]);
+    // Put in whole without a paste, over the request that is there: the request is replaced by the one the link gives.
+    const DR2 = DR.replace("league=ZyXwVu5678", "league=OtHeR12345");
+    fireEvent.change(request("Cup"), { target: { value: DR2 } });
+    await waitFor(() => expect(request("Cup").value).toBe(REQUEST.replace("league=ZyXwVu5678", "league=OtHeR12345")));
+    expect(link("Cup").value).toBe(DR2);
+    // A request pasted there is left exactly where it is, and so is anything that is not a whole page link.
+    expect(fireEvent.paste(request("Cup"), { clipboardData: { getData: () => REQUEST } })).toBe(true);
+    fireEvent.change(request("Cup"), { target: { value: "https://winterleague.dribl.com/fixtures?date_range=all" } });
+    expect(request("Cup").value).toBe("https://winterleague.dribl.com/fixtures?date_range=all");
+    expect(link("Cup").value).toBe(DR2);
+    expect(asked).toHaveLength(4);
+  });
+
   it("typing the request in by hand puts away what the link was read as, the offered names with it", async () => {
     dribl.draw = { status: 200, json: { data: TWO_TEAMS } };
     await startCreate();
@@ -455,12 +506,15 @@ describe("a competition's link — on Dribl", () => {
     hold = new Promise((r) => { release = r; });
     paste("Cup", DR);
     await waitFor(() => expect(asked).toHaveLength(1));
-    type("Cup", OTHER_SITE);
+    const another = DR.replace("Brisbane", "Sydney"); // a small edit, as if typed
+    type("Cup", another);
+    expect(readButton("Cup").textContent).toBe("Read link"); // not left reading for ever
     release();
     await new Promise((r) => setTimeout(r, 20));
     expect(request("Cup").value).toBe("");
-    expect(link("Cup").value).toBe(OTHER_SITE);
+    expect(link("Cup").value).toBe(another);
     expect(noteUnder("Cup")).toBeNull();
+    expect(readButton("Cup").disabled).toBe(false);
   });
 
   it("a save pressed while Dribl is still answering waits for it", async () => {
@@ -504,5 +558,27 @@ describe("a team that was set up from links", () => {
     expect(saves[0].body.squadi).toEqual({ competitionId: "777", divisionId: "20001", teamId: 300001, link: SQ });
     expect(saves[0].body.competitions).toEqual([{ id: "cdribl001", name: "Winter League", dribl: { url: REQUEST, team: US }, link: DR }]);
     expect(JSON.stringify(saves[0].body)).not.toMatch(/"note"|"teams"|games found/);
+  });
+});
+
+describe("arrived — how much text one change to a box brought", () => {
+  it("is a character for a letter typed, and the whole of a link pasted into an empty box", () => {
+    expect(arrived("", "h")).toBe(1);
+    expect(arrived("https://a.dribl.co", "https://a.dribl.com")).toBe(1);
+    expect(arrived("", SQ)).toBe(SQ.length);
+  });
+
+  it("is only what is new when text is put into the middle, or replaces part of what was there", () => {
+    expect(arrived("abcdef", "abcXYZdef")).toBe(3);
+    expect(arrived("abc123def", "abcXYZ98def")).toBe(5);
+    expect(arrived("teamId=300001", "teamId=300009")).toBe(1);
+  });
+
+  it("is nothing when text is taken away or nothing changed, and the new link when one replaces another", () => {
+    expect(arrived("abcdef", "abc")).toBe(0);
+    expect(arrived("abcdef", "abef")).toBe(0);
+    expect(arrived(SQ, SQ)).toBe(0);
+    expect(arrived("", "")).toBe(0);
+    expect(arrived(DR, SQ)).toBeGreaterThan(40);
   });
 });
