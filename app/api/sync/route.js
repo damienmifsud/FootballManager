@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getData, getMeta } from "@/lib/store";
 import { fetchSquadi } from "@/lib/squadiSync";
 import { applyDraws } from "@/lib/applyDraws";
-import { squadiSources } from "@/lib/competitions";
+import { squadiSources, majestriSources } from "@/lib/competitions";
+import { fetchMajestri } from "@/lib/majestriDraw";
 import { getTeams } from "@/lib/teams";
 import { resolveViewer, viewerError } from "@/lib/viewer";
 import { cronAuthorized } from "@/lib/cronAuth";
@@ -19,7 +20,13 @@ const STALE_MS = 15 * 60 * 1000; // sync-on-visit throttle
 // others: it is listed under `failed` and the rest are applied. Only when
 // every draw fails is the whole sync an error, as it was with one.
 async function syncTeam(team, ifStale) {
-  const sources = squadiSources(team);
+  // Every draw the server reads itself: Squadi's, and any competition on
+  // Majestri (lib/majestriDraw.js). A draw on Dribl is read by a coach's
+  // browser instead (/api/dribl).
+  const sources = [
+    ...squadiSources(team).map((s) => ({ ...s, provider: "Squadi", read: () => fetchSquadi(s.squadi) })),
+    ...majestriSources(team).map((s) => ({ comp: s.comp, provider: "Majestri", read: () => fetchMajestri(s.majestri) }))
+  ];
   if (!sources.length) return { team: team.slug, skipped: "no squadi config" };
   if (ifStale) {
     const meta = await getMeta(team.slug);
@@ -33,7 +40,7 @@ async function syncTeam(team, ifStale) {
   // (applyDraws), so a reply or a score saved while Squadi was answering is
   // in the copy the sync applies to, not lost under it.
   const draws = await Promise.all(sources.map(async (src) => {
-    try { return { ...src, squadi: await fetchSquadi(src.squadi) }; }
+    try { return { ...src, records: await src.read() }; }
     catch (e) { return { ...src, error: String(e?.message || e) }; }
   }));
   // A failed draw is named the way people know it: the competition, the side
@@ -42,9 +49,12 @@ async function syncTeam(team, ifStale) {
   if (failed.length === draws.length) throw new Error(failed[0].error);
 
   // The rest is the same for any draw, wherever it was fetched (lib/applyDraws.js).
-  const applied = await applyDraws(team, draws.filter((d) => !d.error).map((d) => ({ comp: d.comp, side: d.side, records: d.squadi })));
+  // `checked` names the sites whose draws came in, for "up to date with …".
+  const ok = draws.filter((d) => !d.error);
+  const checked = [...new Set(ok.map((d) => d.provider))];
+  const applied = await applyDraws(team, ok.map((d) => ({ comp: d.comp, side: d.side, records: d.records })), { source: checked.join(" and ") });
   if (!applied) return { team: team.slug, skipped: "no team data yet" };
-  return { team: team.slug, ...applied, ...(failed.length ? { failed } : {}) };
+  return { team: team.slug, ...applied, checked, ...(failed.length ? { failed } : {}) };
 }
 
 export async function GET(req) {

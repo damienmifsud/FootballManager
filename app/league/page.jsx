@@ -61,6 +61,7 @@ async function errorText(res, fallback) {
 function whereOf(d) {
   if (d.provider === "squadi") return "On Squadi";
   if (d.provider === "dribl") return "On Dribl";
+  if (d.provider === "majestri") return "On Majestri";
   try { return new URL(d.link).hostname.replace(/^www\./, ""); } catch { return "Website"; }
 }
 
@@ -119,7 +120,7 @@ export default function LeaguePage() {
     // The reason sits in brackets, so its own full stop is dropped.
     const failed = missed.length ? "Could not sync " + missed.map((f) => `${f.name} (${String(f.error).replace(/\.+$/, "")})`).join("; ") + "." : "";
     // "Up to date" is only said of what was actually checked.
-    const checked = [!!j && !noSquadi && "Squadi", dribl.synced > 0 && "Dribl"].filter(Boolean);
+    const checked = [...(!j || noSquadi ? [] : Array.isArray(j.checked) ? j.checked : ["Squadi"]), dribl.synced > 0 && "Dribl"].filter(Boolean);
     const head = changes.length
       ? `Updated ${changes.length} item${changes.length > 1 ? "s" : ""}: ` + changes.slice(0, 3).join(" · ") + (changes.length > 3 ? " …" : "")
       : checked.length ? `Already up to date with ${checked.join(" and ")}.` : "";

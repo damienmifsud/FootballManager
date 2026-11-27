@@ -845,7 +845,7 @@ describe("TeamWizard — a competition on Dribl", () => {
     expect(screen.getByText(/Everything a link fills in can also be typed by hand/).textContent)
       .toMatch(/A Dribl fixtures request is the address of the request that starts with\s+https:\/\/mc-api\.dribl\.com\/api\/fixtures, in DevTools under Network on the competition's Dribl fixtures page; add your\s+team's name as Dribl shows it when the draw has more than one of your club's teams\.$/);
     expect(screen.getByText(/Add a competition for anything played alongside the season/).textContent)
-      .toMatch(/A draw on Squadi syncs for everyone; a draw on Dribl is kept in step whenever a coach opens the team\.$/);
+      .toMatch(/A draw on Squadi or Majestri syncs for everyone; a draw on Dribl is kept in step whenever a coach opens the team\.$/);
   });
 
   it("sends the request, trimmed, with the team's name; no Squadi ids are invented for it", async () => {

@@ -101,3 +101,18 @@ describe("feedProvider — which site a link is a page of", () => {
     expect(feedProvider("https://registration.squadi.com/?" + "a".repeat(1000))).toBe("");
   });
 });
+
+describe("a Majestri link", () => {
+  it("is a page on a club's Majestri site; a competition's page names its competition, and a team's page its team", () => {
+    const comp = "https://riversidefc.majestri.com.au/comp-summary?compID=9001";
+    expect(feedProvider(comp)).toBe("majestri");
+    expect(parseFeedLink(comp)).toEqual({ provider: "majestri", link: comp, host: "riversidefc.majestri.com.au", compId: "9001", teamId: "" });
+    expect(parseFeedLink("https://riversidefc.majestri.com.au/team-summary?teamID=7001&compID=9001")).toMatchObject({ provider: "majestri", compId: "9001", teamId: "7001" });
+    expect(parseFeedLink("https://riversidefc.majestri.com.au/")).toEqual({ error: "That Majestri link does not name a competition. Open the competition's page (its address has compID in it) and copy the address again." });
+    for (const notOne of ["https://majestri.com.au/comp-summary?compID=9001", "http://riversidefc.majestri.com.au/comp-summary?compID=9001", "https://riversidefc.majestri.com.au.example.com/comp-summary?compID=9001"]) {
+      expect(feedProvider(notOne)).toBe("");
+      expect(parseFeedLink(notOne)).toEqual({ error: NOT_A_FEED_LINK });
+    }
+    expect(NOT_A_FEED_LINK).toBe("That is not a Squadi, Dribl or Majestri link. Open your team's fixtures page there, copy its address and paste it here.");
+  });
+});

@@ -279,8 +279,8 @@ where there are no accounts.
 "If the coach allows" follows the team's **Parents can see** switches in Settings. A
 coach who is also a parent gets exactly the Parent or player column while wearing the
 parent hat.
-Every visit still refreshes Squadi fixtures quietly for everyone (a draw on Dribl is
-refreshed when a coach visits); only the manual "sync now" is coach-level. Duties: coaches assign or clear any duty; parents and players claim fruit or
+Every visit still refreshes Squadi and Majestri fixtures quietly for everyone (a draw on
+Dribl is refreshed when a coach visits); only the manual "sync now" is coach-level. Duties: coaches assign or clear any duty; parents and players claim fruit or
 jersey duty for their own family (never the goalkeeper) and can hand it back. Every duty write goes
 through its own narrow route (`/api/duty`), so a claim never touches the rest of the fixture.
 
@@ -506,7 +506,8 @@ A team often plays something alongside its season: a winter tournament with part
 squad, an invitational league on other days. In the `/admin` wizard the **Competitions**
 step holds the season's Squadi IDs (one team, or two: see below) and a row for each
 other competition: a name and its three IDs (or, for a draw on Dribl, its fixtures
-request: see below). A row can be saved with just its name while its draw is not
+request, or for one on Majestri, its page and your team: see below). A row can be saved
+with just its name while its draw is not
 published yet; the sync leaves it alone until its source is added with Edit.
 
 Every sync pulls each draw that has its IDs. A game from another competition is labelled
@@ -520,16 +521,17 @@ For a team defined in `TEAMS`, the same list goes on the team entry:
 `id` is permanent (a game is tagged with it) and `name` can change.
 
 Every draw's row, the season's and each competition's, also takes a **website link**: the
-address of the page the draw is on (its Squadi or Dribl fixtures page, or a tournament's
-own site). It is kept beside the IDs, has an **Open** link beside it once saved, and is
+address of the page the draw is on (its Squadi or Dribl fixtures page, a competition's
+page on Majestri, or a tournament's own site). It is kept beside the IDs, has an **Open** link beside it once saved, and is
 what the team's league page lists under **Draws**. It can be saved before the IDs are
 known, and it must be a full `https://` address. In `TEAMS` it is `"link":"https://…"` on
 the season's `squadi` entry or on the competition.
 
 #### Setting a draw up from its link
 
-When the website link is the team's own fixtures page on Squadi or Dribl, the rest of
-the row is filled in from it, on a phone or a computer, with no IDs to hunt for. Paste
+When the website link is the team's own fixtures page on Squadi or Dribl, or a
+competition's page on a club's Majestri site, the rest of the row is filled in from it,
+on a phone or a computer, with no IDs to hunt for. Paste
 the link into the row's link box (or type it and press **Read link**), check what is
 read back under the box, and save.
 
@@ -545,11 +547,19 @@ read back under the box, and save.
   below), reads the draw once and says what it found: your team, the competition and how
   many games. When the draw has more than one of your club's teams it asks which is
   yours, and offers their names as Dribl spells them.
+- **Majestri.** Open the competition's page on the club's Majestri site and copy the
+  address (`….majestri.com.au/comp-summary?compID=…`; a team's own page,
+  `team-summary?teamID=…&compID=…`, works too). It goes in a competition row of its own.
+  The site reads the page and says back the competition, the division and how many games
+  it has, then lists its teams in the **team on Majestri** box: choose yours and it says
+  how many of the games are yours. A team's own page names your team already.
 
 A link to any other site is kept as the website link and nothing is read from it. The
 server never requests a pasted address: for Squadi it asks Squadi's own service, using
-the key and IDs read from the link once they have been checked (`/api/feed-link`, for
-super admins and club admins, which stores nothing). Dribl is only ever asked by the
+the key and IDs read from the link once they have been checked, and for Majestri it asks
+the club's Majestri site for the competition's page, at an address built from the
+competition's number (`/api/feed-link`, for super admins and club admins, which stores
+nothing). Dribl is only ever asked by the
 browser, as it is for the sync, with a plain request to its API and no cookies. Every
 box a link fills in can still be typed by hand, and typing in one puts the read-back
 away.
@@ -631,6 +641,31 @@ is public, and so is what a run prints: counts, and each failure by its kind (re
 Dribl, Dribl did not answer, the team's name needs checking), never a team's name, a
 competition, an id or a link. GitHub pauses a scheduled workflow in a public repository
 after 60 days without a commit; if that happens, turn it back on in the Actions tab.
+
+#### A competition whose draw is on Majestri
+
+A club can run a competition of its own on its Majestri site, such as a summer fives
+league, with the draw on a page like `<club>.majestri.com.au/comp-summary?compID=…`.
+Paste that page's link into a competition row (above) and choose your team. What is
+saved is the competition's page, your team's name and Majestri's number for it; the sync
+goes by the number, so a team renamed on Majestri is still found, and by the name when
+the number is not on the page.
+
+Majestri answers servers, so this draw is pulled by `/api/sync` with the Squadi ones: on
+visit, by the Sync button and by the cron, and a change email names Majestri as where
+the change came from. The page is read for its rounds, dates, times, fields and teams. A game whose
+teams are not drawn yet (a final shown as TBA) is left out until they are, a bye is not a
+game, and a semi-final or final, which has no round number, is named by the competition.
+A game keeps its place when it moves to another time or field, as on Squadi, and scores,
+replies and duties are never touched.
+
+Majestri's page is a web page, not a published feed, so it may change shape without
+notice. If it is not in the form the app reads, nothing is changed and the Sync button
+says so. The server only ever asks for the competition's page on the club's own
+`….majestri.com.au` address and follows no redirect.
+
+For a team defined in `TEAMS`:
+`"competitions":[{"id":"fives","name":"Summer Fives","majestri":{"url":"https://<club>.majestri.com.au/comp-summary?compID=…","team":"…","teamId":"…"},"link":"https://<club>.majestri.com.au/comp-summary?compID=…"}]`.
 
 #### A squad for a competition
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { fakeRequest } from "./helpers/fakeRequest";
+import { COMP as MAJESTRI_COMP, TEAM_PAGE as MAJESTRI_TEAM_PAGE, PAGE as MAJESTRI_PAGE } from "./helpers/majestriPage";
 import { NOT_A_FEED_LINK, SQUADI_NEEDS_TEAM, DRIBL_NEEDS_COMPETITION } from "@/lib/feedLinks";
 
 // POST /api/feed-link: reads a fixtures link pasted into the team wizard and
@@ -88,5 +89,57 @@ describe("POST /api/feed-link", () => {
     const POST = await loadRoute();
     const res = await POST(fakeRequest({})); // the stand-in request throws on json() when it has no body, as a real one does on bad JSON
     expect(res.status).toBe(400);
+  });
+});
+
+// A Majestri link is read here, on the server: the competition's page is
+// fetched (a stand-in serves a made-up one) and what it holds is said back.
+describe("POST /api/feed-link — a Majestri link", () => {
+  let realFetch;
+  beforeEach(() => { realFetch = global.fetch; });
+  afterEach(() => { global.fetch = realFetch; });
+
+  it("reads the competition's page at its stored address and says back its names, teams and games", async () => {
+    const asked = [];
+    global.fetch = vi.fn(async (url) => { asked.push(String(url)); return { status: 200, ok: true, text: async () => MAJESTRI_PAGE }; });
+    const POST = await loadRoute();
+    const res = await post(POST, { link: `  ${MAJESTRI_TEAM_PAGE}  ` });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      ok: true, provider: "majestri", link: MAJESTRI_TEAM_PAGE,
+      majestri: { url: MAJESTRI_COMP, team: "Riverside Rockets", teamId: "7001" },
+      found: { competition: "Winter Fives 2031", division: "Under 9 Mixed", season: "2031", teams: ["Riverside Rockets", "Hilltop Hawks", "Lakeside Lions & Co", "Valley Vipers", "Riverside Rovers"], games: 9, ours: "Riverside Rockets", ourGames: 5 }
+    });
+    expect(asked).toEqual([MAJESTRI_COMP]);
+    expect(lookupSquadiLink).not.toHaveBeenCalled();
+  });
+
+  it("reads the page for the team the wizard already has, and says whether it is one of the page's teams", async () => {
+    global.fetch = vi.fn(async () => ({ status: 200, ok: true, text: async () => MAJESTRI_PAGE }));
+    const POST = await loadRoute();
+    const vipers = await post(POST, { link: MAJESTRI_COMP, team: "  Valley Vipers " });
+    expect([vipers.status, vipers.body.majestri, vipers.body.found.ours, vipers.body.found.ourGames]).toEqual([200, { url: MAJESTRI_COMP, team: "Valley Vipers", teamId: "7004" }, "Valley Vipers", 3]);
+    const nobody = await post(POST, { link: MAJESTRI_COMP, team: "Mountain Goats" });
+    expect([nobody.status, nobody.body.majestri, nobody.body.found.ours]).toEqual([200, { url: MAJESTRI_COMP }, ""]);
+    // A team that is not text is no team.
+    const odd = await post(POST, { link: MAJESTRI_COMP, team: ["Valley Vipers"] });
+    expect([odd.status, odd.body.majestri]).toEqual([200, { url: MAJESTRI_COMP }]);
+  });
+
+  it("says what went wrong, as a sentence the wizard shows as it is", async () => {
+    global.fetch = vi.fn(async () => ({ status: 404, ok: false, text: async () => "" }));
+    const POST = await loadRoute();
+    expect(await post(POST, { link: MAJESTRI_COMP })).toEqual({ status: 400, body: { error: "Majestri responded 404" } });
+    expect(await post(POST, { link: "https://riversidefc.majestri.com.au/" })).toEqual({ status: 400, body: { error: "That Majestri link does not name a competition. Open the competition's page (its address has compID in it) and copy the address again." } });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("is for the people who set teams up: nobody else can make the server ask Majestri anything", async () => {
+    global.fetch = vi.fn();
+    isAdminEmail.mockReturnValue(false);
+    isClubAdminEmail.mockResolvedValue(false);
+    const POST = await loadRoute();
+    expect((await post(POST, { link: MAJESTRI_COMP })).status).toBe(403);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
