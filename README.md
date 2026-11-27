@@ -130,8 +130,12 @@ The switch is one env var and is reversible — until `AUTH_SECRET` is set nothi
 parameters — the page has a **Set up** panel (saved for everyone on that team) where you
 either build the link from filters or paste the full embed URL.
 
-Each team has its own setup. A team that has not saved one shows "Not configured yet."
-rather than any draw. Only the original team falls back to the U8 Kangaroos White draw it
+Each team has its own setup. A team that has not saved one shows the season's draw from
+the club's set-up when its website link there is the team's Squadi fixtures page (see
+"Setting a draw up from its link" below), and "Not configured yet." when there is
+neither, rather than anybody else's draw. Above the draw, **Draws** lists every draw the
+club's set-up has a link for (the season's, and each other competition's, wherever it
+is), each with **Open the draw**. Only the original team falls back to the U8 Kangaroos White draw it
 has always shown: the legacy owner (`legacyOwnerSlug` in `lib/store.js`), or the team
 whose own Squadi sync IDs are that team's. If another team saved that default under the
 old page, those ids are ignored when its setup is read.
@@ -516,18 +520,52 @@ For a team defined in `TEAMS`, the same list goes on the team entry:
 `id` is permanent (a game is tagged with it) and `name` can change.
 
 Every draw's row, the season's and each competition's, also takes a **website link**: the
-address of the page the draw is on (the FQ or Squadi fixtures page its IDs came from, or
-a tournament's own site). It is a copy for people, kept beside the IDs so the page is
-easy to find again, and once saved it has an **Open** link beside it. Nothing is synced
-from it, it can be saved before the IDs are known, and it must be a full `https://`
-address. In `TEAMS` it is `"link":"https://…"` on the season's `squadi` entry or on the
-competition.
+address of the page the draw is on (its Squadi or Dribl fixtures page, or a tournament's
+own site). It is kept beside the IDs, has an **Open** link beside it once saved, and is
+what the team's league page lists under **Draws**. It can be saved before the IDs are
+known, and it must be a full `https://` address. In `TEAMS` it is `"link":"https://…"` on
+the season's `squadi` entry or on the competition.
+
+#### Setting a draw up from its link
+
+When the website link is the team's own fixtures page on Squadi or Dribl, the rest of
+the row is filled in from it, on a phone or a computer, with no IDs to hunt for. Paste
+the link into the row's link box (or type it and press **Read link**), check what is
+read back under the box, and save.
+
+- **Squadi.** Open the Squadi fixtures page, choose the competition, the division and
+  your team, and copy the address (it carries `competitionUniqueKey`, `divisionId` and
+  `teamId`). The site looks the competition up on Squadi, fills in the three IDs the sync
+  uses, and reads back the team as Squadi names it, the division, the competition and how
+  many games are published. If that is not your team, the link was for another one.
+- **Dribl.** Open the competition's fixtures page on Dribl, choose your club and age
+  group, and copy the address (`….dribl.com/fixtures?season=…&competition=…&league=…&club=…`).
+  It goes in a competition row of its own. Your browser asks Dribl which match centre
+  that address belongs to, fills in the **Dribl fixtures request** the sync fetches (see
+  below), reads the draw once and says what it found: your team, the competition and how
+  many games. When the draw has more than one of your club's teams it asks which is
+  yours, and offers their names as Dribl spells them.
+
+A link to any other site is kept as the website link and nothing is read from it. The
+server never requests a pasted address: for Squadi it asks Squadi's own service, using
+the key and IDs read from the link once they have been checked (`/api/feed-link`, for
+super admins and club admins, which stores nothing). Dribl is only ever asked by the
+browser, as it is for the sync, with a plain request to its API and no cookies. Every
+box a link fills in can still be typed by hand, and typing in one puts the read-back
+away.
+
+The Dribl lookup has not been tried against the real Dribl from the build environment,
+which Dribl turns away. If Dribl's answer is not what the app expects, the box says so,
+naming the fields it found, the link is still kept, and the request can be pasted by
+hand as below.
+
 #### A competition whose draw is on Dribl
 
 Some competitions publish their draw on Dribl's match centre (a page such as
 `premierinvitational.dribl.com/fixtures`) rather than on Squadi. A competition's row in
 the wizard takes one or the other: its three Squadi IDs, or its **Dribl fixtures
-request**. To get the request, open the competition's fixtures page on Dribl, choose
+request**. The quick way to get the request is to paste the fixtures page's own link
+into the row (above). By hand: open the competition's fixtures page on Dribl, choose
 your club and age group there, open DevTools → Network, and copy the address of the
 request that starts with `https://mc-api.dribl.com/api/fixtures?`. Beside it, add **your
 team's name as Dribl shows it**, which tells the app which side of each game is yours.
