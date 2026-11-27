@@ -16,7 +16,7 @@ describe("driblDrawNames — what a draw's games say about themselves", () => {
   it("counts the games, names every team with the busiest first, and says which is ours when one team is in every game", () => {
     const items = [game("g1", US, "Hilltop United U8", { competition_name: "Winter League", league_name: "Under 8" }), game("g2", "Lakeside Rovers U8", US), game("g3", "Hilltop United U8", US)];
     expect(driblDrawNames(items)).toEqual({
-      games: 3, ourGames: 3, ourResults: 0, teams: [US, "Hilltop United U8", "Lakeside Rovers U8"], ours: US, problem: "", competition: "Winter League", league: "Under 8"
+      games: 3, ourGames: 3, ourPast: 0, ourFinished: 0, ourResults: 0, shape: expect.any(Object), teams: [US, "Hilltop United U8", "Lakeside Rovers U8"], ours: US, problem: "", competition: "Winter League", league: "Under 8"
     });
   });
 
@@ -46,7 +46,7 @@ describe("driblDrawNames — what a draw's games say about themselves", () => {
   });
 
   it("is an empty read-back for an empty draw, or one whose games it cannot read", () => {
-    const nothing = { games: 0, ourGames: 0, ourResults: 0, teams: [], ours: "", problem: "", competition: "", league: "" };
+    const nothing = { games: 0, ourGames: 0, ourPast: 0, ourFinished: 0, ourResults: 0, shape: { fields: [], statuses: {}, scoreFields: [] }, teams: [], ours: "", problem: "", competition: "", league: "" };
     expect(driblDrawNames([])).toEqual(nothing);
     expect(driblDrawNames([{ id: 7, match: { home: "A" } }, null, "x"])).toEqual(nothing);
     expect(driblDrawNames([], "Riverside")).toEqual(nothing); // nothing to look the name up in, so nothing wrong with it

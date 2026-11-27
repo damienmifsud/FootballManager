@@ -75,11 +75,17 @@ function drawsFor(team, sent) {
   const sources = driblSources(team);
   const draws = [];
   const seen = new Set();
+  // Two of the team's Dribl competitions can ask for overlapping games (the
+  // same league with and without a club filter, say): a game is applied with
+  // the first draw that has it, never claimed by two competitions at once.
+  const games = new Set();
   for (const d of sent) {
     const source = sources.find((s) => s.comp.id === d.comp);
     if (!source || seen.has(d.comp)) return { error: NOT_A_DRIBL_COMPETITION };
-    const records = sanitizeDrawRecords(d.records);
-    if (!records) return { error: "bad request" };
+    const checked = sanitizeDrawRecords(d.records);
+    if (!checked) return { error: "bad request" };
+    const records = checked.filter((r) => !games.has(r.squadiId));
+    for (const r of records) games.add(r.squadiId);
     seen.add(d.comp);
     // A competition set up to take its scores from Dribl fills a game with
     // none yet; any other's scores are entered by hand (applySync).

@@ -1,6 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { runDriblSync, failureOf, says, siteBase, DEFAULT_CLUB_HEADER } from "@/lib/driblRun";
-import { UNREACHABLE, NOT_READABLE, WHICH_TEAM } from "@/lib/dribl";
+import { UNREACHABLE, NOT_READABLE, WHICH_TEAM, politeness } from "@/lib/dribl";
+
+// Dribl asked again after a wait (lib/dribl.js): instant here.
+const realWait = politeness.wait;
+beforeEach(() => { politeness.wait = async () => {}; });
+afterEach(() => { politeness.wait = realWait; });
 
 // The scheduled Dribl reader (scripts/dribl-sync.mjs runs it on GitHub's
 // servers). It asks the site what to read, reads each draw from Dribl with

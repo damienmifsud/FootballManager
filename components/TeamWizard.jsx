@@ -17,6 +17,7 @@ import { MAX_COMPETITIONS, websiteLink } from "@/lib/competitions";
 import { parseFeedLink, feedProvider } from "@/lib/feedLinks";
 import { parseMajestriLink, majestriCompUrl } from "@/lib/majestriDraw";
 import { readDriblLink } from "@/lib/driblLink";
+import { driblStatus } from "@/lib/dribl";
 import { AdminSwitch } from "@/components/AdminShell";
 
 const AGE_GROUPS = ["U6", "U7", "U8", "U9", "U10", "U11", "U12+"];
@@ -123,7 +124,26 @@ export function driblFound({ draw, problem }) {
   if (!draw.games) return { kind: "warn", text: "The fixtures request is filled in. Dribl lists no games in this draw yet. Once it does, they sync whenever a coach opens the team." };
   const what = [draw.competition, draw.league].filter(Boolean).join(" · ");
   if (!draw.ours) return { kind: "warn", text: `${what ? what + ". " : ""}${plural(draw.games, "game")} found, but the draw does not show which team is yours. Choose it in the team name box above.` };
-  return { kind: "ok", text: `${[draw.ours, what].filter(Boolean).join(" · ")}. ${plural(draw.ourGames, "game")} found${withScores(draw.ourResults)}. They sync whenever a coach opens the team.` };
+  const check = driblCheck(draw);
+  return {
+    kind: check ? "warn" : "ok",
+    text: `${[draw.ours, what].filter(Boolean).join(" · ")}. ${plural(draw.ourGames, "game")} found${withScores(draw.ourResults)}. They sync whenever a coach opens the team.${check ? " " + check : ""}`
+  };
+}
+// Whether Dribl's answer is the shape this app reads its results from: said
+// only when it is not, with the names of the fields a game carried, so a
+// screenshot of the note shows what to change. Dribl's answer cannot be seen
+// from anywhere but a person's own browser, so this is where it is checked.
+export function driblCheck(draw) {
+  const shape = draw?.shape || {};
+  const fields = (shape.fields || []).slice(0, 40).join(", ");
+  const words = Object.keys(shape.statuses || {});
+  const unread = (draw?.ourFinished || 0) - (draw?.ourResults || 0);
+  if (unread > 0) return `Dribl calls ${plural(unread, "game")} of ours finished but gives no score this app can read. A game there has: ${fields}.`;
+  if ((draw?.ourPast || 0) > 0 && words.length && words.every((w) => w === "(none)")) return `Dribl gives these games no status this app reads, so no scores are taken from them. A game there has: ${fields}.`;
+  const unknown = words.filter((w) => w !== "(none)" && !driblStatus({ status: w }));
+  if (unknown.length) return `Dribl uses ${unknown.length === 1 ? "a status" : "statuses"} this app does not know (${unknown.map((w) => `"${w}"`).join(", ")}), and takes no score from ${unknown.length === 1 ? "a game with it" : "games with them"}.`;
+  return "";
 }
 // What reading a Majestri link found, as the note under the field.
 export function majestriFound(found) {

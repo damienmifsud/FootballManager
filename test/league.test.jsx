@@ -10,7 +10,13 @@ import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-libra
 // team that had not saved a set-up).
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }) => <a href={href} {...rest}>{children}</a> }));
 import LeaguePage from "@/app/league/page";
+import { politeness } from "@/lib/dribl";
 import { ADMIN_CSS } from "@/components/AdminShell";
+
+// Dribl asked again after a wait (lib/dribl.js): instant here.
+const realWait = politeness.wait;
+beforeEach(() => { politeness.wait = async () => {}; });
+afterEach(() => { politeness.wait = realWait; });
 
 const FQ_METRO = "b0e92958-980b-4da0-9ec9-a9c2597b06f0";
 const SQUADI = "https://registration.squadi.com/liveScoreSeasonFixture?";

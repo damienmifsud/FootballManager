@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
-import TeamWizard, { DRIBL_IN_SEASON, LINK_BEING_READ, DRIBL_BY_HAND, arrived, scoresFrom, SCORES_BY_HAND, driblFound, majestriFound } from "@/components/TeamWizard";
+import TeamWizard, { DRIBL_IN_SEASON, LINK_BEING_READ, DRIBL_BY_HAND, arrived, scoresFrom, SCORES_BY_HAND, driblFound, majestriFound, driblCheck } from "@/components/TeamWizard";
 import { SQUADI_NEEDS_TEAM, DRIBL_NEEDS_COMPETITION, feedProvider as feedProviderOf } from "@/lib/feedLinks";
 import { NO_MATCH_CENTRE } from "@/lib/driblLink";
 import { UNREACHABLE } from "@/lib/dribl";
 import { COMP as MJ_COMP, TEAM_PAGE as MJ_TEAM_PAGE } from "./helpers/majestriPage";
+import { politeness } from "@/lib/dribl";
 
 // The Competitions step of the team wizard: a draw is set up from its website
 // link when that link is the team's fixtures page. A Squadi link is looked up
@@ -83,6 +84,10 @@ beforeEach(() => {
   });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+// Dribl asked again after a wait (lib/dribl.js): instant here.
+const realWait = politeness.wait;
+beforeEach(() => { politeness.wait = async () => {}; });
+afterEach(() => { politeness.wait = realWait; });
 
 const step = () => within(screen.getByRole("heading", { level: 4, name: "Competitions" }).closest(".adm-step"));
 const field = (label) => step().getByLabelText(label);
@@ -746,6 +751,22 @@ describe("where a competition's scores come from", () => {
       .toBe("Riverside FC U8 Blues · Winter League · Under 8. 3 games found, 2 with their scores. They sync whenever a coach opens the team.");
     expect(majestriFound({ competition: "Winter Fives 2031", division: "Under 9 Mixed", teams: ["A", "B"], games: 9, ours: "Riverside Rockets", ourGames: 5, ourResults: 1 }).text)
       .toBe("Riverside Rockets · Winter Fives 2031 · Under 9 Mixed. 5 games found, 1 with its score. They sync by themselves.");
+  });
+
+  it("says when Dribl's answer is not one this app reads results from, naming what a game carried, and nothing when it is", () => {
+    const shape = (statuses, fields = ["date", "home_team_name", "away_team_name", "status", "home_goals_for"]) => ({ fields, statuses, scoreFields: [] });
+    const base = { games: 4, ourGames: 4, ours: US, competition: "Winter League", league: "Under 8" };
+    expect(driblCheck({ ...base, ourPast: 3, ourFinished: 3, ourResults: 3, shape: shape({ complete: 3, pending: 1 }) })).toBe("");
+    expect(driblCheck({ ...base, ourPast: 3, ourFinished: 3, ourResults: 1, shape: shape({ complete: 3, pending: 1 }) }))
+      .toBe("Dribl calls 2 games of ours finished but gives no score this app can read. A game there has: date, home_team_name, away_team_name, status, home_goals_for.");
+    expect(driblCheck({ ...base, ourPast: 2, ourFinished: 0, ourResults: 0, shape: shape({ "(none)": 4 }, ["date", "home_team_name"]) }))
+      .toBe("Dribl gives these games no status this app reads, so no scores are taken from them. A game there has: date, home_team_name.");
+    expect(driblCheck({ ...base, ourPast: 0, ourFinished: 0, ourResults: 0, shape: shape({ "(none)": 4 }) })).toBe(""); // nothing played yet: nothing to read
+    expect(driblCheck({ ...base, ourPast: 2, ourFinished: 1, ourResults: 1, shape: shape({ complete: 1, "Awaiting adjudication": 2 }) }))
+      .toBe('Dribl uses a status this app does not know ("Awaiting adjudication"), and takes no score from a game with it.');
+    const warned = driblFound({ draw: { ...base, ourPast: 3, ourFinished: 3, ourResults: 0, ourGames: 3, shape: shape({ complete: 3 }) }, problem: "" });
+    expect(warned.kind).toBe("warn");
+    expect(warned.text).toMatch(/^Riverside FC U8 Blues · Winter League · Under 8\. 3 games found\. They sync whenever a coach opens the team\. Dribl calls 3 games of ours finished but gives no score/);
   });
 
   it("names the site the draw is on: Dribl for a Dribl request, Majestri for a Majestri page", async () => {

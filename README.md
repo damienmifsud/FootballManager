@@ -603,6 +603,50 @@ draw" below). It runs:
 Dribl publishes no description of its API. If its answer is not in the form the app
 reads, nothing is changed and the Sync button says so, naming the fields it found.
 
+**What has been checked, and what has not.** Dribl's API answers a person's browser and
+nothing else: a plain request from a server (the build environment, GitHub's runners) is
+refused outright by Dribl's Cloudflare ("Sorry, you have been blocked", HTTP 403), for the
+match-centre lookup and the fixtures alike, and Dribl's own website and terms cannot be
+read from there either. So the app's reading of Dribl's answer has been tested against
+stand-ins written from what is known of it, never against a real answer, and nothing
+gets past that protection: no disguised browser, no automation. The first real read
+happens in a coach's browser, where the link's read-back is the check (below).
+
+**How a Dribl draw is read.**
+
+- *The request.* A fixtures page link is turned into the fixtures request by the
+  browser: the match centre's tenant is asked of Dribl's `/api/tenants` lookup (never
+  assumed), and every filter in the link (season, competition, league, club, date range,
+  time zone) is kept. Only `….dribl.com` page links and `mc-api.dribl.com` requests are
+  accepted; the next page is followed only by adding Dribl's cursor to the stored
+  request, never by following an address in the answer.
+- *Asking politely.* A page Dribl cannot answer just then (429, or a 5xx, or no answer)
+  is asked for again, twice at most: after the wait Dribl asks for (`Retry-After`, where
+  the browser may see it), or 1 and then 2 seconds, never more than 20. A refusal (403)
+  is Dribl saying no, and is not asked again.
+- *A game's state.* Read from a flag (`forfeit`, `postponed`, `cancelled`, `abandoned`) or
+  the first status-like field (`status`, `match_status`, `fixture_status`,
+  `result_status`, `state`), as scheduled, live, completed, postponed, cancelled,
+  abandoned or forfeited.
+- *Its result.* Taken only from a game Dribl calls completed or forfeited: a game not
+  played yet is never a 0–0, while a 0–0 that was played is a result like any other. The
+  score is read from `home_score`/`away_score` (or `home_team_score`/`away_team_score`,
+  `home_goals`/`away_goals`), and a penalty shootout from `home_penalty_score`/
+  `away_penalty_score` (or the like) when the score is level and the penalties differ.
+  Whether a result is then filled in is the competition's **Scores from Dribl** choice
+  (see "Scores from a competition's draw").
+- *The check.* When Dribl calls some of the team's games finished but no score can be
+  read from them, or uses a status this app does not know, or gives no status to games
+  already played, the read-back says so and lists the names of the fields a game
+  carried: a screenshot of it is all it takes to fix the names. Names only: never a
+  team, a place or a person.
+
+**Many syncs, many draws.** A team is synced by one sync at a time: the cron, a visit and a
+coach's browser posting a Dribl draw each take the team's lock first (Redis set-if-absent
+with a one-minute expiry), and one that finds it taken changes nothing and is tried again
+next time. A game two of the team's Dribl competitions both ask for is applied once, with
+the first. Nothing is ever deleted because a draw did not come back, or came back short.
+
 Crests are the app's own, whichever service a draw comes from: an opponent is matched by
 name to the registry in `lib/clubs.js` (files in `public/crests`), and a club with no
 file there shows its initials. The logo address a draw gives is kept on the game and
@@ -690,9 +734,9 @@ saved before the switch existed, and changed with Edit at any time. With it on:
 - It is quiet: no change notice and no email, since a result is not a schedule change.
 
 A draw's link read-back says how many of your games came with their scores. Dribl's
-answer could not be seen from where this was written, so the reader looks for the usual
-names (`home_score` and `away_score`); if a finished Dribl competition reads back with
-none, Dribl names them differently and the reader needs telling.
+answer could not be seen from where this was written, so its reader looks for the usual
+names and says, with the fields it found, when a finished Dribl competition gives none
+it can read (see "A competition whose draw is on Dribl").
 
 The season record and the stats count the season's games only, as before: a
 competition's results show on its own games and in Results. In `TEAMS`, the choice is
