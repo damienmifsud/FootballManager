@@ -517,8 +517,8 @@ describe("TeamWizard — two Squadi teams on one squad", () => {
     expect(screen.getByLabelText("Squadi team label").maxLength).toBe(12);
     // The season's rows sit under Competitions, ahead of any other competition.
     const inputs = [...step("Competitions").getAllByRole("textbox")].map((i) => i.getAttribute("aria-label"));
-    expect(inputs.slice(0, 5)).toEqual(["Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID", "Squadi website link"]);
-    expect(inputs.slice(5, 10)).toEqual(["Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID", "Second Squadi website link"]);
+    expect(inputs.slice(0, 6)).toEqual(["Season name", "Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID", "Squadi website link"]);
+    expect(inputs.slice(6, 11)).toEqual(["Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID", "Second Squadi website link"]);
     expect(step("Competitions").getAllByRole("textbox").every((i) => i.className.includes("adm-inp"))).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Remove the second team" }));
     expect(screen.queryByLabelText("Second Squadi team label")).toBeNull();
@@ -590,6 +590,37 @@ describe("TeamWizard — two season feeds and another competition together", () 
   const fill = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
   const step = (title) => within(screen.getByRole("heading", { name: title }).closest(".adm-step"));
 
+  it("the season can be given the name the club knows it by: blank for a new team, as saved on Edit, and sent as typed", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    const s = step("Competitions");
+    expect(s.getByLabelText("Season name").value).toBe("");
+    expect(s.getByLabelText("Season name").getAttribute("placeholder")).toBe("Name (e.g. FQ Season)");
+    expect(s.getByLabelText("Season name").maxLength).toBe(40);
+    fireEvent.click(s.getByRole("button", { name: "Add a competition" }));
+    expect(s.getAllByText("Competition", { selector: ".adm-fl" })).toHaveLength(1); // each competition's name box is labelled
+    expect(s.getByText(/Give the season and each competition the name the club knows it by/).textContent).toMatch(/a name a link fills in can be typed over\./);
+  });
+
+  it("a season name typed for a new team is sent, trimmed; on Edit the saved name shows, and emptied it is sent empty", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    fireEvent.change(screen.getByLabelText("Team name"), { target: { value: "Riverside U10" } });
+    fireEvent.change(step("Competitions").getByLabelText("Season name"), { target: { value: "  Academy League " } });
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.seasonName).toBe("Academy League");
+    cleanup(); calls = [];
+    teams = [{ ...U8, seasonName: "Academy League" }, ENV];
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: `Edit ${U8.name}` }));
+    expect(step("Competitions").getByLabelText("Season name").value).toBe("Academy League");
+    fireEvent.change(step("Competitions").getByLabelText("Season name"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect([calls[0].method, calls[0].body.seasonName]).toEqual(["PATCH", ""]);
+  });
+
   it("the season's rows come first in the Competitions step, under Season, with the competitions below", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Edit Olympic FC U8 White" }));
@@ -598,15 +629,15 @@ describe("TeamWizard — two season feeds and another competition together", () 
     expect(s.getByText("Season", { selector: ".adm-fl" })).toBeTruthy();
     const labels = s.getAllByRole("textbox").map((i) => i.getAttribute("aria-label"));
     expect(labels).toEqual([
-      "Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID", "Squadi website link",
+      "Season name", "Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID", "Squadi website link",
       "Competition 1 name", "Winterfest competition ID", "Winterfest division ID", "Winterfest team ID", "Winterfest Dribl fixtures request", "Winterfest website link",
       "Competition 2 name", "Premier Invitational competition ID", "Premier Invitational division ID", "Premier Invitational team ID", "Premier Invitational Dribl fixtures request", "Premier Invitational website link"
     ]);
     // The second team's row goes between the season's first row and the competitions.
     fireEvent.click(s.getByRole("button", { name: "Add a second team" }));
     const after = s.getAllByRole("textbox").map((i) => i.getAttribute("aria-label"));
-    expect(after.slice(5, 10)).toEqual(["Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID", "Second Squadi website link"]);
-    expect(after[10]).toBe("Competition 1 name");
+    expect(after.slice(6, 11)).toEqual(["Second Squadi team label", "Second Squadi competition ID", "Second Squadi division ID", "Second Squadi team ID", "Second Squadi website link"]);
+    expect(after[11]).toBe("Competition 1 name");
   });
 
   it("creating a team sends the two labelled feeds and the competitions in one request", async () => {

@@ -348,6 +348,10 @@ describe("a team with more than one draw", () => {
     const again = await (await cron(GET)).json();
     expect(again.results[0]).toMatchObject({ created: 1, failed: [{ name: "Season", error: "Squadi responded 503" }] });
     expect(m.setData.mock.calls[0][1].fixtures.map((f) => [f.squadiId, f.comp])).toEqual([["w1", "cw"]]);
+    // A season with a name of its own is named by it.
+    m.getTeams.mockReturnValue([{ ...MULTI, seasonName: "Academy League" }]);
+    const named = await (await cron(GET)).json();
+    expect(named.results[0].failed).toEqual([{ name: "Academy League", error: "Squadi responded 503" }]);
   });
 
   it("every draw failing is the team's error, as it was with one draw: nothing is saved", async () => {
