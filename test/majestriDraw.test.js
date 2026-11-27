@@ -137,16 +137,25 @@ describe("ourMajestriTeam — which team is ours", () => {
 
 describe("majestriRecords — our games, as the sync applies them", () => {
   const page = readMajestriPage(PAGE);
-  it("are our games only, home or away, with the opponent, the round, local time and the field", () => {
+  it("are our games only, home or away, with the opponent, the round, local time, the field and, once played, our score", () => {
     const r = majestriRecords(page, { team: "Riverside Rockets", compId: "9001" });
     expect(r).toEqual([
       { squadiId: "majestri:9001:rnd9f9f9f9:0", round: null, dateISO: "2031-07-03", time: "17:10", opponent: "Valley Vipers", opponentLogo: "", ourLogo: "", homeAway: "H", venue: "Field 6" },
-      { squadiId: "majestri:9001:rnd0a1b2c3:0", round: 1, dateISO: "2031-06-05", time: "16:30", opponent: "Hilltop Hawks", opponentLogo: "", ourLogo: "", homeAway: "H", venue: "Field 5" },
+      { squadiId: "majestri:9001:rnd0a1b2c3:0", round: 1, dateISO: "2031-06-05", time: "16:30", opponent: "Hilltop Hawks", opponentLogo: "", ourLogo: "", homeAway: "H", venue: "Field 5", score: { us: 5, them: 2 } },
       { squadiId: "majestri:9001:rnd4d5e6f7:0", round: 2, dateISO: "2031-06-12", time: "12:15", opponent: "Valley Vipers", opponentLogo: "", ourLogo: "", homeAway: "A", venue: "Field 7" },
       { squadiId: "majestri:9001:rnd1c1c1c1:0", round: 10, dateISO: "2031-06-19", time: "16:30", opponent: "Lakeside Lions & Co", opponentLogo: "", ourLogo: "", homeAway: "H", venue: "Field 5" },
       { squadiId: "majestri:9001:rnd1c1c1c1:1", round: 10, dateISO: "2031-06-19", time: "17:10", opponent: "Hilltop Hawks", opponentLogo: "", ourLogo: "", homeAway: "A", venue: "Field 5" },
       { squadiId: "majestri:9001:rnd1c1c1c1:2", round: 10, bye: true }
     ]);
+  });
+
+  it("give our score as ours first, home or away, and none until both sides have one", () => {
+    // Away: Valley Vipers drew 1-1 away in Round 1; Hilltop Hawks lost 2 to 5 away.
+    expect(majestriRecords(page, { team: "Valley Vipers", compId: "9001" }).find((g) => g.round === 1).score).toEqual({ us: 1, them: 1 });
+    expect(majestriRecords(page, { team: "Hilltop Hawks", compId: "9001" }).find((g) => g.round === 1)).toMatchObject({ homeAway: "A", score: { us: 2, them: 5 } });
+    // A game with only one side's score shown has no score yet.
+    const oneSided = readMajestriPage(PAGE.replace('<span class="score">2</span>', ""));
+    expect(majestriRecords(oneSided, { team: "Riverside Rockets", compId: "9001" }).find((g) => g.round === 1)).not.toHaveProperty("score");
   });
 
   it("leaves out a game whose teams are not known yet, and keeps a game's id when it moves time or field or gets its opponent", () => {
@@ -208,13 +217,13 @@ describe("lookupMajestriLink — what a pasted link says, read back before it is
   it("a competition's page: its names, its teams and how many games, with our team left to choose", async () => {
     expect(await lookupMajestriLink(COMP, ok)).toEqual({
       provider: "majestri", link: COMP, majestri: { url: COMP },
-      found: { competition: "Winter Fives 2031", division: "Under 9 Mixed", season: "2031", teams: ["Riverside Rockets", "Hilltop Hawks", "Lakeside Lions & Co", "Valley Vipers", "Riverside Rovers"], games: 9, ours: "", ourGames: 0 }
+      found: { competition: "Winter Fives 2031", division: "Under 9 Mixed", season: "2031", teams: ["Riverside Rockets", "Hilltop Hawks", "Lakeside Lions & Co", "Valley Vipers", "Riverside Rovers"], games: 9, ours: "", ourGames: 0, ourResults: 0 }
     });
   });
   it("a team's own page names our team, and counts its games", async () => {
     const got = await lookupMajestriLink(TEAM_PAGE, ok);
     expect(got.majestri).toEqual({ url: COMP, team: "Riverside Rockets", teamId: "7001" });
-    expect([got.found.ours, got.found.ourGames]).toEqual(["Riverside Rockets", 5]); // the bye is not a game
+    expect([got.found.ours, got.found.ourGames, got.found.ourResults]).toEqual(["Riverside Rockets", 5, 1]); // the bye is not a game; one game has its score
   });
   it("a competition's page read for the team the set-up already has: a name that is one of its teams is ours, with Majestri's number for it", async () => {
     const vipers = await lookupMajestriLink(COMP, ok, { team: "Valley Vipers" });

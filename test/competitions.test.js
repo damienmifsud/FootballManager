@@ -551,6 +551,27 @@ describe("a competition whose draw is on Majestri", () => {
     expect(driblSources(team).map((s) => s.comp.id)).toEqual(["c4"]);
   });
 
+  it("keeps the set-up's choice to take a competition's scores from its draw, wherever that is, and only for a competition with a draw", () => {
+    const ids = { competitionId: "1", divisionId: "All", teamId: 3 };
+    const rows = sanitizeCompetitions([
+      { name: "Winter Fives", majestri: { url: MCOMP, team: "Riverside Rockets" }, scores: true },
+      { name: "Winter Cup", squadi: ids, scores: true },
+      { name: "Spring Fives", majestri: { url: MCOMP, team: "Riverside Rockets" }, scores: false },
+      { name: "Gala Fives", majestri: { url: MCOMP, team: "Riverside Rockets" }, scores: "yes" },
+      { name: "Invitational", dribl: { url: "https://mc-api.dribl.com/api/fixtures?club=CL1&tenant=T1" }, scores: true },
+      { name: "Not yet", scores: true }
+    ], makeId);
+    expect(rows.map((r) => r.scores ?? false)).toEqual([true, true, false, false, true, false]);
+    expect(rows[0].majestri).toEqual({ url: MCOMP, team: "Riverside Rockets" });
+    const team = { squadi: ids, competitions: [{ id: "c1", ...rows[0] }, { id: "c2", ...rows[1] }, { id: "c3", ...rows[2] }] };
+    expect(majestriSources(team)).toEqual([
+      { comp: { id: rows[0].id, name: "Winter Fives" }, majestri: { url: MCOMP, team: "Riverside Rockets" }, scores: true },
+      { comp: { id: rows[2].id, name: "Spring Fives" }, majestri: { url: MCOMP, team: "Riverside Rockets" } }
+    ]);
+    // The season's draw never carries the choice, even with the same ids as a competition that does.
+    expect(squadiSources({ ...team, squadi: { competitionId: "9", divisionId: "8", teamId: 7 } }).map((s) => [s.comp?.name ?? "Season", !!s.scores])).toEqual([["Season", false], ["Winter Cup", true]]);
+  });
+
   it("its page is listed on the league page as being on Majestri", () => {
     expect(drawLinks({ competitions: [{ id: "c1", name: "Winter Fives", majestri: { url: MCOMP, team: "A" }, link: MTEAM }] })).toEqual([{ name: "Winter Fives", provider: "majestri", link: MTEAM }]);
   });

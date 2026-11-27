@@ -386,6 +386,27 @@ describe("POST /api/dribl — applying a draw", () => {
     expect(after.schedChanges.map((c) => c.field)).toEqual(["New game", "Time", "Venue"]);
   });
 
+  it("fills a played game's empty score from Dribl only for a competition set up to take its scores, and never changes one", async () => {
+    coachSession();
+    const PAST = { ...game(1), dateISO: "2027-02-27", score: { us: 3, them: 2 } };
+    teamBySlug.mockImplementation((slug) => TEAM(slug, [WINTER, { ...PREMIER, scores: true }, CUP, LATER]));
+    let { POST } = await loadRoute({ authOn: true });
+    await post(POST, draws([PAST]));
+    expect(premier(saved()).map((f) => [f.us, f.them, f.status, f.scoreFrom])).toEqual([[3, 2, "played", "Dribl"]]);
+    // A score already there, typed in by a coach, stays as it is.
+    setData.mockClear();
+    getData.mockResolvedValue(DATA({ fixtures: [{ id: "f9", squadiId: "dribl:g1", comp: "cprem", compName: PREMIER.name, round: 1, dateISO: "2027-02-27", time: "09:00", opponent: "Opponent 1", venue: "Lions Park – Field 1", homeAway: "H", status: "played", us: 1, them: 1 }] }));
+    await post(POST, draws([PAST]));
+    expect(setData).not.toHaveBeenCalled();
+    // Set up with its scores entered by hand, the competition takes none.
+    setData.mockClear();
+    getData.mockResolvedValue(DATA());
+    teamBySlug.mockImplementation((slug) => TEAM(slug));
+    ({ POST } = await loadRoute({ authOn: true }));
+    await post(POST, draws([PAST]));
+    expect(premier(saved()).map((f) => [f.us, f.them, f.scoreFrom])).toEqual([[null, null, undefined]]);
+  });
+
   it("applies several competitions' draws in one save, each to its own competition", async () => {
     coachSession();
     const { POST } = await loadRoute({ authOn: true });

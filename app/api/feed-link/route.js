@@ -21,7 +21,7 @@ const AUTH_ON = !!process.env.AUTH_SECRET;
 //               the link (lib/squadiLookup.js); those three ids are what /api/sync
 //               pulls the draw with.
 //   Majestri -> { ok, provider: "majestri", link, majestri: { url, team?, teamId? },
-//                 found: { competition, division, season, teams, games, ours, ourGames } }
+//                 found: { competition, division, season, teams, games, ours, ourGames, ourResults } }
 //               The competition's page is read (lib/majestriDraw.js). `ours` is
 //               our team when the link is a team's own page, or when `team`
 //               (the name the wizard already has) is one of the page's teams;

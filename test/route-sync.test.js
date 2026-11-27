@@ -574,6 +574,21 @@ describe("a competition on Majestri", () => {
     expect(m.setData).toHaveBeenCalledTimes(1);
   });
 
+  it("gives leave to take scores only to a competition set up so, on Squadi or Majestri: never to the season, nor to one whose scores are entered by hand", async () => {
+    const withScores = { ...FIVES, scores: true };
+    const byHand = { ...FIVES, id: "cspring", name: "Spring Fives" };
+    const cup = { id: "ccup", name: "Winter Cup", squadi: { competitionId: "55", divisionId: "All", teamId: 3 }, scores: true };
+    m.getTeams.mockReturnValue([{ slug: "a", name: "Team A", squadi: SEASON, competitions: [withScores, byHand, cup] }]);
+    const { GET } = await loadRoute({ authOn: true });
+    await cron(GET);
+    expect(m.applySync.mock.calls.map((c) => c[2])).toEqual([
+      { comp: null }, { comp: { id: "ccup", name: "Winter Cup" }, scoreFrom: "Squadi" },
+      { comp: { id: "cfives", name: "Winter Fives" }, scoreFrom: "Majestri" }, { comp: { id: "cspring", name: "Spring Fives" } }
+    ]);
+    // The games carry Majestri's scores either way; only the leave decides whether they are taken.
+    for (const call of m.applySync.mock.calls.slice(2)) expect(call[1].find((r) => r.squadiId === "majestri:9001:rnd0a1b2c3:0").score).toEqual({ us: 5, them: 2 });
+  });
+
   it("a team whose only draw is on Majestri is synced, on a visit too, and its email says where the changes came from", async () => {
     process.env.RESEND_API_KEY = "re_test"; process.env.NOTIFY_EMAILS = "coach@example.com";
     const fivesOnly = { slug: "a", name: "Team A", competitions: [{ ...FIVES, majestri: { url: MAJESTRI_COMP, team: "Hilltop Hawks" } }] };

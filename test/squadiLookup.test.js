@@ -62,6 +62,13 @@ describe("competitionFromDivisions — the competition's number, from its list o
     }
   });
 
+  it("for every division, is the competition they all belong to, with no one division named; divisions that disagree are not trusted", () => {
+    expect(competitionFromDivisions(DIVISIONS, "All")).toEqual({ competitionId: "777", competition: "Metro | Winter League", division: "" });
+    expect(competitionFromDivisions(DIVISIONS, "all").competitionId).toBe("777");
+    expect(competitionFromDivisions([...DIVISIONS, { id: 20002, name: "Other", competitionId: 778 }], "All")).toEqual({ error: SQUADI_UNKNOWN_COMPETITION });
+    expect(competitionFromDivisions([{ id: 1, name: "X", competitionId: "abc" }], "All")).toEqual({ error: SQUADI_UNKNOWN_COMPETITION });
+  });
+
   it("passes on nothing else from Squadi's answer", () => {
     expect(JSON.stringify(competitionFromDivisions(DIVISIONS, "20001"))).not.toMatch(/someone@example|contact/);
   });
@@ -69,25 +76,44 @@ describe("competitionFromDivisions — the competition's number, from its list o
 
 describe("describeDraw — what the draw says about the team", () => {
   it("names the team as Squadi writes it, from either side, and counts its games without the bye", () => {
-    expect(describeDraw(DRAW, 300001)).toEqual({ team: "Riverside FC U8 Blues", games: 2 });
-    expect(describeDraw(DRAW, "300003")).toEqual({ team: "Canal Street U8", games: 1 });
+    expect(describeDraw(DRAW, 300001)).toEqual({ team: "Riverside FC U8 Blues", games: 2, results: 0 });
+    expect(describeDraw(DRAW, "300003")).toEqual({ team: "Canal Street U8", games: 1, results: 0 });
   });
 
   it("a team with no games yet has no name and none counted; something that is not a draw is nothing", () => {
-    expect(describeDraw(DRAW, 999)).toEqual({ team: "", games: 0 });
-    expect(describeDraw({ rounds: [] }, 300001)).toEqual({ team: "", games: 0 });
-    expect(describeDraw({ rounds: [{ name: "Round 1" }, { matches: [null, {}] }] }, 300001)).toEqual({ team: "", games: 0 });
+    expect(describeDraw(DRAW, 999)).toEqual({ team: "", games: 0, results: 0 });
+    expect(describeDraw({ rounds: [] }, 300001)).toEqual({ team: "", games: 0, results: 0 });
+    expect(describeDraw({ rounds: [{ name: "Round 1" }, { matches: [null, {}] }] }, 300001)).toEqual({ team: "", games: 0, results: 0 });
     for (const bad of [null, undefined, {}, [], { rounds: "x" }]) expect(describeDraw(bad, 300001)).toBeNull();
   });
 });
 
+describe("describeDraw — results the competition has confirmed", () => {
+  it("counts a game with a final, locked result, and not one shown 0-0 but never locked", () => {
+    const result = (id, t1, t2, a, b, locked) => ({ ...match(id, t1, t2), team1Score: a, team2Score: b, resultStatus: "FINAL", isResultsLocked: locked });
+    const played = { rounds: [{ name: "Round 1", matches: [result(1, US, team(300002, "Hill End U8"), 2, 1, true), result(2, team(300003, "Canal Street U8"), US, 0, 0, false), result(3, US, team(0, "Bye"), 0, 0, true)] }] };
+    expect(describeDraw(played, 300001)).toEqual({ team: "Riverside FC U8 Blues", games: 2, results: 1 });
+  });
+});
+
 describe("lookupSquadiLink", () => {
+  it("a link for every division names the competition from its divisions and reads the team's games in all of them", async () => {
+    const fetch = fakeFetch({ "/livescores/division": ok(DIVISIONS), "/livescores/round/matches": ok(DRAW) });
+    const all = LINK.replace("divisionId=20001", "divisionId=All");
+    expect(await lookupSquadiLink(all, fetch)).toEqual({
+      provider: "squadi", link: all,
+      squadi: { competitionId: "777", divisionId: "All", teamId: 300001 },
+      found: { competition: "Metro | Winter League", division: "", team: "Riverside FC U8 Blues", games: 2, results: 0 }
+    });
+    expect(fetch.urls()[1]).toBe("https://api.squadi.com/livescores/round/matches?competitionId=777&teamIds=[300001]&ignoreStatuses=[1]");
+  });
+
   it("turns the link into the three ids the sync uses, and says what it found", async () => {
     const fetch = fakeFetch({ "/livescores/division": ok(DIVISIONS), "/livescores/round/matches": ok(DRAW) });
     expect(await lookupSquadiLink(LINK, fetch)).toEqual({
       provider: "squadi", link: LINK,
       squadi: { competitionId: "777", divisionId: "20001", teamId: 300001 },
-      found: { competition: "Metro | Winter League", division: "Under 8 Blues K1", team: "Riverside FC U8 Blues", games: 2 }
+      found: { competition: "Metro | Winter League", division: "Under 8 Blues K1", team: "Riverside FC U8 Blues", games: 2, results: 0 }
     });
     // Two requests, both to Squadi's own service, built from the checked pieces: the pasted address is never requested.
     expect(fetch.urls()).toEqual([
@@ -110,7 +136,7 @@ describe("lookupSquadiLink", () => {
     for (const draw of [failed(503), ok({ unexpected: true }), new Error("timeout")]) {
       const r = await lookupSquadiLink(LINK, fakeFetch({ "/livescores/division": ok(DIVISIONS), "/livescores/round/matches": draw }));
       expect(r.squadi).toEqual({ competitionId: "777", divisionId: "20001", teamId: 300001 });
-      expect(r.found).toEqual({ competition: "Metro | Winter League", division: "Under 8 Blues K1", team: "", games: null });
+      expect(r.found).toEqual({ competition: "Metro | Winter League", division: "Under 8 Blues K1", team: "", games: null, results: null });
     }
   });
 

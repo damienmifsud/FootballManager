@@ -81,7 +81,9 @@ function drawsFor(team, sent) {
     const records = sanitizeDrawRecords(d.records);
     if (!records) return { error: "bad request" };
     seen.add(d.comp);
-    draws.push({ comp: source.comp, records });
+    // A competition set up to take its scores from Dribl fills a game with
+    // none yet; any other's scores are entered by hand (applySync).
+    draws.push({ comp: source.comp, records, ...(source.scores ? { scoreFrom: "Dribl" } : {}) });
   }
   return { draws };
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   driblFixturesUrl, sanitizeDriblSource, driblReady, sanitizeDrawRecords,
-  normalizeDribl, nextDriblPage, fetchDribl,
+  normalizeDribl, nextDriblPage, fetchDribl, driblScore, driblDrawNames,
   DRIBL_API_HOST, NOT_A_DRIBL_REQUEST, MAX_RECORDS, WHICH_TEAM, NOT_READABLE, UNREACHABLE
 } from "@/lib/dribl";
 
@@ -113,6 +113,13 @@ describe("sanitizeDrawRecords", () => {
     expect(sanitizeDrawRecords([{ ...game(), availability: { p1: { status: "in" } }, us: 9, them: 0, id: "f1", comp: "cother", notes: "x" }])).toEqual([game()]);
   });
 
+  it("keeps a score sent with a game only as a whole number for each side; the sync decides whether it is taken", () => {
+    expect(sanitizeDrawRecords([{ ...game(), score: { us: 4, them: 1, extra: "x" } }])).toEqual([{ ...game(), score: { us: 4, them: 1 } }]);
+    for (const score of [{ us: 4 }, { us: -1, them: 0 }, { us: 1.5, them: 0 }, { us: "4", them: "1" }, { us: 1000, them: 0 }, [4, 1], "4-1", null]) {
+      expect(sanitizeDrawRecords([{ ...game(), score }])).toEqual([game()]);
+    }
+  });
+
   it("is not a list of records at all unless it is a list", () => {
     for (const bad of [null, undefined, {}, "x", 7, { 0: game(), length: 1 }]) expect(sanitizeDrawRecords(bad)).toBeNull();
     expect(sanitizeDrawRecords([])).toEqual([]);
@@ -206,7 +213,33 @@ const BRISBANE = { timeZone: "Australia/Brisbane" };
 const US = "Olympic FC U9 White";
 const OURS = { ...BRISBANE, team: US };
 
+describe("driblScore — a game's result as Dribl shows it", () => {
+  it("is a whole score for each side, ours first, home or away, from numbers or from digits", () => {
+    expect(driblScore({ home_score: 3, away_score: 1 }, true)).toEqual({ us: 3, them: 1 });
+    expect(driblScore({ home_score: 3, away_score: 1 }, false)).toEqual({ us: 1, them: 3 });
+    expect(driblScore({ home_score: "2", away_score: " 0 ", status: "complete" }, true)).toEqual({ us: 2, them: 0 });
+    expect(driblScore({ home_team_score: 4, away_team_score: 4 }, true)).toEqual({ us: 4, them: 4 });
+  });
+
+  it("is none for a game put off or still to come, or with a side's score missing or not a whole number", () => {
+    for (const a of [
+      { home_score: 0, away_score: 0, status: "pending" }, { home_score: 0, away_score: 0, status: "Postponed" },
+      { home_score: 1, away_score: 0, match_status: "cancelled" }, { home_score: 1, away_score: 0, status: "upcoming" },
+      { home_score: 1 }, { home_score: 1, away_score: null }, { home_score: 1.5, away_score: 0 }, { home_score: -1, away_score: 0 },
+      { home_score: "1-0", away_score: "" }, {}, null
+    ]) expect(driblScore(a, true)).toBeNull();
+  });
+});
+
 describe("normalizeDribl", () => {
+  it("gives a played game its score, ours first, and a game to come none", () => {
+    const [played] = normalizeDribl([item("KmqxVbvdRy", { status: "complete", home_score: 2, away_score: 5 })], OURS);
+    expect(played.score).toEqual({ us: 2, them: 5 });
+    expect(normalizeDribl([item("KmqxVbvdRy")], OURS)[0]).not.toHaveProperty("score");
+    const draw = driblDrawNames([item("Aa1", { status: "complete", home_score: 1, away_score: 0 }), item("Bb2", { date: "2027-03-20T23:30:00.000000Z" })], US);
+    expect([draw.ours, draw.ourGames, draw.ourResults]).toEqual([US, 2, 1]);
+  });
+
   it("turns a home game into the record a sync applies", () => {
     expect(normalizeDribl([item("KmqxVbvdRy")], OURS)).toEqual([{
       squadiId: "dribl:KmqxVbvdRy", round: 1, dateISO: "2027-03-14", time: "09:30",

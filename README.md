@@ -476,9 +476,11 @@ Rules and notes:
 
 `/api/sync` polls Squadi's public fixtures endpoint for Olympic FC U8 Kangaroos White
 (IDs baked in, overridable via env) and applies schedule changes to the dashboard:
-date/time moves, venue & field changes, and new fixtures. **It never touches scores,
-scorers, duties, availability, focus or videos**, and writes nothing if the response
-looks wrong. Because the live calendar feed rebuilds from the same data, a moved game
+date/time moves, venue & field changes, and new fixtures. **It never touches scorers,
+duties, availability, focus or videos, nor the season's scores** (entered by hand), and
+writes nothing if the response looks wrong. Another competition can be set to take its
+scores from its draw, which only ever fills a game that has no score yet (see "Scores
+from a competition's draw" below). Because the live calendar feed rebuilds from the same data, a moved game
 updates in every subscribed parent calendar automatically.
 
 Ways it runs:
@@ -540,6 +542,9 @@ read back under the box, and save.
   `teamId`). The site looks the competition up on Squadi, fills in the three IDs the sync
   uses, and reads back the team as Squadi names it, the division, the competition and how
   many games are published. If that is not your team, the link was for another one.
+  A tournament's page that shows every division (`divisionId=All`, as Winterfest's does)
+  works too: the division is kept as `All`, and the sync follows the team through every
+  division of the competition, its group and its finals.
 - **Dribl.** Open the competition's fixtures page on Dribl, choose your club and age
   group, and copy the address (`….dribl.com/fixtures?season=…&competition=…&league=…&club=…`).
   It goes in a competition row of its own. Your browser asks Dribl which match centre
@@ -585,8 +590,9 @@ and asks for the name when it cannot.)
 Dribl's API answers any browser but turns servers away, so `/api/sync` cannot pull this
 draw. A coach's browser fetches it instead and posts the games to `/api/dribl`, which
 checks every one and applies them exactly as a Squadi draw is applied: the same labels,
-change notices and emails, and the same rule that scores, replies and duties are never
-touched. It runs:
+change notices and emails, the same rule that replies and duties are never touched, and
+scores taken only as the competition's set-up says (see "Scores from a competition's
+draw" below). It runs:
 
 - **On a coach's visit:** opening the dashboard as a coach, at most once per 15 minutes.
   A parent's visit does not sync it (only a coach may post a draw).
@@ -656,8 +662,8 @@ visit, by the Sync button and by the cron, and a change email names Majestri as 
 the change came from. The page is read for its rounds, dates, times, fields and teams. A game whose
 teams are not drawn yet (a final shown as TBA) is left out until they are, a bye is not a
 game, and a semi-final or final, which has no round number, is named by the competition.
-A game keeps its place when it moves to another time or field, as on Squadi, and scores,
-replies and duties are never touched.
+A game keeps its place when it moves to another time or field, as on Squadi. Replies and
+duties are never touched, and scores are taken only as below.
 
 Majestri's page is a web page, not a published feed, so it may change shape without
 notice. If it is not in the form the app reads, nothing is changed and the Sync button
@@ -666,6 +672,31 @@ says so. The server only ever asks for the competition's page on the club's own
 
 For a team defined in `TEAMS`:
 `"competitions":[{"id":"fives","name":"Summer Fives","majestri":{"url":"https://<club>.majestri.com.au/comp-summary?compID=…","team":"…","teamId":"…"},"link":"https://<club>.majestri.com.au/comp-summary?compID=…"}]`.
+
+#### Scores from a competition's draw
+
+The season's scores are entered by hand: MiniRoos keeps no results at U8, and Squadi
+shows every one of those games as 0–0. Any other competition can take its scores from its
+draw instead. In the wizard, a competition whose draw is on Squadi, Dribl or Majestri has a
+**Scores from …** switch under its draw: on for a competition being added, off for one
+saved before the switch existed, and changed with Edit at any time. With it on:
+
+- A game's score comes in once its result is final: on Squadi, once the competition has
+  confirmed it (Squadi locks a confirmed result, and never locks the 0–0s of a draw that
+  keeps no results); on Dribl and Majestri, once the result is shown there.
+- It fills a game that has no score yet, on or after the game's date, and marks it as
+  taken from that site. It never changes a score already in the app, typed in or taken
+  before, and a score a coach clears stays cleared. A cancelled game takes none.
+- It is quiet: no change notice and no email, since a result is not a schedule change.
+
+A draw's link read-back says how many of your games came with their scores. Dribl's
+answer could not be seen from where this was written, so the reader looks for the usual
+names (`home_score` and `away_score`); if a finished Dribl competition reads back with
+none, Dribl names them differently and the reader needs telling.
+
+The season record and the stats count the season's games only, as before: a
+competition's results show on its own games and in Results. In `TEAMS`, the choice is
+`"scores":true` on the competition.
 
 #### A squad for a competition
 
