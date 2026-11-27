@@ -9,11 +9,11 @@
 // lucide icons in place of glyphs. Markup only: every request and payload is
 // what it was.
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCw, X, Check } from "lucide-react";
+import { Plus, RefreshCw, X, Check, ExternalLink } from "lucide-react";
 import { parsePlayerImport, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES, seasonLabel } from "@/lib/teamSetup";
 import { downscaleImage } from "@/lib/clientImage";
-import { MAX_COMPETITIONS } from "@/lib/competitions";
+import { MAX_COMPETITIONS, websiteLink } from "@/lib/competitions";
 import { AdminSwitch } from "@/components/AdminShell";
 
 const AGE_GROUPS = ["U6", "U7", "U8", "U9", "U10", "U11", "U12+"];
@@ -36,16 +36,16 @@ const thisYear = new Date().getFullYear();
 const SEASON_YEARS = [thisYear - 1, thisYear, thisYear + 1, thisYear + 2];
 // The season's Squadi rows: one feed, or two for one squad that plays as two
 // teams each round (each row then needs a label, which names that side on
-// every game).
-const squadiRow = (s = {}) => ({ label: s.label || "", competitionId: s.competitionId || "", divisionId: s.divisionId || "", teamId: s.teamId || "" });
+// every game). Each row can carry its draw's website link.
+const squadiRow = (s = {}) => ({ label: s.label || "", competitionId: s.competitionId || "", divisionId: s.divisionId || "", teamId: s.teamId || "", link: s.link || "" });
 const seasonFeedsForEdit = (squadi) => (Array.isArray(squadi) && squadi.length ? squadi.slice(0, 2).map(squadiRow) : [squadiRow(squadi || {})]);
-const rowFilled = (r) => !!(String(r.competitionId).trim() || String(r.divisionId).trim() || String(r.teamId).trim());
+const rowFilled = (r) => !!(String(r.competitionId).trim() || String(r.divisionId).trim() || String(r.teamId).trim() || String(r.link).trim());
 const SIDE_LABEL_MAX = 12;
 const BLANK = {
   name: "", ageGroup: "U8", password: "", coachEmails: "",
   division: "", whatsapp: "", season: { ...BLANK_SEASON },
-  squadi: [{ label: "", competitionId: "", divisionId: "", teamId: "" }], // the season: one row, or two for a two-team squad
-  competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId }, dribl: { url, team } }
+  squadi: [{ label: "", competitionId: "", divisionId: "", teamId: "", link: "" }], // the season: one row, or two for a two-team squad
+  competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId }, dribl: { url, team }, link }
   importText: "",
   training: [], // { weekday, time, endTime, location }
   features: { ...DEFAULT_FEATURES },
@@ -61,6 +61,24 @@ const hasSquadiIds = (s) => !!(s.competitionId || s.divisionId || s.teamId);
 // A competition whose draw is on Dribl instead: its fixtures request and our
 // team's name there, which says which side of each game is ours.
 const driblForEdit = (d) => ({ url: d?.url || "", team: d?.team || "" });
+
+// A draw's website link: the page it is on, kept beside its ids. It takes a
+// line of its own under the ids, and once what is typed is a web address a
+// link at the end of that line opens it in a new tab.
+function LinkField({ who, value, onChange }) {
+  const href = websiteLink(value);
+  return (
+    <div style={{ display: "flex", gap: 10, alignItems: "center", flex: "1 1 100%", minWidth: 0 }}>
+      <input className="adm-inp" style={{ flex: 1, minWidth: 0 }} aria-label={`${who} website link`} inputMode="url" autoComplete="off" spellCheck={false}
+        placeholder="Website link for this draw (https://…)" value={value} onChange={onChange} />
+      {href && (
+        <a className="adm-link" style={{ flexShrink: 0 }} href={href} target="_blank" rel="noopener noreferrer" aria-label={`Open the ${who} website link in a new tab`}>
+          Open<ExternalLink size={13} aria-hidden="true" />
+        </a>
+      )}
+    </div>
+  );
+}
 
 // Staff rows: an email on a row gives that person a coach-level login, with the
 // row's title shown in the app. On edit we keep EVERY existing row (including
@@ -124,7 +142,7 @@ export default function TeamWizard({ onTeamsChanged }) {
       coachEmails: (t.coachEmails || []).join(", "),
       division: t.division || "", whatsapp: t.whatsapp || "", season: seasonForEdit(t.season),
       squadi: seasonFeedsForEdit(t.squadi),
-      competitions: (t.competitions || []).map((c) => ({ id: c.id, name: c.name || "", squadi: squadiForEdit(c.squadi), dribl: driblForEdit(c.dribl) })),
+      competitions: (t.competitions || []).map((c) => ({ id: c.id, name: c.name || "", squadi: squadiForEdit(c.squadi), dribl: driblForEdit(c.dribl), link: c.link || "" })),
       importText: "", training: [],
       features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
       parentsSee: { ...DEFAULT_PARENTS_SEE, ...(t.parentsSee || {}) },
@@ -204,21 +222,24 @@ export default function TeamWizard({ onTeamsChanged }) {
       if (bad) { setErr(bad); return; }
     }
     setBusy(true); setErr("");
+    const linkOf = (r) => (r.link.trim() ? { link: r.link.trim() } : {});
     const idsOf = ({ competitionId, divisionId, teamId }) => ({ competitionId, divisionId, teamId });
-    const squadi = rows.length === 2 ? rows.map((r) => ({ label: r.label.trim(), ...idsOf(r) })) : rows.length === 1 ? idsOf(rows[0]) : null;
+    const squadi = rows.length === 2 ? rows.map((r) => ({ label: r.label.trim(), ...idsOf(r), ...linkOf(r) })) : rows.length === 1 ? { ...idsOf(rows[0]), ...linkOf(rows[0]) } : null;
     // A row nobody filled in is not sent. A named row with no ids is: the
     // competition is kept and synced once its ids are added.
     const competitions = form.competitions
-      .filter((c) => c.name.trim() || hasSquadiIds(c.squadi) || c.dribl.url.trim())
+      .filter((c) => c.name.trim() || hasSquadiIds(c.squadi) || c.dribl.url.trim() || c.link.trim())
       .map((c) => ({
         ...(c.id ? { id: c.id } : {}), name: c.name.trim(),
         ...(hasSquadiIds(c.squadi) ? { squadi: c.squadi } : {}),
-        ...(c.dribl.url.trim() ? { dribl: { url: c.dribl.url.trim(), team: c.dribl.team.trim() } } : {})
+        ...(c.dribl.url.trim() ? { dribl: { url: c.dribl.url.trim(), team: c.dribl.team.trim() } } : {}),
+        ...linkOf(c)
       }));
     const season = form.season.startISO || form.season.endISO ? { startISO: form.season.startISO, endISO: form.season.endISO } : null;
     const payload = {
       name: form.name, ageGroup: form.ageGroup, password: form.password.trim(),
-      coachEmails: form.coachEmails, ...(squadi ? { squadi } : {}),
+      // On an edit the season is always sent, so emptying its rows removes it.
+      coachEmails: form.coachEmails, ...(squadi ? { squadi } : editSlug ? { squadi: {} } : {}),
       // On an edit the list is always sent, so removing a row removes it.
       ...(editSlug || competitions.length ? { competitions } : {}),
       division: form.division, whatsapp: form.whatsapp, season, features: form.features, parentsSee: form.parentsSee,
@@ -397,6 +418,7 @@ export default function TeamWizard({ onTeamsChanged }) {
                   <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} competition ID`} placeholder="competitionId" value={row.competitionId} onChange={set("competitionId")} />
                   <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} division ID`} placeholder="divisionId" value={row.divisionId} onChange={set("divisionId")} />
                   <input className="adm-inp" style={{ flex: "1 1 120px" }} aria-label={`${who} team ID`} placeholder="teamId" value={row.teamId} onChange={set("teamId")} />
+                  <LinkField who={who} value={row.link} onChange={set("link")} />
                   {i === 1 && (
                     <button type="button" className="adm-link" onClick={() => setForm((f) => ({ ...f, squadi: f.squadi.slice(0, 1) }))}>Remove the second team</button>
                   )}
@@ -435,12 +457,15 @@ export default function TeamWizard({ onTeamsChanged }) {
                         value={c.dribl.team} onChange={(e) => set({ dribl: { ...c.dribl, team: e.target.value } })} />
                     )}
                   </div>
+                  <div className="adm-line">
+                    <LinkField who={who} value={c.link} onChange={(e) => set({ link: e.target.value })} />
+                  </div>
                 </div>
               );
             })}
             {form.competitions.length < MAX_COMPETITIONS && (
               <button type="button" className="adm-btn soft sm" style={{ marginTop: 8 }}
-                onClick={() => setForm((f) => ({ ...f, competitions: [...f.competitions, { name: "", squadi: squadiForEdit(), dribl: driblForEdit() }] }))}>
+                onClick={() => setForm((f) => ({ ...f, competitions: [...f.competitions, { name: "", squadi: squadiForEdit(), dribl: driblForEdit(), link: "" }] }))}>
                 <Plus size={14} aria-hidden="true" />Add a competition
               </button>
             )}
@@ -454,6 +479,10 @@ export default function TeamWizard({ onTeamsChanged }) {
               choose Network and copy the address of the request that starts with https://mc-api.dribl.com/api/fixtures. Add your
               team's name as Dribl shows it, so the app knows which side of each game is yours. Its games are then kept in step
               whenever a coach opens the team.
+            </div>
+            <div className="adm-note">
+              The website link is a copy of the page each draw is on, kept here with the draw so it is easy to find again.
+              Nothing is synced from it.
             </div>
           </Step>
 
