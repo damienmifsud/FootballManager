@@ -9,13 +9,14 @@ import { READ_ONLY_MESSAGE, PICK_TEAM_MESSAGE } from "@/lib/viewer";
 // exactly as a Squadi draw is applied. The route sits on the REAL lib/viewer,
 // lib/hats, lib/competitions, lib/dribl and lib/applyDraws, over a mocked
 // store; applySync is the real one too, so what is saved is what a sync saves.
-const { auth, getData, setData, getMeta, setMeta, teamBySlug, teamFromCookieHeader, getTeams, membershipsForEmail, viewingAs } = vi.hoisted(() => ({
+const { auth, getData, setData, getMeta, setMeta, takeLock, dropLock, teamBySlug, teamFromCookieHeader, getTeams, membershipsForEmail, viewingAs } = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(), getMeta: vi.fn(), setMeta: vi.fn(),
+  takeLock: vi.fn(async () => true), dropLock: vi.fn(async () => {}),
   teamBySlug: vi.fn(), teamFromCookieHeader: vi.fn(), getTeams: vi.fn(),
   membershipsForEmail: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
-vi.mock("@/lib/store", () => ({ getData, setData, getMeta, setMeta }));
+vi.mock("@/lib/store", () => ({ getData, setData, getMeta, setMeta, takeLock, dropLock }));
 vi.mock("@/lib/teams", () => ({ teamBySlug, teamFromCookieHeader, getTeams }));
 vi.mock("@/lib/directory", () => ({ membershipsForEmail, viewingAs }));
 
@@ -405,6 +406,38 @@ describe("POST /api/dribl — applying a draw", () => {
     ({ POST } = await loadRoute({ authOn: true }));
     await post(POST, draws([PAST]));
     expect(premier(saved()).map((f) => [f.us, f.them, f.scoreFrom])).toEqual([[null, null, undefined]]);
+  });
+
+  it("a game two of the team's Dribl competitions both have is applied once, with the first", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await post(POST, { draws: [{ comp: "cprem", records: [game(1), game(2)] }, { comp: "ccup", records: [game(2), game(3)] }] });
+    expect(res.status).toBe(200);
+    const doc = saved();
+    expect(doc.fixtures.filter((f) => f.squadiId === "dribl:g2").map((f) => f.comp)).toEqual(["cprem"]);
+    expect(doc.fixtures.filter((f) => f.comp === "ccup").map((f) => f.squadiId)).toEqual(["dribl:g3"]);
+  });
+
+  it("while another sync holds the team's lock, nothing is read or written, and it is said so", async () => {
+    coachSession();
+    takeLock.mockResolvedValueOnce(false);
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await post(POST, draws());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, busy: true, created: 0, changes: [] });
+    expect(getData).not.toHaveBeenCalled();
+    expect(setData).not.toHaveBeenCalled();
+    expect(dropLock).not.toHaveBeenCalled();
+  });
+
+  it("frees the team's lock once a draw is applied, and when applying it fails", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    await post(POST, draws());
+    expect([takeLock.mock.calls[0], dropLock.mock.calls[0]]).toEqual([["a", "sync"], ["a", "sync"]]);
+    setData.mockRejectedValueOnce(new Error("store down"));
+    await post(POST, draws()).catch(() => {});
+    expect(dropLock).toHaveBeenCalledTimes(2);
   });
 
   it("applies several competitions' draws in one save, each to its own competition", async () => {

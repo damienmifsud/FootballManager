@@ -6,13 +6,18 @@ import path from "path";
 // can assert exactly what gets read/written — including the one-time migration
 // from the pre-multi-team keys, which is the path that carries an existing
 // team's data over the first time TEAMS is configured.
-const { redisStore, fsFiles } = vi.hoisted(() => ({ redisStore: new Map(), fsFiles: new Map() }));
+const { redisStore, fsFiles, fsTimes, redisSets } = vi.hoisted(() => ({ redisStore: new Map(), fsFiles: new Map(), fsTimes: new Map(), redisSets: [] }));
 
 vi.mock("@upstash/redis", () => ({
   // Upstash auto-(de)serialises JSON, so we round-trip objects as-is.
   Redis: class {
     async get(k) { return redisStore.has(k) ? redisStore.get(k) : null; }
-    async set(k, v) { redisStore.set(k, v); }
+    async set(k, v, opts) {
+      if (opts) redisSets.push({ k, opts });
+      if (opts?.nx && redisStore.has(k)) return null;
+      redisStore.set(k, v);
+      return "OK";
+    }
     async del(...keys) { keys.forEach((k) => redisStore.delete(k)); }
   }
 }));
@@ -23,7 +28,16 @@ vi.mock("fs", () => ({
       if (!fsFiles.has(p)) { const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; }
       return fsFiles.get(p);
     },
-    writeFile: async (p, v) => { fsFiles.set(p, v); },
+    writeFile: async (p, v) => { fsFiles.set(p, v); fsTimes.set(p, Date.now()); },
+    stat: async (p) => {
+      if (!fsFiles.has(p)) { const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; }
+      return { mtimeMs: fsTimes.get(p) ?? Date.now() };
+    },
+    open: async (p, flags) => {
+      if (flags === "wx" && fsFiles.has(p)) { const e = new Error("EEXIST"); e.code = "EEXIST"; throw e; }
+      fsFiles.set(p, ""); fsTimes.set(p, Date.now());
+      return { close: async () => {} };
+    },
     unlink: async (p) => {
       if (!fsFiles.has(p)) { const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; }
       fsFiles.delete(p);
@@ -53,6 +67,8 @@ beforeEach(() => {
   for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; }
   redisStore.clear();
   fsFiles.clear();
+  fsTimes.clear();
+  redisSets.length = 0;
 });
 afterEach(() => {
   for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
@@ -164,6 +180,32 @@ describe("store — Redis backend", () => {
     await setData(undefined, { d: 1 });
     expect(redisStore.get("team:default:data")).toEqual({ d: 1 });
     expect(await getData()).toEqual({ d: 1 });
+  });
+});
+
+describe("store — a team's sync lock", () => {
+  it("redis: one holder at a time, taken with set-if-absent and an expiry, and free again once dropped", async () => {
+    process.env.UPSTASH_REDIS_REST_URL = "https://x.test"; process.env.UPSTASH_REDIS_REST_TOKEN = "t";
+    const { takeLock, dropLock } = await loadStore();
+    expect(await takeLock("u9", "sync")).toBe(true);
+    expect(await takeLock("u9", "sync")).toBe(false);
+    expect(await takeLock("u10", "sync")).toBe(true); // another team's is its own
+    expect(redisSets[0]).toEqual({ k: "team:u9:lock:sync", opts: { nx: true, ex: 60 } });
+    await dropLock("u9", "sync");
+    expect(await takeLock("u9", "sync")).toBe(true);
+  });
+
+  it("files: one holder at a time; a lock left behind longer than its expiry is taken over", async () => {
+    const { takeLock, dropLock } = await loadStore();
+    const lock = path.join(process.cwd(), ".data", "u9.lock-sync.json");
+    expect(await takeLock("u9", "sync")).toBe(true);
+    expect(fsFiles.has(lock)).toBe(true);
+    expect(await takeLock("u9", "sync")).toBe(false);
+    fsTimes.set(lock, Date.now() - 61_000); // left by a run that never finished
+    expect(await takeLock("u9", "sync")).toBe(true);
+    await dropLock("u9", "sync");
+    expect(fsFiles.has(lock)).toBe(false);
+    await dropLock("u9", "sync"); // dropping a lock that is not there is fine
   });
 });
 

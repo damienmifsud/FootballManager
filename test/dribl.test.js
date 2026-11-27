@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   driblFixturesUrl, sanitizeDriblSource, driblReady, sanitizeDrawRecords,
-  normalizeDribl, nextDriblPage, fetchDribl, driblScore, driblDrawNames,
+  normalizeDribl, nextDriblPage, fetchDribl, driblScore, driblDrawNames, driblStatus, driblShape, fetchDriblItems, politeness, retryAfterMs, DRIBL_STATUSES,
   DRIBL_API_HOST, NOT_A_DRIBL_REQUEST, MAX_RECORDS, WHICH_TEAM, NOT_READABLE, UNREACHABLE
 } from "@/lib/dribl";
 
@@ -115,6 +115,11 @@ describe("sanitizeDrawRecords", () => {
 
   it("keeps a score sent with a game only as a whole number for each side; the sync decides whether it is taken", () => {
     expect(sanitizeDrawRecords([{ ...game(), score: { us: 4, them: 1, extra: "x" } }])).toEqual([{ ...game(), score: { us: 4, them: 1 } }]);
+    // A shootout is kept with a level score; with any other score, or level penalties, it is not.
+    expect(sanitizeDrawRecords([{ ...game(), score: { us: 2, them: 2, pens: { us: 5, them: 4 } } }])).toEqual([{ ...game(), score: { us: 2, them: 2, pens: { us: 5, them: 4 } } }]);
+    for (const score of [{ us: 3, them: 2, pens: { us: 5, them: 4 } }, { us: 2, them: 2, pens: { us: 4, them: 4 } }, { us: 2, them: 2, pens: { us: "5", them: 4 } }]) {
+      expect(sanitizeDrawRecords([{ ...game(), score }])).toEqual([{ ...game(), score: { us: score.us, them: score.them } }]);
+    }
     for (const score of [{ us: 4 }, { us: -1, them: 0 }, { us: 1.5, them: 0 }, { us: "4", them: "1" }, { us: 1000, them: 0 }, [4, 1], "4-1", null]) {
       expect(sanitizeDrawRecords([{ ...game(), score }])).toEqual([game()]);
     }
@@ -213,12 +218,111 @@ const BRISBANE = { timeZone: "Australia/Brisbane" };
 const US = "Olympic FC U9 White";
 const OURS = { ...BRISBANE, team: US };
 
+// A page Dribl could not answer just then is asked for again after a wait;
+// here the wait is instant, and remembered.
+let waits;
+const realWait = politeness.wait;
+beforeEach(() => { waits = []; politeness.wait = async (ms) => { waits.push(ms); }; });
+afterEach(() => { politeness.wait = realWait; });
+
+describe("driblStatus — a game's state, in Dribl's words or its flags", () => {
+  it("reads each state from the usual words, in any case, from the first status-like field", () => {
+    const cases = [
+      ["scheduled", ["pending", "Scheduled", "upcoming", "fixture", "not_started", "TBA"]],
+      ["live", ["live", "in_progress", "Half Time", "playing"]],
+      ["completed", ["complete", "Completed", "final", "full_time", "FT", "result", "Results", "played", "confirmed"]],
+      ["postponed", ["postponed", "Postponed - wet weather", "deferred"]],
+      ["cancelled", ["cancelled", "canceled", "Cancelled by league"]],
+      ["abandoned", ["abandoned", "Match abandoned"]],
+      ["forfeited", ["forfeit", "Forfeited", "walkover", "w/o"]]
+    ];
+    for (const [state, words] of cases) for (const w of words) expect([w, driblStatus({ status: w })]).toEqual([w, state]);
+    expect(driblStatus({ match_status: "complete" })).toBe("completed");
+    expect(driblStatus({ status: "", state: "postponed" })).toBe("postponed");
+    expect(DRIBL_STATUSES).toEqual(["scheduled", "live", "completed", "postponed", "cancelled", "abandoned", "forfeited"]);
+  });
+
+  it("a flag says more than a word; a word it does not know, or none, is no state", () => {
+    expect(driblStatus({ status: "complete", forfeit: true })).toBe("forfeited");
+    expect(driblStatus({ status: "pending", postponed: 1 })).toBe("postponed");
+    for (const a of [{ status: "something else" }, { status: "To be confirmed" }, { status: "Awaiting result" }, { status: 3 }, {}, null, "complete"]) expect(driblStatus(a)).toBe("");
+  });
+});
+
 describe("driblScore — a game's result as Dribl shows it", () => {
-  it("is a whole score for each side, ours first, home or away, from numbers or from digits", () => {
-    expect(driblScore({ home_score: 3, away_score: 1 }, true)).toEqual({ us: 3, them: 1 });
-    expect(driblScore({ home_score: 3, away_score: 1 }, false)).toEqual({ us: 1, them: 3 });
+  it("is taken only from a completed or forfeited game: a game not played is never a 0-0, a played 0-0 is a result", () => {
+    expect(driblScore({ status: "pending", home_score: 0, away_score: 0 }, true)).toBeNull();
+    expect(driblScore({ home_score: 0, away_score: 0 }, true)).toBeNull(); // no state: not taken
+    expect(driblScore({ status: "complete", home_score: 0, away_score: 0 }, true)).toEqual({ us: 0, them: 0 });
+    expect(driblScore({ status: "forfeit", home_score: 3, away_score: 0 }, false)).toEqual({ us: 0, them: 3 });
+    for (const status of ["live", "postponed", "cancelled", "abandoned"]) expect(driblScore({ status, home_score: 1, away_score: 0 }, true)).toBeNull();
+  });
+
+  it("brings a penalty shootout with a level score, ours first; none when the score is not level or the penalties are", () => {
+    expect(driblScore({ status: "complete", home_score: 1, away_score: 1, home_penalty_score: 4, away_penalty_score: 3 }, false)).toEqual({ us: 1, them: 1, pens: { us: 3, them: 4 } });
+    expect(driblScore({ status: "complete", home_score: 2, away_score: 2, home_pens: "5", away_pens: "6" }, true)).toEqual({ us: 2, them: 2, pens: { us: 5, them: 6 } });
+    expect(driblScore({ status: "complete", home_score: 2, away_score: 1, home_penalty_score: 4, away_penalty_score: 3 }, true)).toEqual({ us: 2, them: 1 });
+    expect(driblScore({ status: "complete", home_score: 1, away_score: 1, home_penalty_score: 0, away_penalty_score: 0 }, true)).toEqual({ us: 1, them: 1 });
+  });
+});
+
+describe("driblShape — what a draw's games are made of, names only", () => {
+  it("lists a game's fields, how many games used each status word, and the fields that hold a score", () => {
+    const games = [
+      { a: { date: "x", home_team_name: "Riverside FC U9", away_team_name: "Lions FC", status: "complete", home_score: 2, away_score: "1" } },
+      { a: { date: "y", home_team_name: "Lions FC", away_team_name: "Riverside FC U9", status: "complete", home_score: 0, away_score: 0 } },
+      { a: { date: "z", home_team_name: "Riverside FC U9", away_team_name: "Hilltop", status: "pending", home_score: null, away_score: null } }
+    ];
+    const shape = driblShape(games);
+    expect(shape).toEqual({ fields: ["date", "home_team_name", "away_team_name", "status", "home_score", "away_score"], statuses: { complete: 2, pending: 1 }, scoreFields: ["home_score", "away_score"] });
+    expect(JSON.stringify(shape)).not.toMatch(/Riverside|Lions|Hilltop/); // names of fields only, never of teams
+    expect(driblShape([{ a: { date: "x" } }]).statuses).toEqual({ "(none)": 1 });
+  });
+});
+
+describe("fetchDriblItems — asking politely", () => {
+  const REQ = "https://mc-api.dribl.com/api/fixtures?date_range=all&season=S1&competition=C1&club=CL1&tenant=T1&timezone=Australia%2FBrisbane";
+  const page = (data, meta = {}) => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => ({ data, meta }) });
+  const busy = (status, retryAfter = null) => ({ ok: false, status, headers: { get: (h) => (h.toLowerCase() === "retry-after" ? retryAfter : null) }, json: async () => ({}) });
+  const answers = (...list) => { const queue = [...list]; return vi.fn(async () => { const a = queue.shift(); if (a instanceof Error) throw a; return a; }); };
+
+  it("asks again after the wait Dribl asks for, or 1 and then 2 seconds, and goes on to the next page", async () => {
+    const f = answers(busy(429, "3"), page([{ hash_id: "a" }], { next_cursor: "p2" }), busy(503), busy(502), page([{ hash_id: "b" }]));
+    expect((await fetchDriblItems({ url: REQ }, f)).map((i) => i.hash_id)).toEqual(["a", "b"]);
+    expect(waits).toEqual([3000, 1000, 2000]);
+    expect(f).toHaveBeenCalledTimes(5);
+  });
+
+  it("gives up after three tries, saying what Dribl last said; a refusal (403) is not asked again", async () => {
+    await expect(fetchDriblItems({ url: REQ }, answers(busy(503), busy(503), busy(503)))).rejects.toThrow("Dribl responded 503");
+    expect(waits).toEqual([1000, 2000]);
+    waits.length = 0;
+    const refused = answers(busy(403));
+    await expect(fetchDriblItems({ url: REQ }, refused)).rejects.toThrow("Dribl responded 403");
+    expect([refused.mock.calls.length, waits]).toEqual([1, []]);
+  });
+
+  it("a request that could not be made is tried again, and is unreachable only after the third", async () => {
+    expect(await fetchDriblItems({ url: REQ }, answers(new TypeError("Failed to fetch"), page([{ hash_id: "a" }])))).toHaveLength(1);
+    await expect(fetchDriblItems({ url: REQ }, answers(new TypeError("x"), new TypeError("x"), new TypeError("x")))).rejects.toThrow(UNREACHABLE);
+  });
+
+  it("reads Retry-After as seconds or as a date, and never waits more than 20 seconds", () => {
+    const now = Date.UTC(2027, 2, 1, 0, 0, 0);
+    expect(retryAfterMs("5", now)).toBe(5000);
+    expect(retryAfterMs("120", now)).toBe(20000);
+    expect(retryAfterMs(new Date(now + 7000).toUTCString(), now)).toBe(7000);
+    expect(retryAfterMs(new Date(now - 7000).toUTCString(), now)).toBe(0);
+    for (const v of [null, undefined, "", "soon"]) expect(retryAfterMs(v, now)).toBeNull();
+  });
+});
+
+describe("driblScore — the score itself", () => {
+  it("is a whole score for each side, ours first, home or away, from numbers or from digits, for a finished game", () => {
+    expect(driblScore({ home_score: 3, away_score: 1, status: "complete" }, true)).toEqual({ us: 3, them: 1 });
+    expect(driblScore({ home_score: 3, away_score: 1, status: "complete" }, false)).toEqual({ us: 1, them: 3 });
     expect(driblScore({ home_score: "2", away_score: " 0 ", status: "complete" }, true)).toEqual({ us: 2, them: 0 });
-    expect(driblScore({ home_team_score: 4, away_team_score: 4 }, true)).toEqual({ us: 4, them: 4 });
+    expect(driblScore({ home_team_score: 4, away_team_score: 4, match_status: "Final" }, true)).toEqual({ us: 4, them: 4 });
   });
 
   it("is none for a game put off or still to come, or with a side's score missing or not a whole number", () => {

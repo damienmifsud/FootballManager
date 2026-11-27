@@ -12,11 +12,12 @@ import { COMP as MAJESTRI_COMP, PAGE as MAJESTRI_PAGE } from "./helpers/majestri
 // module — only its dependencies are mocked.
 const m = vi.hoisted(() => ({
   auth: vi.fn(), getData: vi.fn(), setData: vi.fn(), getMeta: vi.fn(), setMeta: vi.fn(),
+  takeLock: vi.fn(async () => true), dropLock: vi.fn(async () => {}),
   fetchSquadi: vi.fn(), applySync: vi.fn(), getTeams: vi.fn(), teamBySlug: vi.fn(),
   teamFromCookieHeader: vi.fn(), membershipsForEmail: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth: m.auth }));
-vi.mock("@/lib/store", () => ({ getData: m.getData, setData: m.setData, getMeta: m.getMeta, setMeta: m.setMeta }));
+vi.mock("@/lib/store", () => ({ getData: m.getData, setData: m.setData, getMeta: m.getMeta, setMeta: m.setMeta, takeLock: m.takeLock, dropLock: m.dropLock }));
 vi.mock("@/lib/squadiSync", () => ({ fetchSquadi: m.fetchSquadi, applySync: m.applySync }));
 // The route reads a team's draws (its season's one or two feeds, and its other
 // competitions) through lib/competitions.js, which is the real, pure module.
@@ -572,6 +573,15 @@ describe("a competition on Majestri", () => {
     ]);
     expect(body.results[0]).toMatchObject({ team: "a", checked: ["Squadi", "Majestri"], created: 6 });
     expect(m.setData).toHaveBeenCalledTimes(1);
+  });
+
+  it("while another sync holds the team's lock, the team is read and written by neither, and its result says busy", async () => {
+    m.getTeams.mockReturnValue([{ slug: "a", name: "Team A", squadi: SEASON, competitions: [FIVES] }]);
+    m.takeLock.mockResolvedValueOnce(false);
+    const { GET } = await loadRoute({ authOn: true });
+    const body = await (await cron(GET)).json();
+    expect(body.results[0]).toMatchObject({ team: "a", busy: true, created: 0, changes: [] });
+    expect([m.getData.mock.calls.length, m.setData.mock.calls.length, m.applySync.mock.calls.length]).toEqual([1, 0, 0]); // only the check that the team has a document
   });
 
   it("gives leave to take scores only to a competition set up so, on Squadi or Majestri: never to the season, nor to one whose scores are entered by hand", async () => {

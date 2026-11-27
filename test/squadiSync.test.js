@@ -575,6 +575,18 @@ describe("applySync — scores, taken only from a draw that may give them", () =
     }
   });
 
+  it("brings a penalty shootout with a level score, and none with a score that is not level or penalties that are", () => {
+    const shootout = applySync({ fixtures: [stored()] }, [game({ score: { us: 1, them: 1, pens: { us: 4, them: 3 } } })], MAY);
+    expect(shootout.data.fixtures[0]).toMatchObject({ us: 1, them: 1, pens: { us: 4, them: 3 }, scoreFrom: "Majestri" });
+    for (const score of [{ us: 2, them: 1, pens: { us: 4, them: 3 } }, { us: 1, them: 1, pens: { us: 3, them: 3 } }, { us: 1, them: 1, pens: { us: -1, them: 3 } }]) {
+      const r = applySync({ fixtures: [stored()] }, [game({ score })], MAY);
+      expect(r.data.fixtures[0]).toMatchObject({ us: score.us, them: score.them });
+      expect(r.data.fixtures[0]).not.toHaveProperty("pens");
+    }
+    const fresh = applySync({ fixtures: [] }, [game({ score: { us: 0, them: 0, pens: { us: 5, them: 4 } } })], MAY);
+    expect(fresh.data.fixtures[0]).toMatchObject({ us: 0, them: 0, pens: { us: 5, them: 4 } });
+  });
+
   it("does not change the document it was given", () => {
     const doc = { fixtures: [stored()] };
     const copy = JSON.parse(JSON.stringify(doc));
@@ -597,6 +609,13 @@ describe("normalize — a game's score, only once the competition has confirmed 
     expect([away.homeAway, away.score]).toEqual(["A", { us: 1, them: 3 }]);
     const nil = normalize(squadiResponse([match({ team1Score: 0, team2Score: 0, resultStatus: "FINAL", isResultsLocked: true })]), cfg)[0];
     expect(nil.score).toEqual({ us: 0, them: 0 });
+  });
+
+  it("gives a confirmed shootout with a level score, ours first", () => {
+    const pens = (over) => normalize(squadiResponse([match({ team1Score: 2, team2Score: 2, resultStatus: "FINAL", isResultsLocked: true, ...over })]), cfg)[0].score;
+    expect(pens({ team1PenaltyScore: 4, team2PenaltyScore: 5 })).toEqual({ us: 2, them: 2, pens: { us: 4, them: 5 } });
+    expect(pens({ team1PenaltyScore: 0, team2PenaltyScore: 0 })).toEqual({ us: 2, them: 2 });
+    expect(normalize(squadiResponse([match({ team1Score: 3, team2Score: 2, team1PenaltyScore: 4, team2PenaltyScore: 5, resultStatus: "FINAL", isResultsLocked: true })]), cfg)[0].score).toEqual({ us: 3, them: 2 });
   });
 
   it("gives none for a result not final, not locked, or not whole", () => {

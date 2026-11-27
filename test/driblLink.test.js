@@ -1,7 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { matchCentreLookups, matchCentreId, driblRequestFromLink, readDriblDraw, readDriblLink, NOT_A_DRIBL_LINK, NO_MATCH_CENTRE } from "@/lib/driblLink";
 import { DRIBL_NEEDS_COMPETITION } from "@/lib/feedLinks";
-import { UNREACHABLE, NOT_READABLE, driblFixturesUrl } from "@/lib/dribl";
+import { UNREACHABLE, NOT_READABLE, driblFixturesUrl, politeness } from "@/lib/dribl";
+
+// Dribl asked again after a wait (lib/dribl.js): instant here.
+const realWait = politeness.wait;
+beforeEach(() => { politeness.wait = async () => {}; });
+afterEach(() => { politeness.wait = realWait; });
 
 // lib/driblLink: a Dribl fixtures page link, as copied from the address bar,
 // turned into the fixtures request the sync fetches. The one thing the link
@@ -176,7 +181,7 @@ describe("readDriblDraw — what a request's draw says before it is saved", () =
   it("says how many games, for which team, and what the draw calls itself", async () => {
     const d = fixtures(ONE_TEAM);
     expect(await readDriblDraw({ url: REQUEST }, d.fetchImpl)).toEqual({
-      draw: { games: 3, ourGames: 3, ourResults: 0, teams: [US, "Hilltop United U8", "Lakeside Rovers U8", "Valley Wanderers U8"], ours: US, problem: "", competition: "Winter League", league: "Under 8" },
+      draw: { games: 3, ourGames: 3, ourPast: 0, ourFinished: 0, ourResults: 0, shape: expect.any(Object), teams: [US, "Hilltop United U8", "Lakeside Rovers U8", "Valley Wanderers U8"], ours: US, problem: "", competition: "Winter League", league: "Under 8" },
       problem: ""
     });
     expect(d.urls()).toEqual([REQUEST]);
@@ -206,7 +211,7 @@ describe("readDriblDraw — what a request's draw says before it is saved", () =
 
   it("reads a draw with nothing in it yet as no games and no problem", async () => {
     expect(await readDriblDraw({ url: REQUEST }, fixtures([]).fetchImpl)).toEqual({
-      draw: { games: 0, ourGames: 0, ourResults: 0, teams: [], ours: "", problem: "", competition: "", league: "" }, problem: ""
+      draw: { games: 0, ourGames: 0, ourPast: 0, ourFinished: 0, ourResults: 0, shape: { fields: [], statuses: {}, scoreFields: [] }, teams: [], ours: "", problem: "", competition: "", league: "" }, problem: ""
     });
   });
 
@@ -233,7 +238,7 @@ describe("readDriblLink — a pasted link, all the way", () => {
     const got = await readDriblLink(LINK, { fetchImpl: d.fetchImpl });
     expect(got).toEqual({
       link: LINK, url: REQUEST, problem: "",
-      draw: { games: 3, ourGames: 3, ourResults: 0, teams: [US, "Hilltop United U8", "Lakeside Rovers U8", "Valley Wanderers U8"], ours: US, problem: "", competition: "Winter League", league: "Under 8" }
+      draw: { games: 3, ourGames: 3, ourPast: 0, ourFinished: 0, ourResults: 0, shape: expect.any(Object), teams: [US, "Hilltop United U8", "Lakeside Rovers U8", "Valley Wanderers U8"], ours: US, problem: "", competition: "Winter League", league: "Under 8" }
     });
     expect(d.urls()).toEqual([BY_BOTH, REQUEST]);
   });
