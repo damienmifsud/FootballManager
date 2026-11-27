@@ -579,9 +579,10 @@ change notices and emails, and the same rule that scores, replies and duties are
 touched. It runs:
 
 - **On a coach's visit:** opening the dashboard as a coach, at most once per 15 minutes.
-  A parent's visit does not sync it (only a coach may post a draw), and neither can the
-  cron, so a Dribl draw is as fresh as the last time a coach opened the team.
+  A parent's visit does not sync it (only a coach may post a draw).
 - **Manual:** the same **Sync fixtures now** button on `/league`.
+- **On a schedule, once switched on:** see "A scheduled Dribl sync" below. Until then a
+  Dribl draw is as fresh as the last time a coach opened the team.
 
 Dribl publishes no description of its API. If its answer is not in the form the app
 reads, nothing is changed and the Sync button says so, naming the fields it found.
@@ -593,6 +594,43 @@ never shown.
 
 For a team defined in `TEAMS`:
 `"competitions":[{"id":"premier","name":"Premier Invitational","dribl":{"url":"https://mc-api.dribl.com/api/fixtures?…","team":"Olympic FC U9"}}]`.
+
+#### A scheduled Dribl sync (off until you switch it on)
+
+So that a Dribl draw keeps up with nobody in the app, a GitHub workflow
+(`.github/workflows/dribl-sync.yml`) can read it three times a day: 6:23 am, 12:23 pm and
+6:23 pm Brisbane time. Each run asks the site for every team's Dribl draws (those with a
+Dribl fixtures request saved, whether it came from a pasted link or was typed in), reads
+each from Dribl, and posts the games to `/api/dribl`, where they are checked and applied
+exactly as a coach's browser's are. A coach's visit still syncs as well.
+
+It makes **plain requests and nothing more**: Node's own `fetch`, no browser, nothing that
+pretends to be one. Dribl turns most servers away (GitHub's included, when this was
+written), so until Dribl lets the club's requests through, a run fails and says
+"refused by Dribl". That is the cue to ask Dribl to let them through. They do not need to
+give an API key or admin access: one Cloudflare rule is enough, for example one that
+allows GET requests to `mc-api.dribl.com` carrying a header with a value the club gives
+them (the reader sends `X-Club-Sync` by default).
+
+Set it up once:
+
+1. **The site.** In Render, under Environment, set `CRON_SECRET` to a long random value if
+   it is not set already (the scheduled Squadi sync uses the same key).
+2. **GitHub.** Under the repository's Settings, Secrets and variables, Actions: add the
+   secret `CRON_SECRET` with the same value, and the variable `SITE_URL` with the site's
+   address (`https://…`).
+3. **When Dribl agrees a header:** add the secret `DRIBL_CLUB_KEY` with the value, and the
+   variable `DRIBL_CLUB_HEADER` if they chose a name other than `X-Club-Sync`.
+4. **Switch it on:** add the variable `DRIBL_SYNC` with the value `on`. To try it at once,
+   open Actions, then Dribl sync, then **Run workflow**: a run started by hand runs even
+   while it is switched off. Switch it off after the competition by removing the variable.
+
+Until it is switched on, the scheduled runs are skipped and nothing is asked of anyone.
+With it on and no Dribl draw set up, a run asks the site and nothing else. The repository
+is public, and so is what a run prints: counts, and each failure by its kind (refused by
+Dribl, Dribl did not answer, the team's name needs checking), never a team's name, a
+competition, an id or a link. GitHub pauses a scheduled workflow in a public repository
+after 60 days without a commit; if that happens, turn it back on in the Actions tab.
 
 #### A squad for a competition
 

@@ -5,19 +5,11 @@ import { applyDraws } from "@/lib/applyDraws";
 import { squadiSources } from "@/lib/competitions";
 import { getTeams } from "@/lib/teams";
 import { resolveViewer, viewerError } from "@/lib/viewer";
+import { cronAuthorized } from "@/lib/cronAuth";
 
 export const dynamic = "force-dynamic";
 const STALE_MS = 15 * 60 * 1000; // sync-on-visit throttle
 
-// Cron/pinger auth (syncs ALL teams) vs a signed-in viewer (syncs THEIR team).
-function cronAuthorized(req) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const auth = req.headers.get("authorization") || "";
-  if (auth === `Bearer ${secret}`) return true;
-  if (new URL(req.url).searchParams.get("key") === secret) return true;
-  return false;
-}
 
 // One team's sync. A team has one draw or several (lib/competitions.js): its
 // season, which is two labelled feeds on a squad that plays as two teams,
@@ -58,8 +50,9 @@ async function syncTeam(team, ifStale) {
 export async function GET(req) {
   const ifStale = !!new URL(req.url).searchParams.get("ifStale");
 
-  // Cron / pinger: sync every configured team.
-  if (cronAuthorized(req)) {
+  // Cron / pinger (CRON_SECRET, as a Bearer header or ?key=): sync every
+  // configured team. A signed-in viewer syncs their own team, below.
+  if (cronAuthorized(req, { allowQueryKey: true })) {
     const results = [];
     for (const team of await getTeams()) {
       try {

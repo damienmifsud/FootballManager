@@ -1,0 +1,39 @@
+# The scheduled Dribl sync: reads each team's draws on Dribl and saves the games
+# to the site (scripts/dribl-sync.mjs, lib/driblRun.js). It makes plain requests
+# only. It is off until switched on: set the repository variable DRIBL_SYNC to
+# "on". See "A scheduled Dribl sync" in the README for the rest of the set-up.
+name: Dribl sync
+
+on:
+  schedule:
+    # 6:23 am, 12:23 pm and 6:23 pm in Brisbane (UTC+10 all year).
+    - cron: "23 2,8,20 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dribl-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # A scheduled run does nothing until DRIBL_SYNC is "on". A run started by
+    # hand (Actions, Dribl sync, Run workflow) always runs.
+    if: github.event_name == 'workflow_dispatch' || vars.DRIBL_SYNC == 'on'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # No install step: the reader needs nothing but Node.
+      - name: Read the Dribl draws and save them to the site
+        run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dribl-sync.mjs
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DRIBL_CLUB_KEY: ${{ secrets.DRIBL_CLUB_KEY }}
+          DRIBL_CLUB_HEADER: ${{ vars.DRIBL_CLUB_HEADER }}
