@@ -294,7 +294,7 @@ describe("TeamWizard — creating a team", () => {
     expect(calls[0].body.squadi).toEqual({ competitionId: "1439", divisionId: "", teamId: "" });
     // New rows carry no id (the server gives them one); the untouched row is not sent.
     expect(calls[0].body.competitions).toEqual([
-      { name: "Winterfest", squadi: { competitionId: " 1750 ", divisionId: "20001", teamId: "300123" } },
+      { name: "Winterfest", squadi: { competitionId: " 1750 ", divisionId: "20001", teamId: "300123" }, scores: true },
       { name: "Premier Invitational" }
     ]);
   });
@@ -626,7 +626,7 @@ describe("TeamWizard — two season feeds and another competition together", () 
       { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: "133944" },
       { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: "133943" }
     ]);
-    expect(calls[0].body.competitions).toEqual([{ name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: "300123" } }]);
+    expect(calls[0].body.competitions).toEqual([{ name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: "300123" }, scores: true }]);
   });
 
   it("the label check stops the save before the competitions are sent either", async () => {
@@ -719,7 +719,7 @@ describe("TeamWizard — a website link beside each draw", () => {
     expect(calls[0].body.squadi).toEqual({ competitionId: "", divisionId: "", teamId: "", link: SEASON_LINK });
     expect(calls[0].body.competitions).toEqual([
       { name: "", link: WINTER_LINK },
-      { name: "Premier Invitational", squadi: { competitionId: "1900", divisionId: "", teamId: "" } }
+      { name: "Premier Invitational", squadi: { competitionId: "1900", divisionId: "", teamId: "" }, scores: true }
     ]);
   });
 
@@ -845,7 +845,7 @@ describe("TeamWizard — a competition on Dribl", () => {
     expect(screen.getByText(/Everything a link fills in can also be typed by hand/).textContent)
       .toMatch(/A Dribl fixtures request is the address of the request that starts with\s+https:\/\/mc-api\.dribl\.com\/api\/fixtures, in DevTools under Network on the competition's Dribl fixtures page; add your\s+team's name as Dribl shows it when the draw has more than one of your club's teams\.$/);
     expect(screen.getByText(/Add a competition for anything played alongside the season/).textContent)
-      .toMatch(/A draw on Squadi or Majestri syncs for everyone; a draw on Dribl is kept in step whenever a coach opens the team\.$/);
+      .toMatch(/A draw on Squadi or Majestri syncs for everyone; a draw on Dribl is kept in step whenever a coach opens the team\. The season's scores are entered by hand\./);
   });
 
   it("sends the request, trimmed, with the team's name; no Squadi ids are invented for it", async () => {
@@ -854,7 +854,7 @@ describe("TeamWizard — a competition on Dribl", () => {
     fill("Premier Invitational team name on Dribl", " Olympic FC U9 White ");
     fireEvent.click(screen.getByRole("button", { name: "Create team" }));
     await waitFor(() => expect(calls).toHaveLength(1));
-    expect(calls[0].body.competitions).toEqual([{ name: "Premier Invitational", dribl: { url: REQUEST, team: "Olympic FC U9 White" } }]);
+    expect(calls[0].body.competitions).toEqual([{ name: "Premier Invitational", dribl: { url: REQUEST, team: "Olympic FC U9 White" }, scores: true }]);
   });
 
   it("a row with only its Dribl request is still a row; one with Squadi ids and no request sends no dribl at all", async () => {
@@ -869,8 +869,8 @@ describe("TeamWizard — a competition on Dribl", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create team" }));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].body.competitions).toEqual([
-      { name: "", dribl: { url: REQUEST, team: "" } },
-      { name: "Winterfest", squadi: { competitionId: "1750", divisionId: "", teamId: "" } }
+      { name: "", dribl: { url: REQUEST, team: "" }, scores: true },
+      { name: "Winterfest", squadi: { competitionId: "1750", divisionId: "", teamId: "" }, scores: true }
     ]);
   });
 

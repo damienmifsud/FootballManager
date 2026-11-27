@@ -22,10 +22,13 @@ const STALE_MS = 15 * 60 * 1000; // sync-on-visit throttle
 async function syncTeam(team, ifStale) {
   // Every draw the server reads itself: Squadi's, and any competition on
   // Majestri (lib/majestriDraw.js). A draw on Dribl is read by a coach's
-  // browser instead (/api/dribl).
+  // browser instead (/api/dribl). Scores are only ever taken from another
+  // competition whose set-up says so (`scores`); the season's are entered by
+  // hand.
+  const leave = (s, site) => (s.comp && s.scores ? { scoreFrom: site } : {});
   const sources = [
-    ...squadiSources(team).map((s) => ({ ...s, provider: "Squadi", read: () => fetchSquadi(s.squadi) })),
-    ...majestriSources(team).map((s) => ({ comp: s.comp, provider: "Majestri", read: () => fetchMajestri(s.majestri) }))
+    ...squadiSources(team).map((s) => ({ ...s, provider: "Squadi", read: () => fetchSquadi(s.squadi), ...leave(s, "Squadi") })),
+    ...majestriSources(team).map((s) => ({ comp: s.comp, provider: "Majestri", read: () => fetchMajestri(s.majestri), ...leave(s, "Majestri") }))
   ];
   if (!sources.length) return { team: team.slug, skipped: "no squadi config" };
   if (ifStale) {
@@ -52,7 +55,7 @@ async function syncTeam(team, ifStale) {
   // `checked` names the sites whose draws came in, for "up to date with …".
   const ok = draws.filter((d) => !d.error);
   const checked = [...new Set(ok.map((d) => d.provider))];
-  const applied = await applyDraws(team, ok.map((d) => ({ comp: d.comp, side: d.side, records: d.records })), { source: checked.join(" and ") });
+  const applied = await applyDraws(team, ok.map((d) => ({ comp: d.comp, side: d.side, records: d.records, ...(d.scoreFrom ? { scoreFrom: d.scoreFrom } : {}) })), { source: checked.join(" and ") });
   if (!applied) return { team: team.slug, skipped: "no team data yet" };
   return { team: team.slug, ...applied, checked, ...(failed.length ? { failed } : {}) };
 }

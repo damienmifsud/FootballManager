@@ -24,12 +24,19 @@ describe("parseFeedLink — a Squadi link", () => {
     expect(parseFeedLink(SQUADI.replace(ORG, ORG.toUpperCase())).organisationKey).toBe(ORG);
   });
 
-  it("must name one team: a whole division, a whole competition or a missing key is sent back with what to do", () => {
+  it("must name one team: a whole division, a missing division or a missing key is sent back with what to do", () => {
     const without = (name) => { const u = new URL(SQUADI); u.searchParams.delete(name); return u.href; };
     const withValue = (name, value) => { const u = new URL(SQUADI); u.searchParams.set(name, value); return u.href; };
-    for (const link of [without("teamId"), without("divisionId"), without("competitionUniqueKey"), withValue("divisionId", "All"), withValue("teamId", "0"),
-      withValue("teamId", "12abc"), withValue("competitionUniqueKey", "1439"), "https://registration.squadi.com/"]) {
+    for (const link of [without("teamId"), without("divisionId"), without("competitionUniqueKey"), withValue("divisionId", "Alll"), withValue("teamId", "All"), withValue("teamId", "0"),
+      withValue("teamId", "12abc"), withValue("competitionUniqueKey", "123"), "https://registration.squadi.com/"]) {
       expect(parseFeedLink(link)).toEqual({ error: SQUADI_NEEDS_TEAM });
+    }
+  });
+
+  it("names the team in every division of the competition when the division is All, as a tournament's page gives it", () => {
+    for (const all of ["All", "all", "ALL"]) {
+      const u = new URL(SQUADI); u.pathname = "/competitions"; u.searchParams.set("divisionId", all);
+      expect(parseFeedLink(u.href)).toMatchObject({ provider: "squadi", divisionId: "All", teamId: "300001" });
     }
   });
 

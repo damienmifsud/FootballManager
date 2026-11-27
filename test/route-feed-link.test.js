@@ -108,7 +108,7 @@ describe("POST /api/feed-link — a Majestri link", () => {
     expect(res.body).toEqual({
       ok: true, provider: "majestri", link: MAJESTRI_TEAM_PAGE,
       majestri: { url: MAJESTRI_COMP, team: "Riverside Rockets", teamId: "7001" },
-      found: { competition: "Winter Fives 2031", division: "Under 9 Mixed", season: "2031", teams: ["Riverside Rockets", "Hilltop Hawks", "Lakeside Lions & Co", "Valley Vipers", "Riverside Rovers"], games: 9, ours: "Riverside Rockets", ourGames: 5 }
+      found: { competition: "Winter Fives 2031", division: "Under 9 Mixed", season: "2031", teams: ["Riverside Rockets", "Hilltop Hawks", "Lakeside Lions & Co", "Valley Vipers", "Riverside Rovers"], games: 9, ours: "Riverside Rockets", ourGames: 5, ourResults: 1 }
     });
     expect(asked).toEqual([MAJESTRI_COMP]);
     expect(lookupSquadiLink).not.toHaveBeenCalled();

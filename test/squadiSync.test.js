@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { normalize, applySync } from "@/lib/squadiSync";
+import { normalize, applySync, apiUrl } from "@/lib/squadiSync";
 
 // Pin "now" so status roll-forward (upcoming -> played once the date passes)
 // and the schedChanges pruning window are deterministic. Brisbane is UTC+10,
@@ -78,6 +78,11 @@ describe("normalize", () => {
     const json = { rounds: [{ name: "Finals", sequence: 6, matches: [match()] }] };
     const [m] = normalize(json, cfg);
     expect(m.round).toBe(7); // sequence 6 + 1
+  });
+
+  it("gives a tournament's finals, named without a number and placed past 99, no round number", () => {
+    const json = { rounds: [{ name: "Quarter Finals", sequence: 101, matches: [match({ id: "q1" })] }, { name: "Placement Play Offs", sequence: 105, matches: [match({ id: "p1" }), match({ id: "b1", team2: { id: 0, name: "Bye" } })] }] };
+    expect(normalize(json, cfg).map((g) => [g.squadiId, g.round])).toEqual([["q1", null], ["p1", null], ["b1", null]]);
   });
 
   it("uses only the venue name when there is no field/court", () => {
@@ -498,5 +503,116 @@ describe("applySync — a game with no round", () => {
     const r = applySync({ fixtures: [typed] }, [rec()], { comp: WINTER });
     expect(r.created).toBe(1);
     expect(r.data.fixtures.map((f) => f.squadiId || "typed")).toEqual(["typed", "dribl:x1"]);
+  });
+});
+
+describe("applySync — scores, taken only from a draw that may give them", () => {
+  const FIVES = { id: "cfives", name: "Summer Fives" };
+  const game = (over = {}) => ({ squadiId: "majestri:9001:r1:0", round: 1, dateISO: "2026-06-11", time: "16:30", opponent: "Hilltop Hawks", venue: "Field 5", homeAway: "H", opponentLogo: "", ourLogo: "", ...over });
+  const stored = (over = {}) => ({
+    id: "f1", squadiId: "majestri:9001:r1:0", round: 1, dateISO: "2026-06-11", time: "16:30", opponent: "Hilltop Hawks", venue: "Field 5",
+    homeAway: "H", status: "played", us: null, them: null, goals: [], notes: "", comp: "cfives", compName: "Summer Fives", ...over
+  });
+  const MAY = { comp: FIVES, scoreFrom: "Majestri" };
+
+  it("a new game already played comes in with its score, marked as taken from the site, and its change line says nothing of it", () => {
+    const r = applySync({ fixtures: [] }, [game({ score: { us: 5, them: 2 } })], MAY);
+    expect(r.data.fixtures[0]).toMatchObject({ status: "played", us: 5, them: 2, scoreFrom: "Majestri" });
+    expect(r.changes).toHaveLength(1);
+    expect(r.changes[0]).toMatch(/^NEW — Summer Fives Round 1 vs Hilltop Hawks: /);
+    expect(r.changes[0]).not.toMatch(/5.2/);
+  });
+
+  it("a game on today's date takes its score and is played; one still to come takes none, whatever the site shows", () => {
+    const today = applySync({ fixtures: [stored({ dateISO: "2026-06-18", status: "upcoming" })] }, [game({ dateISO: "2026-06-18", score: { us: 1, them: 0 } })], MAY);
+    expect(today.data.fixtures[0]).toMatchObject({ status: "played", us: 1, them: 0, scoreFrom: "Majestri" });
+    const newToday = applySync({ fixtures: [] }, [game({ dateISO: "2026-06-18", score: { us: 2, them: 2 } })], MAY);
+    expect(newToday.data.fixtures[0]).toMatchObject({ status: "played", us: 2, them: 2, scoreFrom: "Majestri" });
+    const later = applySync({ fixtures: [] }, [game({ dateISO: "2026-06-25", score: { us: 0, them: 0 } })], MAY);
+    expect(later.data.fixtures[0]).toMatchObject({ status: "upcoming", us: null, them: null });
+    expect(later.data.fixtures[0]).not.toHaveProperty("scoreFrom");
+  });
+
+  it("fills a game that has no score yet, quietly: saved, with no change line, and nothing else on it touched", () => {
+    const r = applySync({ fixtures: [stored({ goals: ["p1"], notes: "Wet day" })] }, [game({ score: { us: 2, them: 4 } })], MAY);
+    expect(r.mutated).toBe(true);
+    expect(r.changes).toEqual([]);
+    expect(r.data.fixtures[0]).toMatchObject({ id: "f1", us: 2, them: 4, scoreFrom: "Majestri", goals: ["p1"], notes: "Wet day", status: "played" });
+  });
+
+  it("never changes a score already in the app, typed in or taken before, even when the site's is different", () => {
+    for (const had of [{ us: 3, them: 3 }, { us: 5, them: 2, scoreFrom: "Majestri" }, { us: 0, them: null }, { us: null, them: 1 }]) {
+      const before = stored(had);
+      const r = applySync({ fixtures: [before] }, [game({ score: { us: 6, them: 2 } })], MAY);
+      expect([r.data.fixtures[0].us, r.data.fixtures[0].them, r.data.fixtures[0].scoreFrom]).toEqual([before.us, before.them, before.scoreFrom]);
+      expect(r.mutated).toBe(false);
+    }
+  });
+
+  it("a score a coach cleared stays cleared, and a cancelled game takes none", () => {
+    for (const had of [{ scoreFrom: "Majestri" }, { status: "cancelled" }]) {
+      const r = applySync({ fixtures: [stored(had)] }, [game({ score: { us: 5, them: 2 } })], MAY);
+      expect(r.data.fixtures[0]).toMatchObject({ us: null, them: null });
+      expect(r.mutated).toBe(false);
+    }
+  });
+
+  it("takes no score from a draw not given leave to: the season's, or a competition whose scores are entered by hand", () => {
+    for (const opts of [{}, { comp: FIVES }, { comp: FIVES, scoreFrom: "" }]) {
+      const fresh = applySync({ fixtures: [] }, [game({ score: { us: 5, them: 2 } })], opts);
+      expect(fresh.data.fixtures[0]).toMatchObject({ us: null, them: null });
+      expect(fresh.data.fixtures[0]).not.toHaveProperty("scoreFrom");
+      const had = applySync({ fixtures: [stored(opts.comp ? {} : { comp: undefined, compName: undefined })] }, [game({ score: { us: 5, them: 2 } })], opts);
+      expect(had.data.fixtures[0]).toMatchObject({ us: null, them: null });
+    }
+  });
+
+  it("takes only a whole score for each side", () => {
+    for (const score of [{ us: -1, them: 2 }, { us: 1.5, them: 2 }, { us: "5", them: "2" }, { us: 5 }, { us: 1000, them: 0 }, null, "5-2", [5, 2]]) {
+      const r = applySync({ fixtures: [stored()] }, [game({ score })], MAY);
+      expect(r.data.fixtures[0]).toMatchObject({ us: null, them: null });
+      expect(r.mutated).toBe(false);
+    }
+  });
+
+  it("does not change the document it was given", () => {
+    const doc = { fixtures: [stored()] };
+    const copy = JSON.parse(JSON.stringify(doc));
+    applySync(doc, [game({ score: { us: 5, them: 2 } })], MAY);
+    expect(doc).toEqual(copy);
+  });
+});
+
+describe("normalize — a game's score, only once the competition has confirmed it", () => {
+  it("gives none for a draw that keeps no results: every game 0-0 and final, but never locked", () => {
+    const [g] = normalize(squadiResponse([match({ team1Score: 0, team2Score: 0, resultStatus: "FINAL", matchStatus: "ENDED", isResultsLocked: false })]), cfg);
+    expect(g).not.toHaveProperty("score");
+    expect(Object.keys(g).some((k) => /^us$|^them$/i.test(k))).toBe(false);
+  });
+
+  it("gives a confirmed result as ours first, home or away", () => {
+    const home = normalize(squadiResponse([match({ team1Score: 3, team2Score: 1, resultStatus: "FINAL", isResultsLocked: true })]), cfg)[0];
+    expect(home.score).toEqual({ us: 3, them: 1 });
+    const away = normalize(squadiResponse([match({ team1: { id: 222, name: "Wests" }, team2: { id: cfg.teamId, name: "Us" }, team1Score: 3, team2Score: 1, resultStatus: "FINAL", isResultsLocked: true })]), cfg)[0];
+    expect([away.homeAway, away.score]).toEqual(["A", { us: 1, them: 3 }]);
+    const nil = normalize(squadiResponse([match({ team1Score: 0, team2Score: 0, resultStatus: "FINAL", isResultsLocked: true })]), cfg)[0];
+    expect(nil.score).toEqual({ us: 0, them: 0 });
+  });
+
+  it("gives none for a result not final, not locked, or not whole", () => {
+    for (const over of [
+      { team1Score: 2, team2Score: 1, resultStatus: "IN_PROGRESS", isResultsLocked: true },
+      { team1Score: 2, team2Score: 1, resultStatus: "FINAL" },
+      { team1Score: 2, team2Score: null, resultStatus: "FINAL", isResultsLocked: true },
+      { team1Score: "2", team2Score: "1", resultStatus: "FINAL", isResultsLocked: true },
+      { team1Score: -1, team2Score: 1, resultStatus: "FINAL", isResultsLocked: true }
+    ]) expect(normalize(squadiResponse([match(over)]), cfg)[0]).not.toHaveProperty("score");
+  });
+});
+
+describe("apiUrl — one division, or the team's games in every division", () => {
+  it("asks for the division given, and leaves the division out for All, in any case", () => {
+    expect(apiUrl({ competitionId: "77", divisionId: "88", teamId: 99 })).toBe("https://api.squadi.com/livescores/round/matches?competitionId=77&divisionId=88&teamIds=[99]&ignoreStatuses=[1]");
+    for (const all of ["All", "all", " ALL "]) expect(apiUrl({ competitionId: "77", divisionId: all, teamId: 99 })).toBe("https://api.squadi.com/livescores/round/matches?competitionId=77&teamIds=[99]&ignoreStatuses=[1]");
   });
 });

@@ -49,7 +49,7 @@ const BLANK = {
   name: "", ageGroup: "U8", password: "", coachEmails: "",
   division: "", whatsapp: "", season: { ...BLANK_SEASON },
   squadi: [squadiRow()], // the season: one row, or two for a two-team squad
-  competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId }, dribl: { url, team }, majestri: { url, team, teamId }, link, note, teams }
+  competitions: [], // every other competition: { id?, name, squadi: { competitionId, divisionId, teamId }, dribl: { url, team }, majestri: { url, team, teamId }, scores, link, note, teams }
   importText: "",
   training: [], // { weekday, time, endTime, location }
   features: { ...DEFAULT_FEATURES },
@@ -80,11 +80,15 @@ const onMajestri = (c) => {
 // Another competition's row as the form holds it. `note` is what reading its
 // link found and `teams` the team names its draw listed, offered in the team
 // box; neither is sent. A Majestri draw saved without a link shows its page
-// as the link, since that is where it is read from.
+// as the link, since that is where it is read from. `scores` is the choice to
+// take the competition's scores from its draw (Squadi, Dribl or Majestri): on
+// for a competition being added, and as it was saved for one already there.
 const competitionRow = (c = {}) => ({
   ...(c.id ? { id: c.id } : {}), name: c.name || "", squadi: squadiForEdit(c.squadi), dribl: driblForEdit(c.dribl), majestri: majestriForEdit(c.majestri),
-  link: c.link || c.majestri?.url || "", note: null, teams: []
+  scores: c.id ? c.scores === true : true, link: c.link || c.majestri?.url || "", note: null, teams: []
 });
+// Where a row's scores can come from: the site its draw is on.
+const scoresSite = (c) => (onMajestri(c) ? "Majestri" : hasSquadiIds(c.squadi) ? "Squadi" : c.dribl.url.trim() ? "Dribl" : "");
 
 // ---- Setting a draw up from its link ----------------------------------------
 // A draw's website link is the address of its page, and when that page is the
@@ -100,13 +104,15 @@ export const DRIBL_IN_SEASON = "The season's games come from Squadi. For a draw 
 export const LINK_BEING_READ = "A link is still being read. Give it a moment, then save.";
 export const DRIBL_BY_HAND = "The link is kept. To sync this draw, its fixtures request can still be pasted in the Dribl box by hand (see the note below).";
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+// ", 4 with their scores" after a count of games, when some have one.
+const withScores = (n) => (n > 0 ? `, ${n} with ${n === 1 ? "its score" : "their scores"}` : "");
 // What reading a Squadi link found, said back in a sentence or two.
 const squadiFound = (found) => {
   const f = found && typeof found === "object" ? found : {};
   const what = [f.team, f.division, f.competition].filter(Boolean).join(" · ");
   const games = f.games == null ? "The draw could not be read just now, but the link is good. Its games sync by themselves."
     : f.games === 0 ? "No games are published for this team yet. They sync by themselves once they are. If that is not right, check the link is your team's."
-    : `${plural(f.games, "game")} found. They sync by themselves.`;
+    : `${plural(f.games, "game")} found${withScores(f.results)}. They sync by themselves.`;
   return `${what ? what + ". " : ""}${games}`;
 };
 // What reading a Dribl link found, as the note under the field. The request
@@ -117,7 +123,7 @@ export function driblFound({ draw, problem }) {
   if (!draw.games) return { kind: "warn", text: "The fixtures request is filled in. Dribl lists no games in this draw yet. Once it does, they sync whenever a coach opens the team." };
   const what = [draw.competition, draw.league].filter(Boolean).join(" · ");
   if (!draw.ours) return { kind: "warn", text: `${what ? what + ". " : ""}${plural(draw.games, "game")} found, but the draw does not show which team is yours. Choose it in the team name box above.` };
-  return { kind: "ok", text: `${[draw.ours, what].filter(Boolean).join(" · ")}. ${plural(draw.ourGames, "game")} found. They sync whenever a coach opens the team.` };
+  return { kind: "ok", text: `${[draw.ours, what].filter(Boolean).join(" · ")}. ${plural(draw.ourGames, "game")} found${withScores(draw.ourResults)}. They sync whenever a coach opens the team.` };
 }
 // What reading a Majestri link found, as the note under the field.
 export function majestriFound(found) {
@@ -129,9 +135,12 @@ export function majestriFound(found) {
     return { kind: "warn", text: `${what ? what + ". " : ""}${games}. Choose yours in the team box above.` };
   }
   return { kind: "ok", text: `${[f.ours, what].filter(Boolean).join(" · ")}. ${f.ourGames
-    ? `${plural(f.ourGames, "game")} found. They sync by themselves.`
+    ? `${plural(f.ourGames, "game")} found${withScores(f.ourResults)}. They sync by themselves.`
     : "No games are published for this team yet. They sync by themselves once they are."}` };
 }
+// What the scores choice means, said under it.
+export const scoresFrom = (site) => `A game's score comes in from ${site} once ${site === "Squadi" ? "the competition confirms the result" : "the result is shown there"}. A score already in the app is never changed.`;
+export const SCORES_BY_HAND = "Its scores are entered by hand by the team's coaches.";
 
 // How much text arrived in one change to a box: the length of what is new
 // between the part both values start with and the part both end with. Typing
@@ -401,6 +410,7 @@ export default function TeamWizard({ onTeamsChanged }) {
         ...(c.dribl.url.trim() ? { dribl: { url: c.dribl.url.trim(), team: c.dribl.team.trim() } } : {}),
         // A Majestri row with no team chosen is sent as it is, and the server says what is missing.
         ...(onMajestri(c) ? { majestri: { url: c.majestri.url, team: c.majestri.team.trim(), ...(c.majestri.teamId ? { teamId: c.majestri.teamId } : {}) } } : {}),
+        ...(c.scores && scoresSite(c) ? { scores: true } : {}),
         ...linkOf(c)
       }));
     const season = form.season.startISO || form.season.endISO ? { startISO: form.season.startISO, endISO: form.season.endISO } : null;
@@ -615,6 +625,7 @@ export default function TeamWizard({ onTeamsChanged }) {
                 if (name) readLink("competitions", i, c.link, { team: name });
               };
               // Until the page has been read there are no names to choose from, and the team saved is typed.
+              const site = scoresSite(c);
               const majestriTeams = !c.teams.length ? [] : c.majestri.team && !c.teams.includes(c.majestri.team) ? [c.majestri.team, ...c.teams] : c.teams;
               const who = c.name.trim() || `Competition ${i + 1}`;
               return (
@@ -664,6 +675,15 @@ export default function TeamWizard({ onTeamsChanged }) {
                       )}
                     </div>
                   )}
+                  {site && (
+                    <div style={{ marginTop: 8 }}>
+                      <div className="adm-swrow">
+                        <span>Scores from {site}</span>
+                        <AdminSwitch on={c.scores} label={`Scores for ${who} from ${site}`} onClick={() => set({ scores: !c.scores })} />
+                      </div>
+                      <div className="adm-note">{c.scores ? scoresFrom(site) : SCORES_BY_HAND}</div>
+                    </div>
+                  )}
                   <div className="adm-line">
                     <LinkField who={who} value={c.link} note={c.note} onChange={(link) => set({ link, note: null })} onRead={(text) => readLink("competitions", i, text)} />
                   </div>
@@ -686,7 +706,9 @@ export default function TeamWizard({ onTeamsChanged }) {
               Add a competition for anything played alongside the season, such as a winter tournament. One with no IDs yet is
               kept, and synced once you add them with Edit. Its games are labelled with its name and kept out of the season
               record. A draw on Squadi or Majestri syncs for everyone; a draw on Dribl is kept in step whenever a coach opens
-              the team.
+              the team. The season's scores are entered by hand. Any other competition can take its scores from its draw
+              instead (Scores from, under its draw): a score comes in once the result is final, fills a game with no score yet,
+              and never changes a score already in the app.
             </div>
             <div className="adm-note">
               Everything a link fills in can also be typed by hand. Squadi IDs come from the FQ widget via DevTools (see the
