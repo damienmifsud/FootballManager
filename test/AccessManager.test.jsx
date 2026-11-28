@@ -23,6 +23,9 @@ vi.mock("@/components/PeopleDirectory", () => ({
   default: ({ onChanged }) => <button data-testid="people" onClick={() => onChanged?.()}>people stub</button>
 }));
 
+// The questions asked have their own test file too (test/AskLog.test.jsx).
+vi.mock("@/components/AskLog", () => ({ default: () => <div data-testid="questions">questions stub</div> }));
+
 import AccessManager from "@/components/AccessManager";
 import { ADMIN_CSS } from "@/components/AdminShell";
 
@@ -129,6 +132,14 @@ describe("AccessManager — the shell", () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
     goTo("Access");
     expect(await within(card("Club admins")).findByText("new@club.com")).toBeTruthy();
+  });
+
+  it("Questions shows the questions asked on the teams' Ask tabs, and is kept in the address", async () => {
+    render(<AccessManager adminEmail="boss@club.com" scope="super" />);
+    goTo("Questions");
+    expect(sectionButton("Questions").getAttribute("aria-pressed")).toBe("true");
+    expect(column()).toEqual(["sections", "questions"]);
+    expect(window.location.search).toBe("?section=questions");
   });
 
   it("the wizard stays mounted while another section shows, so a team being set up is not lost", async () => {

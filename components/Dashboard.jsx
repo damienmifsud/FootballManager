@@ -2812,7 +2812,13 @@ function AskTab({ data, viewer, isCoach, account }) {
     setBusy(true);
     const push = (answer, src) => { if (!alive.current) return; setMsgs([...next, { role: "bot", text: answer, src }]); setBusy(false); };
     const canned = cannedAnswer(data, question);
-    if (canned) { setTimeout(() => push(canned.text, canned.src), 650); return; }
+    if (canned) {
+      // Answered here from the team's own schedule, and kept with who asked,
+      // as /api/ask keeps every question it answers. Never in the way.
+      Promise.resolve().then(() => fetch("/api/ask-log", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) })).catch(() => {});
+      setTimeout(() => push(canned.text, canned.src), 650);
+      return;
+    }
     const fallback = askFallback(data.team);
     try {
       const res = await fetch("/api/ask", {
@@ -2840,7 +2846,7 @@ function AskTab({ data, viewer, isCoach, account }) {
         <span className="lc-ic"><Sparkles size={18} /></span>
         <div className="ask-intro-body">
           <div className="ask-intro-title">Ask about fixtures, training, duties or the team's documents.</div>
-          <div className="ask-intro-sub">It answers from our documents and schedule. It won't make up rules.{docsLine && <><br />{docsLine}</>}</div>
+          <div className="ask-intro-sub">It answers from our documents and schedule. It won't make up rules.<br />{account ? "The club can see the questions asked here and who asked them." : "The club can see the questions asked here."}{docsLine && <><br />{docsLine}</>}</div>
         </div>
       </div>
 
