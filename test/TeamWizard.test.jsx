@@ -1175,3 +1175,36 @@ describe("TeamWizard — where and how a competition is played", () => {
     expect(calls[0].body.competitions[0].ground).toBe("Riverside Park");
   });
 });
+
+// Suggest (the AI lineup fill): an admin turns it on per team, then ticks
+// which of the team's coaches (staff with an email, extra coach emails) get it.
+describe("Suggest: which coaches on this team", () => {
+  it("is off by default; switched on, it lists the coaches to tick and saves the ticked ones", async () => {
+    await open({});
+    fireEvent.click(screen.getByRole("button", { name: "Edit Olympic FC U8 White" }));
+    expect(sw("Features", "Suggest (AI lineup)").getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryByRole("group", { name: "Coaches who can use Suggest" })).toBeNull();
+    fireEvent.click(sw("Features", "Suggest (AI lineup)"));
+    const group = within(screen.getByRole("group", { name: "Coaches who can use Suggest" }));
+    // Dee (Head coach, with an email) first, then the extra coach login. Pat has no email.
+    expect(group.getByText("Dee · dee@a.com")).toBeTruthy();
+    expect(group.getByText("coach@a.com")).toBeTruthy();
+    expect(group.queryByText(/Pat/)).toBeNull();
+    fireEvent.click(group.getByRole("switch", { name: "Suggest for Dee" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.features.suggest).toBe(true);
+    expect(calls[0].body.suggestCoaches).toEqual(["dee@a.com"]);
+  });
+
+  it("drops a ticked coach who is no longer on the team when saving", async () => {
+    teams = [{ ...U8, features: { ...U8.features, suggest: true }, suggestCoaches: ["dee@a.com", "gone@a.com"] }, ENV];
+    await open({});
+    fireEvent.click(screen.getByRole("button", { name: "Edit Olympic FC U8 White" }));
+    const group = within(screen.getByRole("group", { name: "Coaches who can use Suggest" }));
+    expect(group.getByRole("switch", { name: "Suggest for Dee" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.suggestCoaches).toEqual(["dee@a.com"]);
+  });
+});

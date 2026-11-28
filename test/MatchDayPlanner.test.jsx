@@ -466,3 +466,35 @@ describe("a game in a competition with a format of its own", () => {
     await waitFor(() => expect(onSavePlan.mock.calls.at(-1)?.[1].format).toMatchObject(FIVES), { timeout: 2500 });
   });
 });
+
+// Suggest (the AI fill): only for coaches given it; the result fills the plan
+// and the Why this lineup card shows the assistant's note.
+describe("Suggest", () => {
+  it("is hidden unless the coach can use it", () => {
+    renderPlanner();
+    expect(screen.queryByText("Suggest")).toBeNull();
+  });
+
+  it("sends the current plan, applies the reply and shows the why", async () => {
+    const onSuggest = vi.fn().mockResolvedValue({
+      assignments: [{ GK: "p1", r2c0: "p3" }, { GK: "p1" }, { GK: "p1" }, { GK: "p1" }],
+      why: "Cy up front all first block.", notes: [], locked: ["0:GK", "1:GK", "2:GK", "3:GK"]
+    });
+    renderPlanner({ canSuggest: true, onSuggest });
+    fireEvent.click(screen.getByText("Suggest"));
+    await screen.findByText("Cy up front all first block.");
+    const [fixtureId, payload] = onSuggest.mock.calls[0];
+    expect(fixtureId).toBe("f1");
+    expect(payload.assignments[0]).toEqual({ GK: "p1" });
+    expect(payload).toMatchObject({ opposition: "even", shapes: {}, theirShapes: {} });
+    expect(screen.getByText("Why this lineup")).toBeTruthy();
+    await waitFor(() => expect(onSavePlan.mock.calls.at(-1)?.[1].assignments[0]).toEqual({ GK: "p1", r2c0: "p3" }), { timeout: 2500 });
+  });
+
+  it("shows the server's error and keeps the plan", async () => {
+    const onSuggest = vi.fn().mockRejectedValue(new Error("Suggest isn't switched on for you on this team. Ask your club admin."));
+    renderPlanner({ canSuggest: true, onSuggest });
+    fireEvent.click(screen.getByText("Suggest"));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Ask your club admin/);
+  });
+});

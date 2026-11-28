@@ -57,6 +57,7 @@ const BLANK = {
   importText: "",
   training: [], // { weekday, time, endTime, location }
   features: { ...DEFAULT_FEATURES },
+  suggestCoaches: [], // emails of the coaches who may use Suggest
   parentsSee: { ...DEFAULT_PARENTS_SEE },
   // The team's logo (LogoPicker): `logo` is the one shown in the form, and
   // `logoState` says what it is: "none" (no logo of its own), "loading" (an
@@ -65,6 +66,19 @@ const BLANK = {
   logo: "", logoFill: 1, logoSite: "", logoState: "none", coachPin: "",
   staff: STAFF_ROLES.map((role) => ({ role, name: "", mobile: "", email: "", custom: false }))
 };
+
+// The team's coaches with an email, who Suggest can be given to: staff rows
+// first (with their names), then the extra coach emails.
+function suggestCandidates(form) {
+  const out = [];
+  const add = (email, name = "") => {
+    const e = String(email || "").trim().toLowerCase();
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) && !out.some((c) => c.email === e)) out.push({ email: e, name: String(name || "").trim() });
+  };
+  (form.staff || []).forEach((s) => s.name.trim() && add(s.email, s.name));
+  String(form.coachEmails || "").split(",").forEach((e) => add(e));
+  return out;
+}
 
 // The three Squadi ids of another competition as the form holds them (strings,
 // blank when not set).
@@ -355,7 +369,7 @@ export default function TeamWizard({ onTeamsChanged }) {
   };
   const feedUrl = (t) => `${window.location.origin}/api/calendar?key=${t.calendarKey}`;
 
-  const openCreate = () => { setCreated(null); setEditSlug(null); setForm({ ...BLANK, squadi: [squadiRow()], season: { ...BLANK_SEASON }, features: { ...DEFAULT_FEATURES }, parentsSee: { ...DEFAULT_PARENTS_SEE }, training: [], competitions: [], password: friendlyCode() }); };
+  const openCreate = () => { setCreated(null); setEditSlug(null); setForm({ ...BLANK, squadi: [squadiRow()], season: { ...BLANK_SEASON }, features: { ...DEFAULT_FEATURES }, suggestCoaches: [], parentsSee: { ...DEFAULT_PARENTS_SEE }, training: [], competitions: [], password: friendlyCode() }); };
   const openEdit = (t) => {
     setCreated(null); setEditSlug(t.slug);
     setForm({
@@ -366,6 +380,7 @@ export default function TeamWizard({ onTeamsChanged }) {
       competitions: (t.competitions || []).map(competitionRow),
       importText: "", training: [],
       features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
+      suggestCoaches: Array.isArray(t.suggestCoaches) ? t.suggestCoaches : [],
       parentsSee: { ...DEFAULT_PARENTS_SEE, ...(t.parentsSee || {}) },
       logo: "", logoFill: t.logoFill || 1, logoSite: t.logoSite || "", logoState: t.hasLogo ? "loading" : "none", coachPin: t.coachPin || "",
       staff: staffForEdit(t.staff),
@@ -547,6 +562,8 @@ export default function TeamWizard({ onTeamsChanged }) {
       // On an edit the list is always sent, so removing a row removes it.
       ...(editSlug || competitions.length ? { competitions } : {}),
       division: form.division, whatsapp: form.whatsapp, season, features: form.features, parentsSee: form.parentsSee,
+      // Only coaches still on the team keep Suggest.
+      suggestCoaches: form.suggestCoaches.filter((e) => suggestCandidates(form).some((c) => c.email === e)),
       strip: form.strip, // always sent: "" leaves a team that has none without one
       staff: form.staff.filter((s) => s.name.trim()).map(({ role, name, mobile, email }) => ({ role, name, mobile, email })),
       coachPin: form.coachPin,
@@ -1007,6 +1024,25 @@ export default function TeamWizard({ onTeamsChanged }) {
                   </div>
                 );
               })}
+              {form.features.suggest && (() => {
+                const coaches = suggestCandidates(form);
+                const toggle = (email) => setForm((f) => ({ ...f, suggestCoaches: f.suggestCoaches.includes(email) ? f.suggestCoaches.filter((e) => e !== email) : [...f.suggestCoaches, email] }));
+                return (
+                  <div role="group" aria-label="Coaches who can use Suggest" style={{ marginTop: 6, paddingLeft: 12, borderLeft: "2px solid var(--line, #e5e5e5)" }}>
+                    <div className="adm-note">Suggest asks the AI to fill the lineup, so it costs money each time. Tick the coaches who can use it.</div>
+                    {coaches.length === 0 && <div className="adm-note">Add a coach with an email (Staff, or extra coach emails) to choose who gets it.</div>}
+                    {coaches.map((c) => {
+                      const ticked = form.suggestCoaches.includes(c.email);
+                      return (
+                        <div key={c.email} className="adm-swrow">
+                          <span>{c.name ? c.name + " · " : ""}{c.email}</span>
+                          <AdminSwitch on={ticked} label={"Suggest for " + (c.name || c.email)} onClick={() => toggle(c.email)} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           </Step>
 

@@ -21,7 +21,7 @@ import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport, mergeImportedPlayers, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { parseScheduleImport, onlyGroups, mergeSchedule, scheduleTemplate, stampImport, importBatches, removeImport } from "@/lib/scheduleImport";
 import { planResults, applyResults } from "@/lib/resultsImport";
-import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, ruleLabel, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths, KITS, sanitizeStrip, gameKit } from "@/lib/teamSetup";
+import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, ruleLabel, canSuggest, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths, KITS, sanitizeStrip, gameKit } from "@/lib/teamSetup";
 import { seasonICS } from "@/lib/ics";
 // Competitions (a team's draws beyond its season): labels, list order and
 // what counts toward the season. On a line of its own so the long import
@@ -1215,6 +1215,18 @@ export default function App() {
   // mid-game save can't clobber an RSVP that landed moments earlier).
   // The plan's first-block keeper writes back to the fixture's in-goal duty
   // (gk) when the planner passes one.
+  // Suggest (the AI lineup fill): the server checks the coach may use it,
+  // calls the model and returns the filled plan; the planner applies it.
+  const suggestLineup = useCallback(async (fixtureId, plan) => {
+    const res = await fetch("/api/suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fixtureId, plan })
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j?.error || "Couldn't reach the assistant. Auto-fill still works.");
+    return j;
+  }, []);
   const savePlan = useCallback(async (fixtureId, plan, gk) => {
     if (me?.viewingAs) { setNotice(`Read only while viewing as ${me.viewingAs}.`); return; }
     const prev = dataRef.current;
@@ -1419,6 +1431,8 @@ export default function App() {
           isCoach={isCoach}
           onSavePlan={savePlan}
           onOpenPlayer={(id) => { setModal(null); openPlayer({ id }); }}
+          canSuggest={isCoach && !!me?.email && !me?.viewingAs && canSuggest(data.team, me.email)}
+          onSuggest={suggestLineup}
           close={() => setModal(null)}
         />
       ) : modal ? (

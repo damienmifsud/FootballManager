@@ -157,7 +157,7 @@ describe("POST — create", () => {
     expect(doc.team).toMatchObject({
       division: "Kangaroos K1 Central Hub",
       whatsapp: "https://chat.whatsapp.com/xyz",
-      features: { fruitDuty: true, jerseyDuty: true, gkDuty: true, focus: false }
+      features: { fruitDuty: true, jerseyDuty: true, gkDuty: true, focus: false, suggest: false }
     });
     expect(doc.sessions).toHaveLength(1);
     expect(doc.sessions[0]).toMatchObject({ recur: "weekly", weekday: 2, time: "17:00", endTime: "18:00", location: "Perry Park", kind: "training" });
@@ -231,6 +231,17 @@ describe("PATCH — edit", () => {
     // Existing doc content preserved; only the team fields updated.
     expect(doc.players).toEqual([{ id: "p1" }]);
     expect(doc.team).toMatchObject({ coachPin: "9", division: "K2 South", features: expect.objectContaining({ gkDuty: false, fruitDuty: true }) });
+  });
+
+  it("turns Suggest on for a team and stores the ticked coaches, tidied", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b", calendarKey: "key-b" }]);
+    getData.mockResolvedValue({ team: { name: "Wiz B" }, players: [], fixtures: [] });
+    const { PATCH } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "wiz-b", features: { suggest: true }, suggestCoaches: [" Dee@A.com ", "not an email", "dee@a.com"] } }));
+    expect(res.status).toBe(200);
+    const [, doc] = setData.mock.calls[0];
+    expect(doc.team.features.suggest).toBe(true);
+    expect(doc.team.suggestCoaches).toEqual(["dee@a.com"]);
   });
 
   it("updates identity fields on the doc, preserving dashboard-added staff photos", async () => {

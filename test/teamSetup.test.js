@@ -9,21 +9,21 @@ import {
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 
 describe("teamFeatures", () => {
-  it("falls back to the pre-flag behaviour: fruit/gk/focus on, jersey off", () => {
-    expect(teamFeatures(undefined)).toEqual({ fruitDuty: true, jerseyDuty: false, gkDuty: true, focus: true });
+  it("falls back to the pre-flag behaviour: fruit/gk/focus on, jersey and Suggest off", () => {
+    expect(teamFeatures(undefined)).toEqual({ fruitDuty: true, jerseyDuty: false, gkDuty: true, focus: true, suggest: false });
     expect(teamFeatures({})).toEqual(DEFAULT_FEATURES);
   });
 
   it("merges saved flags over the defaults", () => {
     expect(teamFeatures({ features: { jerseyDuty: true, focus: false } }))
-      .toEqual({ fruitDuty: true, jerseyDuty: true, gkDuty: true, focus: false });
+      .toEqual({ fruitDuty: true, jerseyDuty: true, gkDuty: true, focus: false, suggest: false });
   });
 });
 
 describe("sanitizeFeatures", () => {
   it("coerces to booleans and drops unknown keys", () => {
     const out = sanitizeFeatures({ fruitDuty: 0, jerseyDuty: "yes", hack: true });
-    expect(out).toEqual({ fruitDuty: false, jerseyDuty: true, gkDuty: true, focus: true });
+    expect(out).toEqual({ fruitDuty: false, jerseyDuty: true, gkDuty: true, focus: true, suggest: false });
     expect(out).not.toHaveProperty("hack");
   });
 
@@ -453,5 +453,25 @@ describe("playing kit — the team's kit and a game's", () => {
     expect(gameKit({ strip: "Red" }, { strip: "Purple" })).toMatchObject({ strip: "Red", from: "team" });
     expect(gameKit({}, {})).toBeNull();
     expect(gameKit(undefined, undefined)).toBeNull();
+  });
+});
+
+import { sanitizeSuggestCoaches, canSuggest } from "@/lib/teamSetup";
+
+describe("Suggest: which teams and which coaches", () => {
+  it("sanitizeSuggestCoaches keeps valid emails, lowercased, once, at most 20", () => {
+    expect(sanitizeSuggestCoaches([" Coach@A.com ", "coach@a.com", "nope", 7, null, "b@b.co"])).toEqual(["coach@a.com", "b@b.co"]);
+    expect(sanitizeSuggestCoaches("coach@a.com")).toEqual([]);
+    expect(sanitizeSuggestCoaches(Array.from({ length: 30 }, (_, i) => `c${i}@a.com`))).toHaveLength(20);
+  });
+
+  it("canSuggest needs the team's switch on and the coach ticked", () => {
+    const team = { features: { suggest: true }, suggestCoaches: ["coach@a.com"] };
+    expect(canSuggest(team, "Coach@A.com")).toBe(true);
+    expect(canSuggest(team, "other@a.com")).toBe(false);
+    expect(canSuggest({ ...team, features: { suggest: false } }, "coach@a.com")).toBe(false);
+    expect(canSuggest({ suggestCoaches: ["coach@a.com"] }, "coach@a.com")).toBe(false); // off by default
+    expect(canSuggest(team, "")).toBe(false); // team-code mode has no email
+    expect(canSuggest(team, null)).toBe(false);
   });
 });

@@ -529,3 +529,11 @@ describe("redactForViewer — the full matrix (every switch combination x role)"
     expect(redactForViewer(data, { role: "coach", playerIds: [], todayISO: TODAY })).toBe(data);
   });
 });
+
+describe("redactForViewer: who has Suggest is the coach's", () => {
+  it("strips team.suggestCoaches for parents and viewers, keeps it for coaches", () => {
+    const src = { ...doc(see()), team: { ...doc(see()).team, features: { suggest: true }, suggestCoaches: ["coach@a.com"] } };
+    for (const role of NON_COACH) expect("suggestCoaches" in redact(src, role).team).toBe(false);
+    expect(redactForViewer(src, { role: "coach", playerIds: [], todayISO: TODAY }).team.suggestCoaches).toEqual(["coach@a.com"]);
+  });
+});

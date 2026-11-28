@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Settings, ClipboardList, BarChart3, Timer,
   Play, Pause, RotateCcw, Plus, X, Copy, Wand2, Check, AlertTriangle,
-  Swords, ChevronDown, ChevronUp
+  Swords, ChevronDown, ChevronUp, Sparkles
 } from "lucide-react";
 import {
   FORMATION_PRESETS, round1, fmtMin, fmtRange, fmtClock,
@@ -220,7 +220,7 @@ function PitchSVG() {
 
 /* --------------------------------- app ----------------------------------- */
 
-export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, onOpenPlayer, close }) {
+export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, onOpenPlayer, canSuggest, onSuggest, close }) {
   const plan0 = fixture.plan || null;
   // The game's own format, else its competition's, else the team's (lib/planner.js).
   const initialFormat = () => plan0?.format || baseFormat(data, fixture);
@@ -442,6 +442,24 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, on
     const res = fillLineup(plan, lineupCtx);
     setAssignments(res.plan);
     setLastFill({ plan: res.plan, locked: res.locked, notes: res.notes });
+  };
+  // Suggest (the AI fill, /api/suggest): for coaches an admin gave it to.
+  // Fills empty spots only; with none empty, a second tap clears and re-plans.
+  const [suggest, setSuggest] = useState({ busy: false, error: "", armed: false });
+  const runSuggest = async () => {
+    if (suggest.busy || !onSuggest) return;
+    const full = plan.every((seg, i) => Object.keys(seg).length >= posFor(i).length);
+    if (full && !suggest.armed) { setSuggest({ busy: false, error: "", armed: true }); return; }
+    const base = full ? plan.map(() => ({})) : plan;
+    setSuggest({ busy: true, error: "", armed: false });
+    try {
+      const res = await onSuggest(fixture.id, { format, subTimes, assignments: base, overrides, shapes, theirShapes, opposition });
+      setAssignments(res.assignments);
+      setLastFill({ plan: res.assignments, locked: new Set(res.locked || []), notes: res.notes || [], why: res.why || "" });
+      setSuggest({ busy: false, error: "", armed: false });
+    } catch (e) {
+      setSuggest({ busy: false, error: e?.message || "Couldn't reach the assistant. Auto-fill still works.", armed: false });
+    }
   };
   // Live receipts: recomputed as the coach edits after a fill. A slot counts
   // as the coach's pick unless the fill put that same player there.
@@ -1037,6 +1055,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, on
           {receipts && (
             <Card className="p-3">
               <Eyebrow>Why this lineup</Eyebrow>
+              {lastFill.why && <div className="mt-2 text-sm" style={{ color: P.ink }}>{lastFill.why}</div>}
               <div className="mt-2 flex flex-col gap-2">
                 {receipts.map((r) => (
                   <div key={r.ruleId} className="flex items-start gap-2 text-sm" data-state={r.state}>
@@ -1066,6 +1085,20 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, on
             <span className="inline-flex items-center gap-2"><Wand2 size={18} /> Auto-fill</span>
             <span className="text-xs" style={{ fontWeight: 500, opacity: 0.85 }}>Uses ratings and your lineup rules</span>
           </button>
+          {canSuggest && onSuggest && (
+            <>
+              <button onClick={runSuggest} disabled={suggest.busy} aria-busy={suggest.busy}
+                className="flex w-full flex-col items-center justify-center rounded-2xl py-3 text-base"
+                style={{ background: P.card, color: P.ink, border: "2px solid " + kit, fontWeight: 700, opacity: suggest.busy ? 0.7 : 1 }}>
+                <span className="inline-flex items-center gap-2"><Sparkles size={18} color={kit} />
+                  {suggest.busy ? "Suggesting…" : suggest.armed ? "Tap again to clear and re-plan" : "Suggest"}</span>
+                <span className="text-xs" style={{ fontWeight: 500, color: P.dim }}>
+                  {suggest.armed ? "Every spot is filled" : "Asks the AI, then checks every rule"}
+                </span>
+              </button>
+              {suggest.error && <div className="px-1 text-xs" role="alert" style={{ color: P.off, fontWeight: 600 }}>{suggest.error}</div>}
+            </>
+          )}
           {unrated.length > 0 && (
             <div className="px-1 text-xs" style={{ color: P.dim }}>
               {unrated.length === 1 ? "1 player has" : unrated.length + " players have"} no ratings yet, so auto-fill treats them as average.{" "}

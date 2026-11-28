@@ -6,7 +6,7 @@ import { auth } from "@/auth";
 import { isAdminEmail, isClubAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
-import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE, sanitizeSeason, sanitizeStrip } from "@/lib/teamSetup";
+import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE, sanitizeSeason, sanitizeStrip, sanitizeSuggestCoaches } from "@/lib/teamSetup";
 import { sanitizeCompetitions, competitionsError, squadiFeeds, websiteLinksError, sanitizeSeasonName } from "@/lib/competitions";
 import { cleanFill, ourLogoFill } from "@/lib/clubs";
 import { siteUrl } from "@/lib/clubSite";
@@ -139,6 +139,7 @@ export async function GET(req) {
       whatsapp: doc?.team?.whatsapp || "",
       season: sanitizeSeason(doc?.team?.season),
       features: { ...DEFAULT_FEATURES, ...(doc?.team?.features || {}) },
+      suggestCoaches: sanitizeSuggestCoaches(doc?.team?.suggestCoaches),
       parentsSee: { ...DEFAULT_PARENTS_SEE, ...(doc?.team?.parentsSee || {}) },
       strip: sanitizeStrip(doc?.team?.strip),
       staff: Array.isArray(doc?.team?.staff) ? doc.team.staff.map(({ role, name, mobile, email }) => ({ role, name, mobile, email })) : [],
@@ -217,6 +218,7 @@ export async function POST(req) {
         staff: sanitizeStaff(body.staff),
         matchFormat: defaultFormatForAgeGroup(team.ageGroup),
         features: sanitizeFeatures(body.features),
+        suggestCoaches: sanitizeSuggestCoaches(body.suggestCoaches),
         parentsSee: sanitizeParentsSee(body.parentsSee),
         ...(sanitizeStrip(body.strip) ? { strip: sanitizeStrip(body.strip) } : {}),
         ...(sidesOf(team) ? { sides: sidesOf(team) } : {})
@@ -274,7 +276,7 @@ export async function PATCH(req) {
 
   // Doc-held fields (shown throughout the dashboard) update in place too.
   let docUpdated = false;
-  if (body.division != null || body.whatsapp != null || body.features != null || body.parentsSee != null || body.strip != null ||
+  if (body.division != null || body.whatsapp != null || body.features != null || body.suggestCoaches != null || body.parentsSee != null || body.strip != null ||
       body.name != null || body.logo != null || body.logoFill != null || body.logoSite != null || body.staff != null || body.coachPin != null || body.season !== undefined ||
       body.squadi != null) {
     const doc = await getData(slug);
@@ -285,6 +287,8 @@ export async function PATCH(req) {
       if (body.whatsapp != null) teamDoc.whatsapp = String(body.whatsapp).trim().slice(0, 200);
       if (body.season !== undefined) teamDoc.season = sanitizeSeason(body.season); // null clears
       if (body.features != null) teamDoc.features = sanitizeFeatures(body.features);
+      // Which of the team's coaches may use Suggest (only matters while it's on).
+      if (body.suggestCoaches != null) teamDoc.suggestCoaches = sanitizeSuggestCoaches(body.suggestCoaches);
       if (body.parentsSee != null) teamDoc.parentsSee = sanitizeParentsSee(body.parentsSee);
       // The kit the team wears: "Red" or "Blue"; sent empty, the team has none set.
       if (body.strip != null) { const strip = sanitizeStrip(body.strip); if (strip) teamDoc.strip = strip; else delete teamDoc.strip; }
