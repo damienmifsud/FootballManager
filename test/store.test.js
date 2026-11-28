@@ -19,6 +19,10 @@ vi.mock("@upstash/redis", () => ({
       return "OK";
     }
     async del(...keys) { keys.forEach((k) => redisStore.delete(k)); }
+    // Lists, as Upstash keeps them: strings pushed on the left, read back parsed.
+    async lpush(k, ...vals) { const list = redisStore.get(k) || []; redisStore.set(k, [...vals.reverse(), ...list]); return redisStore.get(k).length; }
+    async ltrim(k, start, stop) { redisStore.set(k, (redisStore.get(k) || []).slice(start, stop + 1)); return "OK"; }
+    async lrange(k, start, stop) { return (redisStore.get(k) || []).slice(start, stop + 1).map((v) => { try { return JSON.parse(v); } catch { return v; } }); }
   }
 }));
 
@@ -296,5 +300,49 @@ describe("store — file backend (dev, no Upstash)", () => {
     await setMeta("a", { lastSyncAt: 5 });
     expect(JSON.parse(fsFiles.get(metaFile("a")))).toEqual({ lastSyncAt: 5 });
     expect(await getMeta("a")).toEqual({ lastSyncAt: 5 });
+  });
+});
+
+describe("the questions asked on a team's Ask tab", () => {
+  const entry = (n) => ({ at: `2026-11-28T0${n}:00:00.000Z`, q: `Question ${n}`, how: "quick", who: { label: "Someone with the team code" } });
+
+  it("Redis: each one pushed to the team's own list, newest first, the list cut back to its limit", async () => {
+    useRedis();
+    const store = await loadStore();
+    for (const n of [1, 2, 3, 4]) await store.addAskLog("u10", entry(n), 3);
+    expect(redisStore.get("team:u10:asklog").map((v) => JSON.parse(v).q)).toEqual(["Question 4", "Question 3", "Question 2"]);
+    expect((await store.getAskLog("u10")).map((e) => e.q)).toEqual(["Question 4", "Question 3", "Question 2"]);
+    expect((await store.getAskLog("u10", 1)).map((e) => e.q)).toEqual(["Question 4"]);
+    expect(await store.getAskLog("u9")).toEqual([]);
+  });
+
+  it("Redis: an entry that won't read is passed over", async () => {
+    useRedis();
+    const store = await loadStore();
+    redisStore.set("team:u10:asklog", ["{not json", JSON.stringify(entry(1))]);
+    expect((await store.getAskLog("u10")).map((e) => e.q)).toEqual(["Question 1"]);
+  });
+
+  it("files: the same, kept in the team's own file", async () => {
+    const store = await loadStore();
+    for (const n of [1, 2, 3]) await store.addAskLog("u10", entry(n), 2);
+    const p = path.join(process.cwd(), ".data", "u10.asklog.json");
+    expect(JSON.parse(fsFiles.get(p)).map((e) => e.q)).toEqual(["Question 3", "Question 2"]);
+    expect((await store.getAskLog("u10")).map((e) => e.q)).toEqual(["Question 3", "Question 2"]);
+    expect(await store.getAskLog("u9")).toEqual([]);
+  });
+
+  it("go with the team when it is removed", async () => {
+    useRedis();
+    let store = await loadStore();
+    await store.addAskLog("u10", entry(1));
+    await store.deleteData("u10");
+    expect(redisStore.has("team:u10:asklog")).toBe(false);
+    delete process.env.UPSTASH_REDIS_REST_URL;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    store = await loadStore();
+    await store.addAskLog("u10", entry(1));
+    await store.deleteData("u10");
+    expect(fsFiles.has(path.join(process.cwd(), ".data", "u10.asklog.json"))).toBe(false);
   });
 });

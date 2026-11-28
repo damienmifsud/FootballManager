@@ -3626,7 +3626,9 @@ describe("S9 Ask — Direction C", () => {
   const FALLBACK = "That isn't covered by the team's documents or schedule, so I won't guess. Try fixtures, training, duties or the team's documents — or message Coach Byron.";
   const load = async (d) => { storage.get.mockResolvedValue({ value: JSON.stringify(d) }); render(<App />); await waitForLoaded(); };
   const toAsk = async () => { fireEvent.click(screen.getByText("Ask")); return screen.findByPlaceholderText("Ask about the team…"); };
-  const askCalls = () => fetch.mock.calls.filter(([url]) => String(url).includes("/api/ask"));
+  const askCalls = () => fetch.mock.calls.filter(([url]) => String(url) === "/api/ask");
+  // A quick answer worked out on the phone is still kept with who asked (/api/ask-log).
+  const logCalls = () => fetch.mock.calls.filter(([url]) => String(url) === "/api/ask-log").map(([, init]) => [init.method, JSON.parse(init.body)]);
   // /api/ask replies with `reply`; everything else (e.g. /api/me) stays a miss.
   const askFetch = (reply) => fetch.mockImplementation((url) => String(url).includes("/api/ask") ? Promise.resolve(reply) : Promise.resolve({ ok: false, json: async () => ({}) }));
   const bubbles = (cls) => Array.from(document.querySelectorAll("." + cls)).map((el) => el.textContent);
@@ -3644,7 +3646,7 @@ describe("S9 Ask — Direction C", () => {
     await toAsk();
     expect(screen.getByText("Ask about fixtures, training, duties or the team's documents.").className).toBe("ask-intro-title");
     const sub = document.querySelector(".ask-intro-sub");
-    expect(sub.textContent).toBe("It answers from our documents and schedule. It won't make up rules.No documents loaded yet. Add club and Football Queensland PDFs in Team settings.");
+    expect(sub.textContent).toBe("It answers from our documents and schedule. It won't make up rules.The club can see the questions asked here.No documents loaded yet. Add club and Football Queensland PDFs in Team settings.");
     expect(document.querySelector(".ask-intro .lc-ic svg")).toBeTruthy();
     expect(Array.from(document.querySelectorAll(".ask-chip")).map((b) => b.textContent)).toEqual([
       "When and where is our next game?",
@@ -3666,7 +3668,7 @@ describe("S9 Ask — Direction C", () => {
     fireEvent.click(await screen.findByText("Sam Smith"));
     await waitFor(() => expect(document.querySelector(".ov")).toBeNull());
     await toAsk();
-    expect(document.querySelector(".ask-intro-sub").textContent).toBe("It answers from our documents and schedule. It won't make up rules.");
+    expect(document.querySelector(".ask-intro-sub").textContent).toBe("It answers from our documents and schedule. It won't make up rules.The club can see the questions asked here.");
   });
 
   it("a chip tap shows the user bubble, then the typing bubble, then the canned answer with its source — no API call", async () => {
@@ -3685,6 +3687,7 @@ describe("S9 Ask — Direction C", () => {
     expect(ai.textContent).toBe("U8 plays two 20-minute halves. It's 7-a-side including a goalkeeper.From: Team settings · Match format");
     expect(screen.queryByText("Checking the team's documents…")).toBeNull();
     expect(askCalls()).toEqual([]);
+    expect(logCalls()).toEqual([["POST", { question: "How long are the halves at U8?" }]]);
   });
 
   it("the next-game chip answers from the live schedule", async () => {
@@ -3695,6 +3698,7 @@ describe("S9 Ask — Direction C", () => {
     const ai = await screen.findByText(/Round 7 vs Oxley United/, {}, { timeout: 2000 });
     expect(ai.textContent).toBe(`Round 7 vs Oxley United — ${fmtDate(daysFromNow(3))}, kick-off 08:00 at Perry Park. We're the home side. Wear the red home kit. Aim to be there by 07:30 for warm-up.From: Team schedule`);
     expect(askCalls()).toEqual([]);
+    expect(logCalls()).toEqual([["POST", { question: "When and where is our next game?" }]]);
   });
 
   it("free text POSTs { question, history } to /api/ask and renders the answer from the Team assistant", async () => {
@@ -3709,6 +3713,7 @@ describe("S9 Ask — Direction C", () => {
     const ai = await screen.findByText(/Training is Tuesdays/);
     expect(ai.textContent).toBe("Training is Tuesdays at 17:30.From: Team assistant");
     expect(askCalls().length).toBe(1);
+    expect(logCalls()).toEqual([]); // the assistant's questions are kept by /api/ask itself
     const [, init] = askCalls()[0];
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body)).toEqual({ question: "When is training?", history: [] });
@@ -3768,6 +3773,7 @@ describe("S9 Ask — Direction C", () => {
     const ai = await screen.findByText(/This season's focuses/, {}, { timeout: 2000 });
     expect(ai.textContent).toBe("This season's focuses: Passing, Receiving and Dribbling. Coach Byron highlights one each week — this week it's Receiving.From: Coach notes · Season focuses");
     expect(askCalls()).toEqual([]);
+    expect(logCalls()).toEqual([["POST", { question: "what are this season's match focuses?" }]]);
   });
 
   it("the sticky bar sits 88px above the bottom and drops to 0 while the input has focus; the nav hides meanwhile", async () => {
@@ -5239,5 +5245,32 @@ describe("the header line, and named rounds", () => {
     await waitFor(() => expect(document.querySelector(".st-rd")).toBeTruthy());
     expect(document.querySelector(".st-rd").textContent).toBe("GF");
     expect(document.querySelector(".st-col").getAttribute("aria-label")).toBe("Grand Final, 2–1");
+  });
+});
+
+/* ---------------- Ask: questions kept with who asked ---------------- */
+// Signed in, the Ask tab says the club sees the questions and who asked them;
+// a quick answer worked out on the phone is still kept (/api/ask-log).
+describe("Ask — the club sees the questions asked, and who asked them", () => {
+  const parentMe = {
+    mode: "account", email: "mum@a.com", admin: false, clubAdmin: false, teamSlug: "a", teamName: "Test FC", role: "parent",
+    playerIds: ["p1"], playerNames: ["Sam Smith"], hats: [{ role: "parent", playerIds: ["p1"], playerNames: ["Sam Smith"] }],
+    teams: [{ teamSlug: "a", teamName: "Test FC", hats: [{ role: "parent", playerIds: ["p1"], playerNames: ["Sam Smith"] }], mine: true }], canSwitch: false, memberships: []
+  };
+  it("says so on the Ask tab, and keeps a quick answer's question", async () => {
+    fetch.mockImplementation((url) => {
+      if (String(url).includes("/api/me")) return Promise.resolve({ ok: true, json: async () => parentMe });
+      return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+    });
+    storage.get.mockResolvedValue({ value: JSON.stringify(makeData({ fixtures: [{ id: "f7", status: "upcoming", round: 7, dateISO: isoLocal(new Date(Date.now() + 3 * 864e5)), time: "08:00", opponent: "Wests", homeAway: "H", venue: "Perry Park", availability: {} }] })) });
+    render(<App />);
+    await expectChip("Parent of Sam");
+    fireEvent.click(within(screen.getByRole("navigation")).getByText("Ask"));
+    expect((await screen.findByText(/The club can see the questions asked here/)).textContent)
+      .toBe("It answers from our documents and schedule. It won't make up rules.The club can see the questions asked here and who asked them.");
+    fireEvent.click(screen.getByText("When and where is our next game?"));
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url) === "/api/ask-log")).toBe(true));
+    const [, init] = fetch.mock.calls.find(([url]) => String(url) === "/api/ask-log");
+    expect([init.method, JSON.parse(init.body)]).toEqual(["POST", { question: "When and where is our next game?" }]);
   });
 });

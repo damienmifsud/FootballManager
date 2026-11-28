@@ -7,12 +7,12 @@ import { fakeRequest } from "./helpers/fakeRequest";
 // (model selection, system prompt, doc budget, game summary, question slice).
 // Account mode goes through the real lib/viewer, so its dependencies (auth,
 // directory) are mocked too; the default is legacy team-code mode.
-const { teamFromCookieHeader, teamBySlug, getData, auth, membershipsForEmail, viewingAs } = vi.hoisted(() => ({
-  teamFromCookieHeader: vi.fn(), teamBySlug: vi.fn(), getData: vi.fn(),
+const { teamFromCookieHeader, teamBySlug, getData, addAskLog, auth, membershipsForEmail, viewingAs } = vi.hoisted(() => ({
+  teamFromCookieHeader: vi.fn(), teamBySlug: vi.fn(), getData: vi.fn(), addAskLog: vi.fn(),
   auth: vi.fn(), membershipsForEmail: vi.fn(), viewingAs: vi.fn()
 }));
 vi.mock("@/lib/teams", () => ({ teamFromCookieHeader, teamBySlug }));
-vi.mock("@/lib/store", () => ({ getData }));
+vi.mock("@/lib/store", () => ({ getData, addAskLog }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/directory", () => ({ membershipsForEmail, viewingAs }));
 
@@ -228,3 +228,45 @@ describe("POST /api/ask — upstream failures", () => {
 function sentBodyContent() {
   return JSON.parse(fetch.mock.calls[0][1].body).messages.at(-1).content;
 }
+
+// Every question answered is kept with who asked it (lib/askLog.js), for the
+// super admin's Questions section, and keeping it never fails an answer.
+describe("POST /api/ask — the question kept with who asked", () => {
+  const kept = () => addAskLog.mock.calls.map(([slug, entry, max]) => [slug, { ...entry, at: typeof entry.at }, max]);
+
+  it("keeps the question, the answer and who asked, in team-code mode with no one to name", async () => {
+    fetch.mockResolvedValue(anthropicOk("Training is Tuesdays at 5:30."));
+    expect((await ask({ question: " When is  training? " })).status).toBe(200);
+    expect(kept()).toEqual([["a", { at: "string", q: "When is training?", a: "Training is Tuesdays at 5:30.", how: "assistant", who: { label: "Someone with the team code" } }, 500]]);
+  });
+
+  it("names the signed-in person and what they are on the team", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    auth.mockResolvedValue({ user: { email: "mum@a.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", teamName: "Team A", role: "parent", playerId: "p1", playerName: "Sam Smith" }] });
+    teamBySlug.mockResolvedValue({ slug: "a", name: "Team A" });
+    await ask({ question: "When is training?" });
+    expect(addAskLog.mock.calls[0][1].who).toEqual({ email: "mum@a.com", label: "Parent of Sam" });
+  });
+
+  it("keeps a question the assistant couldn't answer, without an answer", async () => {
+    fetch.mockResolvedValue({ ok: false, status: 529, text: async () => "overloaded" });
+    await ask({ question: "Who brings fruit?" });
+    fetch.mockRejectedValue(new Error("network down"));
+    await ask({ question: "And oranges?" });
+    expect(kept().map(([, e]) => [e.q, e.how, "a" in e])).toEqual([["Who brings fruit?", "failed", false], ["And oranges?", "failed", false]]);
+  });
+
+  it("still answers when the question can't be kept", async () => {
+    addAskLog.mockRejectedValueOnce(new Error("store down"));
+    const res = await ask({ question: "When is training?" });
+    expect([res.status, (await res.json()).answer]).toEqual([200, "Here is your answer."]);
+  });
+
+  it("keeps nothing for a request that is refused before it is asked", async () => {
+    await ask({ question: "   " });
+    teamFromCookieHeader.mockReturnValue(null);
+    await ask({ question: "hi" });
+    expect(addAskLog).not.toHaveBeenCalled();
+  });
+});

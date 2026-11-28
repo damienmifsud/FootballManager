@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getData } from "@/lib/store";
+import { getData, addAskLog } from "@/lib/store";
+import { askLogEntry, ASK_LOG_MAX } from "@/lib/askLog";
 import { teamFromCookieHeader } from "@/lib/teams";
 import { askTeamData, brisbaneToday } from "@/lib/askContext";
 import { withCompetitionFormats } from "@/lib/competitions";
@@ -43,6 +44,16 @@ async function resolveTeam(req) {
   }
   const team = await teamFromCookieHeader(req.headers.get("cookie"));
   return team ? { mode: "code", team } : { error: 401, message: "unauthorized" };
+}
+
+// Every question asked is kept with who asked it (lib/askLog.js), for the
+// super admin's Questions section. Keeping it never holds up or fails the
+// answer: a store that is down loses the entry, not the reply.
+async function keep(team, make) {
+  try {
+    const entry = make();
+    if (entry) await addAskLog(team.slug, entry, ASK_LOG_MAX);
+  } catch {}
 }
 
 export async function POST(req) {
@@ -117,12 +128,15 @@ export async function POST(req) {
     });
     if (!r.ok) {
       const detail = await r.text().catch(() => "");
+      await keep(team, () => askLogEntry({ question, how: "failed", viewer: v }));
       return NextResponse.json({ error: `Assistant error (${r.status})`, model, detail: detail.slice(0, 300) }, { status: 502 });
     }
     const j = await r.json();
-    const answer = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
-    return NextResponse.json({ answer: answer || "I'm not sure how to answer that." });
+    const answer = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim() || "I'm not sure how to answer that.";
+    await keep(team, () => askLogEntry({ question, answer, how: "assistant", viewer: v }));
+    return NextResponse.json({ answer });
   } catch (e) {
+    await keep(team, () => askLogEntry({ question, how: "failed", viewer: v }));
     return NextResponse.json({ error: "Could not reach the assistant." }, { status: 502 });
   }
 }

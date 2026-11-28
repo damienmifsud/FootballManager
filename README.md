@@ -188,6 +188,25 @@ division and nothing more about its program. The chip asking how long the halves
 is answered from the match format set in Team settings, and otherwise by Ask from the
 documents.
 
+**Every question is kept, with who asked it**, for the super admin's **Club admin →
+Questions** section (`lib/askLog.js`). That covers a question the assistant answers or
+couldn't answer, and a quick question tapped from the chips, which is answered on the
+phone. Each entry is:
+
+- the question;
+- the sign-in that asked it (in team-code mode nobody is signed in, so it reads
+  "Someone with the team code");
+- what they were on the team at the time, as the Viewing-as chip says it ("Parent of
+  Sam", "Head coach", "Player");
+- the team and the time;
+- how it was answered, and the assistant's answer itself. A quick answer isn't kept,
+  being the team's own schedule read back.
+
+A super admin viewing as someone is kept as themselves, with who they were viewing as.
+The Ask tab tells everyone that the club can see the questions asked there and who asked
+them. Each team keeps its newest 500 questions, and a team's questions go when the team
+is removed. Keeping a question never holds up or fails an answer.
+
 Requires `ANTHROPIC_API_KEY` (server-side; never sent to the browser). Optional
 `ANTHROPIC_MODEL` overrides the model. Without a key the tab shows a friendly
 "not configured" message. Document text is capped per request so a large rulebook
@@ -350,7 +369,7 @@ as**: the person's roles on this team (tap one to switch), **Team settings** for
 **Sign out**. Nobody is asked to choose a role up front: a team opens in the strongest
 role held there.
 
-**Club admin** (`/admin`) has three sections for a super admin:
+**Club admin** (`/admin`) has five sections for a super admin:
 
 - **Teams**: the team wizard (create, edit, open any team) and the league page link.
 - **People**: everyone with a login and everything each is attached to, one card per
@@ -361,6 +380,12 @@ role held there.
   team, make them a club admin, or view the site as them. Roles themselves come from each team's staff list
   and the emails on its players' records; nothing on a roster is edited from this
   page. It holds every family's email address, so club admins do not get it.
+- **Logos**: the club logo library (below).
+- **Questions**: every question asked on the teams' Ask tabs, newest first, or one
+  team's. Each shows who asked it (the club's name for them where it has one, what they
+  were on the team, and their email), the team, when, and how it was answered, with the
+  assistant's answer folded under it. Club admins do not get it: it holds what families
+  asked and who they are.
 - **Access**: view as a user, the club admins list, every per-team override in one
   place, and the who-can-do-what table.
 
