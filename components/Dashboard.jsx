@@ -33,7 +33,7 @@ import {
 } from "@/lib/planner";
 import { shapeCall } from "@/lib/shapes";
 import { downscaleImage } from "@/lib/clientImage";
-import { crestFor, OUR_CREST } from "@/lib/clubs";
+import { oppCrestFor, OUR_CREST } from "@/lib/clubs";
 import Crest, { OppCrest } from "@/components/Crest";
 import { hatLabel, kidNames, isPlayerHat, joinNames as joinKidNames } from "@/lib/hats";
 import { cannedQuestions, cannedAnswer, askFallback } from "@/lib/askCanned";
@@ -882,6 +882,10 @@ const CSS = `
 .mcrest{width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;}
 .mcrest.ph{display:inline-flex;align-items:center;justify-content:center;background:var(--soft);font-size:11px;font-weight:800;color:var(--muted);}
 .mr-side.ours .mcrest{box-shadow:var(--crest-ring);}
+.mcrest.drawn,.hopp.drawn,.mu-crest.drawn,.du-crest.drawn,.cal-crest.drawn,.cv-crest.drawn{object-fit:contain;background:#fff;}
+.mcrest.drawn,.hopp.drawn{padding:4px;}
+.mu-crest.drawn{padding:6px;}
+.du-crest.drawn,.cal-crest.drawn,.cv-crest.drawn{padding:3px;}
 .mr-name{font-size:12px;line-height:1.25;font-weight:600;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 .mr-side.ours .mr-name{font-weight:800;color:var(--ink);}
 .mr-centre{width:56px;text-align:center;flex-shrink:0;}
@@ -1311,8 +1315,9 @@ export default function App() {
   // On a game's own screens (match detail, and Who's in while it shows the
   // game rather than training) the header carries the opposition's crest
   // beside the back button, the way the root header carries ours.
-  const headOpp = screen === "match" ? (screenFixture ? screenFixture.opponent : "")
-    : screen === "whosin" && whosIn && whosIn.show !== "session" ? whosIn.game.opponent : "";
+  const headGame = screen === "match" ? screenFixture || null
+    : screen === "whosin" && whosIn && whosIn.show !== "session" ? whosIn.game : null;
+  const headOpp = headGame ? headGame.opponent || "" : "";
   const chipLabel = account ? hatText : (isCoach ? "Coach" : "Parent");
   // Root kicker: the shown month on Calendar, "n players · m coaches" on Squad,
   // division · age group elsewhere.
@@ -1350,7 +1355,7 @@ export default function App() {
         {isSub ? (
           <>
             <button className="backbtn" aria-label="Back" onClick={back}><ChevronLeft size={18} /></button>
-            {headOpp && <OppCrest name={headOpp} className="hopp" discClass="hopp ph" />}
+            {headOpp && <OppCrest name={headOpp} logo={headGame?.opponentLogo} crest={headGame?.opponentCrest} className="hopp" discClass="hopp ph" />}
           </>
         ) : (
           <img className="hcrest" src={data.team.logo || OUR_CREST} alt=""
@@ -1638,7 +1643,7 @@ function EventRow({ data, it, isCoach, own, onOpen, noDay = false }) {
       onClick={open || undefined} onKeyDown={open ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } : undefined}>
       {!noDay && <div className="wk-day"><div className="wk-dow">{WEEKDAYS[d.getDay()]}</div><div className="wk-num">{d.getDate()}</div></div>}
       {isGame
-        ? <span className="wk-ic game opp"><OppCrest name={it.ref.opponent} /></span>
+        ? <span className="wk-ic game opp"><OppCrest name={it.ref.opponent} logo={it.ref.opponentLogo} crest={it.ref.opponentCrest} /></span>
         : <span className={"wk-ic " + kind}><Ic size={noDay ? 16 : 15} /></span>}
       <div className="wk-body">
         <div className={"wk-title" + (cancelled ? " off" : "")}>{title}</div>
@@ -1679,7 +1684,7 @@ function GameBrief({ data, f, both = false, when = true, plain = false }) {
   return (
     <div className={"gb" + (plain ? " plain" : "")}>
       <div className="gb-top">
-        <OppCrest name={f.opponent} />
+        <OppCrest name={f.opponent} logo={f.opponentLogo} crest={f.opponentCrest} />
         <div className="gb-body">
           <div className="gb-title">vs {f.opponent}</div>
           {meta && <div className="gb-meta">{meta}</div>}
@@ -1913,7 +1918,7 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
               <div className="mu-date">{matchDate(next.dateISO)}</div>
             </div>
             <div className="mu-side">
-              <OppCrest name={next.opponent} className="mu-crest" discClass="mu-disc" />
+              <OppCrest name={next.opponent} logo={next.opponentLogo} crest={next.opponentCrest} className="mu-crest" discClass="mu-disc" />
               <span className="mu-name">{next.opponent}</span>
             </div>
           </div>
@@ -2165,7 +2170,7 @@ function CalendarTab({ data, isCoach, viewer, me, setModal, openMatch, openPlaye
               <button key={iso} className={cls} onClick={() => tapDay(iso)} aria-label={`${d} ${monthName}`}>
                 <span className="n">{d}</span>
                 {carnival && <span className="cal-carnival" aria-label="Carnival"><Medal size={13} /></span>}
-                {!carnival && game && <Crest src={crestFor(game.ref.opponent)} name={game.ref.opponent} className="cal-crest" discClass="cal-crest ph" />}
+                {!carnival && game && <OppCrest name={game.ref.opponent} logo={game.ref.opponentLogo} crest={game.ref.opponentCrest} className="cal-crest" discClass="cal-crest ph" />}
                 {!carnival && !game && dot && <span className={"cal-dot " + dot} />}
               </button>
             );
@@ -2237,7 +2242,7 @@ const shortDate = (iso) => { if (!iso) return "TBC"; const d = new Date(iso + "T
 // our side gets the crest ring and 800-weight ink text.
 function MatchRow({ data, f, onTap }) {
   const home = f.homeAway === "H";
-  const us = data.team.name, usLogo = data.team.logo || OUR_CREST, oppLogo = crestFor(f.opponent);
+  const us = data.team.name, usLogo = data.team.logo || OUR_CREST, opp = oppCrestFor(f.opponent, f.opponentLogo, f.opponentCrest);
   const { cancelled, scored, result } = fixtureState(f);
   // A carnival game: the carnival's name on a tag line, and a medal in the
   // round column when the game has no round (most don't).
@@ -2250,7 +2255,7 @@ function MatchRow({ data, f, onTap }) {
   const hs = home ? f.us : f.them, as = home ? f.them : f.us;
   const side = (ours, away) => (
     <div className={"mr-side" + (ours ? " ours" : "") + (away ? " away" : "")}>
-      <Crest src={ours ? usLogo : oppLogo} name={ours ? us : f.opponent} ours={ours} />
+      <Crest src={ours ? usLogo : opp.src} drawn={!ours && opp.drawn} name={ours ? us : f.opponent} ours={ours} />
       <span className="mr-name">{ours ? us : f.opponent}</span>
     </div>
   );
@@ -2506,7 +2511,7 @@ function DutiesTab({ data, isCoach, viewer, me, setModal, patchLocal, showToast 
           <div key={f.id} className={"card ducard" + (past ? " past" : "")}>
             <div className="du-head">
               <span className="du-round">{f.round ? `R${f.round}` : "—"}</span>
-              <OppCrest name={f.opponent} className="du-crest" discClass="du-crest ph" />
+              <OppCrest name={f.opponent} logo={f.opponentLogo} crest={f.opponentCrest} className="du-crest" discClass="du-crest ph" />
               <span className="du-opp">vs {f.opponent}{competitionOf(f) ? ` · ${competitionOf(f).name}` : ""}</span>
               {sideOf(data, f) && <span className="sidetag">{sideOf(data, f)}</span>}
               <span className="du-date">{fmtDate(f.dateISO)}</span>
@@ -3862,7 +3867,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
     : null;
   const todayISO = isoLocal(new Date());
   const home = f.homeAway === "H";
-  const us = data.team.name, usLogo = data.team.logo || OUR_CREST, oppLogo = crestFor(f.opponent);
+  const us = data.team.name, usLogo = data.team.logo || OUR_CREST, opp = oppCrestFor(f.opponent, f.opponentLogo, f.opponentCrest);
   const { cancelled, scored, past, upcoming, result } = fixtureState(f);
   const hs = home ? f.us : f.them, as = home ? f.them : f.us;
   // Hero centre: score + Win/Loss/Draw, kick-off + date, Cancelled, or no score.
@@ -3892,7 +3897,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
   const openCarnival = () => setModal({ type: "session", payload: carnival, occ: carnival.dateISO });
   const side = (ours) => (
     <div className="mu-side">
-      <Crest src={ours ? usLogo : oppLogo} name={ours ? us : f.opponent} ours={ours} className="mu-crest" discClass="mu-disc" />
+      <Crest src={ours ? usLogo : opp.src} drawn={!ours && opp.drawn} name={ours ? us : f.opponent} ours={ours} className="mu-crest" discClass="mu-disc" />
       <span className={"mu-name" + (ours ? " ours" : "")}>{ours ? us : f.opponent}</span>
     </div>
   );
@@ -4924,7 +4929,7 @@ function SessionSheet({ data, persist, payload, occ, isCoach, viewer, me, setMod
             <div className="cv-game" key={g.id || g.time + g.opponent} role={tap ? "button" : undefined} tabIndex={tap ? 0 : undefined}
               onClick={tap || undefined} onKeyDown={tap ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tap(); } } : undefined}>
               <span className="cv-time">{g.time || "TBC"}</span>
-              <Crest src={crestFor(g.opponent)} name={g.opponent} className="cv-crest" discClass="cv-crest ph" />
+              <OppCrest name={g.opponent} logo={f?.opponentLogo} crest={f?.opponentCrest} className="cv-crest" discClass="cv-crest ph" />
               <span className="cv-opp">{g.opponent}</span>
               {right}
             </div>

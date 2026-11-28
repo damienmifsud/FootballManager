@@ -800,13 +800,63 @@ A game with no ground yet says "Venue to be confirmed". A reply on a paired roun
 covers both games, so its sheet gives each side's kick-off and field, with the ground
 named once when the two share it. Training says where it is too.
 
-A crest is always one of the site's own files, found by the opponent's name; the logo
-address that comes with a Squadi draw is kept but never shown, so nothing is loaded from
-another club's website. The set is in `public/crests` (512 px PNGs, padded so a round
-crop clips nothing) and `lib/clubs.js` maps a team name to its file by the words in it
-("Oxley United U9 Eagles" is Oxley United). A club that is not in the set shows a disc
-with its initials. To add one, put its PNG in `public/crests` and add a line for it to
-`lib/clubs.js`.
+The built-in crests come first. They are the site's own files, found by the opponent's
+name: the set is in `public/crests` (512 px PNGs, padded so a round crop clips nothing)
+and `lib/clubs.js` maps a team name to its file by the words in it ("Oxley United U9
+Eagles" is Oxley United). To add one, put its PNG in `public/crests` and add a line for
+it to `lib/clubs.js`. A club with neither a built-in crest nor a logo found for it (below)
+shows a disc with its initials.
+
+### Logos found on Squadi and Dribl (the club logo library)
+
+Tournaments bring opposition the built-in set doesn't cover: interstate clubs,
+independent academies, tournament-only teams. For those, the site uses the logo Squadi or
+Dribl gives the team, kept in a club logo library (`lib/clubLogos.js`, one document for
+the whole club, stored beside the teams). It is an extension of the built-in set, not a
+second one:
+
+- **A built-in crest always wins.** A team the set knows keeps its crest whatever a draw
+  says, and the library never changes the set.
+- **Where the logos come from.** Squadi gives each team a logo on every game. For a
+  league team it is the club's: Squadi files it under the club's organisation number,
+  and every team of that club carries the same one. For some tournaments (Winterfest
+  among them), every team carries the competition's own logo instead. That is no one's
+  crest and is never used, so those teams keep their initials unless the club is in the
+  built-in set. Dribl gives each side's logo on its games (`home_logo`/`away_logo`, or
+  similar), and the match centre's club list (`/api/list/clubs`) gives each club's. Both
+  are read in a coach's browser, as Dribl's games are. Squadi's team and club lists need a
+  Squadi login, so they are not used.
+- **Club, team or neither.** A club's logo is shown for all its teams. A team's own logo
+  (an academy's badge, say) is shown for that team only and comes before its club's.
+- **The same club, by evidence only.** Two teams are the same club when the provider says
+  so: the same Squadi organisation number, the same Dribl club id, or the very same logo
+  image. Never because their names look alike, and never across providers. A team first
+  seen without an id is matched later only by its exact name on the same provider. One
+  club with many team names stays one club.
+- **References, not copies.** The library keeps where the provider shows a logo, never a
+  copy of the image. Squadi's licence doesn't let its users copy a copyrighted image
+  through it without the owner's permission, and Dribl's terms couldn't be read. So the
+  image loads from Squadi's or Dribl's own site, asked for without saying which page it is
+  on. Only Squadi's own storage and Dribl's own sites (`*.dribl.com`) are used. Another
+  host, for a provider that keeps its logos elsewhere, can be allowed exactly with
+  `LOGO_HOSTS` (host names separated by commas, no wildcards): the Dribl read-back names
+  any such host.
+- **Found as the games come in.** Every sync tells the library what its draws showed,
+  after the games are saved and under its own lock. That step can't fail a sync, hold up
+  a score or change what the sync reports. What the library knows is worked out afresh on
+  every read, so a logo found today shows on every past and future game against that
+  team, on every team page. The logo is never saved into a team's games.
+- **Club admin → Logos** (super admin) lists every opposition team with what is shown for
+  it: the counts, the teams still without a logo, the logos found and where from, and the
+  built-in crests. **Find missing logos** reads every team's Squadi draws again on the
+  server, and every Dribl draw with its club list in the admin's own browser. No game is
+  changed. **Hide** keeps a found logo from being shown. It hides a club's logo for all
+  its teams, or a team's own logo for that team. **Show** undoes it. A choice made here
+  is never changed by what a draw says later.
+- **The Dribl read-back** (pasting a Dribl link in the team form) says how many of the
+  teams we play come with a logo the site can show, the host any others are on, the field
+  names a game had when Dribl gives no logos, and what Dribl's club list holds. A
+  screenshot of it settles what Dribl actually sends.
 
 Messages that leave the site (the WhatsApp reminder, a shared game, the calendar feed)
 and the Ask tab's answers are plain text, so they name the opposition without a crest.

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getMeta } from "@/lib/store";
 import { resolveViewer, viewerError } from "@/lib/viewer";
 import { driblSources } from "@/lib/competitions";
-import { sanitizeDrawRecords } from "@/lib/dribl";
+import { sanitizeDrawRecords, sanitizeDriblClubs } from "@/lib/dribl";
 import { applyDraws } from "@/lib/applyDraws";
 import { cronAuthorized } from "@/lib/cronAuth";
 import { getTeams, teamBySlug } from "@/lib/teams";
@@ -89,15 +89,17 @@ function drawsFor(team, sent) {
     seen.add(d.comp);
     // A competition set up to take its scores from Dribl fills a game with
     // none yet; any other's scores are entered by hand (applySync).
-    draws.push({ comp: source.comp, records, ...(source.scores ? { scoreFrom: "Dribl" } : {}) });
+    draws.push({ comp: source.comp, records, provider: "dribl", ...(source.scores ? { scoreFrom: "Dribl" } : {}) });
   }
   return { draws };
 }
 
-async function applyFor(team, sent) {
+// `clubs` is Dribl's club list as the browser read it, for the club logo
+// library only (lib/applyDraws.js): checked here, and never needed for the games.
+async function applyFor(team, sent, clubs) {
   const { draws, error } = drawsFor(team, sent);
   if (error) return NextResponse.json({ error }, { status: 400 });
-  const applied = await applyDraws(team, draws, { source: "Dribl", stamp: "lastDriblSyncAt" });
+  const applied = await applyDraws(team, draws, { source: "Dribl", stamp: "lastDriblSyncAt", ...(clubs.length ? { clubs } : {}) });
   if (!applied) return NextResponse.json({ error: "no data" }, { status: 404 });
   return NextResponse.json({ ok: true, ...applied });
 }
@@ -110,15 +112,17 @@ export async function POST(req) {
     return NextResponse.json({ error: "bad request" }, { status: 400 });
   }
 
+  const clubs = sanitizeDriblClubs(body.clubs);
+
   // The scheduled reader names the team it read for.
   if (cronAuthorized(req)) {
     const team = typeof body.team === "string" && body.team ? await teamBySlug(body.team) : null;
     if (!team) return NextResponse.json({ error: NO_SUCH_TEAM }, { status: 404 });
-    return applyFor(team, sent);
+    return applyFor(team, sent, clubs);
   }
 
   const v = await resolveViewer(req, { write: true });
   if (v.error) return viewerError(v);
   if (!mayPost(v)) return NextResponse.json({ error: COACH_ONLY }, { status: 403 });
-  return applyFor(v.team, sent);
+  return applyFor(v.team, sent, clubs);
 }

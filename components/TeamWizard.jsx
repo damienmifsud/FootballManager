@@ -119,17 +119,39 @@ const squadiFound = (found) => {
 };
 // What reading a Dribl link found, as the note under the field. The request
 // has been filled in whatever this says; the note is about its draw.
-export function driblFound({ draw, problem }) {
+export function driblFound({ draw, problem, clubs }) {
   if (!draw) return { kind: "err", text: `The fixtures request is filled in, but Dribl did not give its draw: ${problem}` };
   if (problem) return { kind: "err", text: problem };
   if (!draw.games) return { kind: "warn", text: "The fixtures request is filled in. Dribl lists no games in this draw yet. Once it does, they sync whenever a coach opens the team." };
   const what = [draw.competition, draw.league].filter(Boolean).join(" · ");
   if (!draw.ours) return { kind: "warn", text: `${what ? what + ". " : ""}${plural(draw.games, "game")} found, but the draw does not show which team is yours. Choose it in the team name box above.` };
   const check = driblCheck(draw);
+  const logos = driblLogoNote(draw.logos, clubs, draw.shape);
   return {
     kind: check ? "warn" : "ok",
-    text: `${[draw.ours, what].filter(Boolean).join(" · ")}. ${plural(draw.ourGames, "game")} found${withScores(draw.ourResults)}. They sync whenever a coach opens the team.${check ? " " + check : ""}`
+    text: `${[draw.ours, what].filter(Boolean).join(" · ")}. ${plural(draw.ourGames, "game")} found${withScores(draw.ourResults)}. They sync whenever a coach opens the team.${check ? " " + check : ""}${logos ? " " + logos : ""}`
   };
+}
+// What the draw and Dribl's club list hold of the opposition's logos, for the
+// club logo library, in a sentence or two: how many come through, where they
+// are when the app does not show logos from there yet, and, when there are
+// none, the field names a game had, so a screenshot shows what Dribl sends.
+// Never a team, place or person: counts, host names and field names only.
+export function driblLogoNote(logos, clubs, shape) {
+  const l = logos && typeof logos === "object" ? logos : null;
+  const c = clubs && typeof clubs === "object" ? clubs : null;
+  const said = [];
+  if (l?.teams) {
+    if (l.shown) said.push(`Logos for ${l.shown} of the ${plural(l.teams, "team")} it plays come through.`);
+    if (l.elsewhere?.length) said.push(`Logos for ${plural(l.withLogo - l.shown, "team")} are on ${l.elsewhere.join(", ")}, which the app does not show logos from yet.`);
+    if (!l.withLogo) said.push(`Dribl gives no logos with these games${shape?.fields?.length ? ` (a game there has: ${shape.fields.slice(0, 40).join(", ")})` : ""}.`);
+  }
+  if (c?.error) said.push(`Dribl's club list could not be read (${String(c.error).replace(/\.+$/, "")}).`);
+  else if (c && Number.isInteger(c.count)) {
+    said.push(c.count ? `Dribl's club list has ${plural(c.count, "club")}, ${c.shown} with a logo the app can show.` : "Dribl's club list is empty.");
+    if (c.elsewhere?.length) said.push(`Its other logos are on ${c.elsewhere.join(", ")}, which the app does not show logos from yet.`);
+  }
+  return said.join(" ");
 }
 // Whether Dribl's answer is the shape this app reads its results from: said
 // only when it is not, with the names of the fields a game carried, so a

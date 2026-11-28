@@ -8,9 +8,12 @@ import { isoLocal, fmtDate } from "@/lib/dashboardData";
 
 // Wherever a game is written "vs somebody" the opposition's crest is beside
 // it, and wherever a family is asked to answer (a reply, a duty) the sheet
-// says where the game is. The crest is always one of our own files, found by
-// the opponent's name (lib/clubs.js): a logo address kept from the draw is
-// never shown. A club we have no artwork for gets a disc with its initials.
+// says where the game is. The crest is one of our own files, found by the
+// opponent's name (lib/clubs.js). A logo address kept from the draw is shown
+// only for a club with no artwork here, and only from Squadi's or Dribl's own
+// image hosts (lib/clubs.js sourceLogo; test/crestLogos.test.jsx): HOTLINK
+// below is neither, so it is never shown. A club with neither gets a disc
+// with its initials.
 // Real component in jsdom; every club, ground and person here is made up or
 // from the bundled crest set.
 vi.mock("next-auth/react", () => ({ signOut: vi.fn().mockResolvedValue(undefined) }));
@@ -361,5 +364,74 @@ describe("the match day planner's header line", () => {
     render(<MatchDayPlanner data={data} fixture={fixture({ opponent: "Zebras FC", homeAway: "A" })} isCoach onSavePlan={vi.fn()} close={vi.fn()} />);
     expect(line().querySelector("img")).toBeNull();
     expect(line().textContent).toMatch(/^Round 5 @ Zebras FC · /);
+  });
+});
+
+// The club logo library (lib/clubLogos.js): for a club with no artwork here,
+// the logo Squadi or Dribl gives it, which the server puts on each game it
+// sends (opponentCrest). Built-in artwork always comes first.
+describe("a club with no artwork, and the logo the club logo library found for it", () => {
+  const FOUND = "https://cdn.dribl.com/clubs/zebras.png";
+  const SQUADI_CLUB = "https://storage.googleapis.com/download/storage/v1/b/squadi-prod.appspot.com/o/organisation%2Flogo_org_41_1700000001.jpg?generation=1700000002&alt=media";
+  const drawn = (scope, cls) => scope.querySelector(`img.${cls}.drawn`);
+
+  it("shows the found logo wherever the game is named, fitted on white and asked for without a referrer", async () => {
+    stubFetch(hatOf("parent", ["p1"], ["Sam Smith"]));
+    await load(makeData({ fixtures: [oxley(), zebras({ opponentCrest: FOUND })] }));
+    await chipIs("Parent of Sam");
+    const img = drawn(weekRow("vs Zebras FC"), "mcrest");
+    expect(img.getAttribute("src")).toBe(FOUND);
+    expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(img.getAttribute("alt")).toBe("");
+    // The built-in crest is untouched beside it.
+    const ox = weekRow("vs Oxley United U9 Eagles").querySelector("img.mcrest");
+    expect([ox.getAttribute("src"), ox.className]).toEqual(["/crests/oxley-united.png", "mcrest"]);
+    fireEvent.click(screen.getByRole("button", { name: "Duties" }));
+    await waitFor(() => expect(headerTitle()).toBe("Duties"));
+    expect(drawn(document.querySelectorAll(".ducard .du-head")[1], "du-crest").getAttribute("src")).toBe(FOUND);
+  });
+
+  it("on the next-game card, the match screen's header, the Results list and the calendar too", async () => {
+    await load(makeData({ fixtures: [zebras({ opponentCrest: FOUND, dateISO: isoLocal(new Date()) })] }));
+    expect(drawn(document, "mu-crest").getAttribute("src")).toBe(FOUND);
+    fireEvent.click(screen.getByText("Details"));
+    await waitFor(() => expect(headerTitle()).toBe("Round 8"));
+    expect(drawn(document.querySelector(".head"), "hopp").getAttribute("src")).toBe(FOUND);
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(headerTitle()).toBe("Test FC"));
+    nav("Results");
+    await waitFor(() => expect(document.querySelector(".reslist")).toBeTruthy());
+    // The game is still to come, so it is in the Fixtures card under Results.
+    expect(document.querySelector(".reslist img.mcrest.drawn").getAttribute("src")).toBe(FOUND);
+    nav("Calendar");
+    await waitFor(() => expect(document.querySelector(".cal-crest")).toBeTruthy());
+    expect(drawn(document, "cal-crest").getAttribute("src")).toBe(FOUND);
+  });
+
+  it("keeps the initials when the library found nothing, even if the game carries a logo", async () => {
+    await load(makeData({ fixtures: [zebras({ opponentCrest: null, opponentLogo: SQUADI_CLUB })] }));
+    expect(weekRow("vs Zebras FC").querySelector(".mcrest.ph").textContent).toBe("ZF");
+    expect(weekRow("vs Zebras FC").querySelector("img")).toBeNull();
+  });
+
+  it("shows the game's own Squadi club logo when the page came without the library's choice", async () => {
+    await load(makeData({ fixtures: [zebras({ opponentLogo: SQUADI_CLUB })] }));
+    expect(drawn(weekRow("vs Zebras FC"), "mcrest").getAttribute("src")).toBe(SQUADI_CLUB);
+  });
+
+  it("gives way to the initials when the logo will not load", async () => {
+    await load(makeData({ fixtures: [zebras({ opponentCrest: FOUND })] }));
+    fireEvent.error(drawn(weekRow("vs Zebras FC"), "mcrest"));
+    await waitFor(() => expect(weekRow("vs Zebras FC").querySelector(".mcrest.ph").textContent).toBe("ZF"));
+  });
+});
+
+describe("the match day planner's header line, with a found logo", () => {
+  it("fits the found logo beside the opposition's name, asked for without a referrer", () => {
+    const data = { team: { name: "Test FC", ageGroup: "U9" }, players: kids, fixtures: [] };
+    const fx = { id: "f1", round: 5, dateISO: "2026-09-01", time: "09:00", opponent: "Zebras FC", homeAway: "H", venue: "Perry Park", status: "upcoming", availability: {}, opponentCrest: "https://cdn.dribl.com/clubs/zebras.png" };
+    render(<MatchDayPlanner data={data} fixture={fx} isCoach onSavePlan={vi.fn()} close={vi.fn()} />);
+    const img = document.querySelector(".mdp img.md-crest.drawn");
+    expect([img.getAttribute("src"), img.getAttribute("referrerpolicy")]).toEqual(["https://cdn.dribl.com/clubs/zebras.png", "no-referrer"]);
   });
 });

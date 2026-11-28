@@ -55,7 +55,8 @@ async function syncTeam(team, ifStale) {
   // `checked` names the sites whose draws came in, for "up to date with …".
   const ok = draws.filter((d) => !d.error);
   const checked = [...new Set(ok.map((d) => d.provider))];
-  const applied = await applyDraws(team, ok.map((d) => ({ comp: d.comp, side: d.side, records: d.records, ...(d.scoreFrom ? { scoreFrom: d.scoreFrom } : {}) })), { source: checked.join(" and ") });
+  // Each draw names its provider, for the club logo library (lib/applyDraws.js).
+  const applied = await applyDraws(team, ok.map((d) => ({ comp: d.comp, side: d.side, records: d.records, provider: d.provider.toLowerCase(), ...(d.scoreFrom ? { scoreFrom: d.scoreFrom } : {}) })), { source: checked.join(" and ") });
   if (!applied) return { team: team.slug, skipped: "no team data yet" };
   return { team: team.slug, ...applied, checked, ...(failed.length ? { failed } : {}) };
 }
