@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { sanitizeSquadiIds, squadiReady, sanitizeCompetitions, squadiSources, squadiFeeds, knownCompetitions, sanitizeSquad, MAX_COMPETITIONS, competitionsError, driblSources, websiteLink, websiteLinkProblem, websiteLinksError, LINK_MAX, NOT_A_WEBSITE_LINK, LINK_TOO_LONG, majestriSources, drawLinks, seasonNameOf, sanitizeSeasonName } from "@/lib/competitions";
+import { sanitizeGround, GROUND_MAX, sanitizeCompFormat, formatWords, competitionFormats, withCompetitionFormats, withoutCompetitionFormats } from "@/lib/competitions";
 import { NOT_A_DRIBL_REQUEST, ONE_SOURCE } from "@/lib/dribl";
 
 // lib/competitions: a team's competitions beyond its season (a winter
@@ -583,5 +584,76 @@ describe("a competition whose draw is on Majestri", () => {
 
   it("its page is listed on the league page as being on Majestri", () => {
     expect(drawLinks({ competitions: [{ id: "c1", name: "Winter Fives", majestri: { url: MCOMP, team: "A" }, link: MTEAM }] })).toEqual([{ name: "Winter Fives", provider: "majestri", link: MTEAM }]);
+  });
+});
+
+// Where a competition is played, and how: what the set-up keeps beside its draw.
+describe("a competition's ground", () => {
+  it("is plain text, kept short", () => {
+    expect(sanitizeGround("  Riverside   Park ")).toBe("Riverside Park");
+    expect(sanitizeGround("x".repeat(120))).toHaveLength(GROUND_MAX);
+    for (const v of [null, undefined, 7, ["Riverside Park"]]) expect(sanitizeGround(v)).toBe("");
+  });
+
+  it("is kept with the competition, and travels with its draw to the sync", () => {
+    const [fives] = sanitizeCompetitions([{ name: "Summer Fives", ground: " Riverside Park ", majestri: { url: "https://riverside.majestri.com.au/comp-summary?compID=99", team: "Valley Vipers" } }], counter());
+    expect(fives.ground).toBe("Riverside Park");
+    expect(majestriSources({ competitions: [fives] })[0].comp).toEqual({ id: fives.id, name: "Summer Fives", ground: "Riverside Park" });
+    const [plain] = sanitizeCompetitions([{ name: "Winter Cup", ground: "   ", squadi: { competitionId: "5", divisionId: "6", teamId: "7" } }], counter());
+    expect(plain).not.toHaveProperty("ground");
+    expect(squadiSources({ competitions: [plain] })[0].comp).toEqual({ id: plain.id, name: "Winter Cup" });
+    expect(squadiSources({ competitions: [{ ...plain, ground: "Valley Oval" }] })[0].comp.ground).toBe("Valley Oval");
+    expect(driblSources({ competitions: [{ id: "cd1", name: "Cup", ground: "Valley Oval", dribl: { url: "https://mc-api.dribl.com/api/fixtures?date_range=all&league=L1&tenant=T1" } }] })[0].comp.ground).toBe("Valley Oval");
+  });
+
+  it("is not a competition on its own", () => {
+    expect(sanitizeCompetitions([{ ground: "Riverside Park" }], counter())).toEqual([]);
+  });
+});
+
+describe("a competition's match format", () => {
+  it("is players a side and keepers, the periods and the whole game's length, or none at all", () => {
+    expect(sanitizeCompFormat({ playersOnField: 5, hasGK: true, periods: 2, gameLength: 30, formation: "2-2", extra: 1 })).toEqual({ playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 });
+    expect(sanitizeCompFormat({ playersOnField: 4, hasGK: "yes", periods: 1, gameLength: 10 })).toEqual({ playersOnField: 4, hasGK: false, periods: 1, gameLength: 10 });
+    for (const bad of [
+      null, "7v7", [7, true, 2, 40], {},
+      { playersOnField: 2, periods: 2, gameLength: 40 }, { playersOnField: 12, periods: 2, gameLength: 40 },
+      { playersOnField: 7, periods: 0, gameLength: 40 }, { playersOnField: 7, periods: 5, gameLength: 40 },
+      { playersOnField: 7, periods: 2, gameLength: 9 }, { playersOnField: 7, periods: 2, gameLength: 121 },
+      { playersOnField: 7.5, periods: 2, gameLength: 40 }, { playersOnField: "7", periods: 2, gameLength: 40 }, { periods: 2, gameLength: 40 }
+    ]) expect(sanitizeCompFormat(bad), JSON.stringify(bad)).toBeNull();
+  });
+
+  it("reads back in words, halves, thirds, quarters or straight through", () => {
+    expect(formatWords({ playersOnField: 7, hasGK: true, periods: 2, gameLength: 40 })).toBe("7 a side with a keeper, 2 halves of 20 minutes");
+    expect(formatWords({ playersOnField: 4, hasGK: false, periods: 4, gameLength: 40 })).toBe("4 a side, no keeper, 4 quarters of 10 minutes");
+    expect(formatWords({ playersOnField: 9, hasGK: true, periods: 3, gameLength: 50 })).toBe("9 a side with a keeper, 3 thirds of 16.7 minutes");
+    expect(formatWords({ playersOnField: 5, hasGK: true, periods: 1, gameLength: 20 })).toBe("5 a side with a keeper, 20 minutes straight through");
+    expect(formatWords(null)).toBe("");
+  });
+
+  it("is kept with the competition when it is one, and dropped when it is not", () => {
+    const [a, b] = sanitizeCompetitions([
+      { name: "Summer Fives", format: { playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 } },
+      { name: "Winter Cup", format: { playersOnField: 5, periods: 2 } }
+    ], counter());
+    expect(a.format).toEqual({ playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 });
+    expect(b).not.toHaveProperty("format");
+  });
+
+  it("goes out with the team's document for its games, and never back in", () => {
+    const team = { competitions: [{ id: "cfives", name: "Summer Fives", format: { playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 } }, { id: "cwinter", name: "Winter Cup" }, { id: "cbad", name: "Odd", format: { playersOnField: 40 } }] };
+    expect(competitionFormats(team)).toEqual({ cfives: { playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 } });
+    expect(competitionFormats({ competitions: [{ id: "cwinter", name: "Winter Cup" }] })).toBeNull();
+    expect(competitionFormats({})).toBeNull();
+    const doc = { team: { name: "U10" }, fixtures: [] };
+    const sent = withCompetitionFormats(doc, team);
+    expect(sent).toEqual({ ...doc, competitionFormats: { cfives: { playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 } } });
+    // What a page sent back with it is not what the set-up says: replaced, or taken off.
+    expect(withCompetitionFormats({ ...doc, competitionFormats: { cfives: { playersOnField: 11, hasGK: true, periods: 2, gameLength: 90 } } }, team).competitionFormats.cfives.playersOnField).toBe(5);
+    expect(withCompetitionFormats({ ...doc, competitionFormats: { x: 1 } }, {})).toEqual(doc);
+    expect(withoutCompetitionFormats(sent)).toEqual(doc);
+    expect(withoutCompetitionFormats(doc)).toBe(doc);
+    expect(withCompetitionFormats(null, team)).toBeNull();
   });
 });

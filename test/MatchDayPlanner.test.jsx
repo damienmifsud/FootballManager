@@ -355,3 +355,33 @@ describe("the shirts on the pitch", () => {
     expect(painted(BLUE)).toBe(0);
   });
 });
+
+// A competition played in a format of its own (the club's set-up, sent with
+// the team's document as data.competitionFormats): its games start from it.
+describe("a game in a competition with a format of its own", () => {
+  const allIn = { p1: { status: "in" }, p2: { status: "in" }, p3: { status: "in" } };
+  const FIVES = { playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 };
+  const withFives = () => ({ ...makeData(), competitionFormats: { cfives: FIVES } });
+
+  it("starts the plan from the competition's format, not the team's", async () => {
+    renderPlanner({ data: withFives(), fixture: makeFixture({ comp: "cfives", compName: "Summer Fives", availability: allIn }) });
+    await waitFor(() => expect(onSavePlan).toHaveBeenCalled(), { timeout: 2500 });
+    expect(onSavePlan.mock.calls[0][1].format).toMatchObject(FIVES);
+  });
+
+  it("a season game beside it keeps the team's", async () => {
+    renderPlanner({ data: withFives(), fixture: makeFixture({ availability: allIn }) });
+    await waitFor(() => expect(onSavePlan).toHaveBeenCalled(), { timeout: 2500 });
+    expect(onSavePlan.mock.calls[0][1].format).toMatchObject({ playersOnField: 7, gameLength: 40 });
+  });
+
+  it("clearing the plan goes back to the competition's format", async () => {
+    const seven = { gameLength: 40, periods: 2, playersOnField: 7, hasGK: true, formation: "2-3-1", subInterval: 10 };
+    renderPlanner({ data: withFives(), fixture: makeFixture({ comp: "cfives", compName: "Summer Fives", availability: allIn,
+      plan: { format: seven, subTimes: [10, 30], assignments: [{}, {}, {}, {}], overrides: {}, hintSeen: true, updatedAt: 1 } }) });
+    fireEvent.click(screen.getByText("Format"));
+    fireEvent.click(await screen.findByText("Clear this plan"));
+    fireEvent.click(await screen.findByText("Really clear? Tap again"));
+    await waitFor(() => expect(onSavePlan.mock.calls.at(-1)?.[1].format).toMatchObject(FIVES), { timeout: 2500 });
+  });
+});

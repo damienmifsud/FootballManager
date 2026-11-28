@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  round1, fmtMin, fmtRange, fmtClock, defaultFormatForAgeGroup, resolveFormat,
+  round1, fmtMin, fmtRange, fmtClock, defaultFormatForAgeGroup, resolveFormat, competitionFormat, baseFormat,
   parseFormation, fallbackFormation, makePositions, computeAutoSubs,
   computeSegments, sanitizeAssignments, diffOnOff, autoFillAssignments,
   minutesFor, rosterForFixture, seedAssignments, timerElapsed
@@ -208,5 +208,35 @@ describe("rosterForFixture: players without a jersey number", () => {
     ] };
     const byId = Object.fromEntries(rosterForFixture(data, { dateISO: "2026-06-21", availability: {} }).map((p) => [p.id, p.number]));
     expect(byId).toEqual({ a: "", b: "", c: "", d: "7" });
+  });
+});
+
+// A competition played in a format of its own (the club's set-up, sent with
+// the team's document as data.competitionFormats): its games start from it.
+describe("a competition's format", () => {
+  const TEAM_FMT = { gameLength: 50, periods: 2, playersOnField: 9, hasGK: true, formation: "3-3-2", subInterval: 8 };
+  const data = (over = {}) => ({ team: { ageGroup: "U10", matchFormat: TEAM_FMT }, competitionFormats: { cfives: { playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 }, cnine: { playersOnField: 9, hasGK: true, periods: 4, gameLength: 60 } }, ...over });
+  const fives = { id: "f1", comp: "cfives" };
+
+  it("is the competition's size, keeper, periods and length, with a shape that fits and the team's sub interval", () => {
+    expect(competitionFormat(data(), fives)).toEqual({ gameLength: 30, periods: 2, playersOnField: 5, hasGK: true, formation: fallbackFormation(4), subInterval: 8 });
+    // The team's own shape is kept where it still fits.
+    expect(competitionFormat(data(), { comp: "cnine" })).toEqual({ gameLength: 60, periods: 4, playersOnField: 9, hasGK: true, formation: "3-3-2", subInterval: 8 });
+  });
+
+  it("is none for a season game, a competition with no format, or one that is not whole", () => {
+    expect(competitionFormat(data(), { id: "s1" })).toBeNull();
+    expect(competitionFormat(data(), { comp: "cwinter" })).toBeNull();
+    expect(competitionFormat(data({ competitionFormats: { cfives: { playersOnField: 5, periods: "2", gameLength: 30 } } }), fives)).toBeNull();
+    expect(competitionFormat({ team: {} }, fives)).toBeNull();
+  });
+
+  it("leads a game's format: the game's own, else its competition's, else the team's, else the age group's", () => {
+    expect(baseFormat(data(), fives).playersOnField).toBe(5);
+    expect(baseFormat(data(), { id: "s1" })).toEqual(TEAM_FMT);
+    expect(baseFormat({ team: { ageGroup: "U8" } }, { id: "s1" })).toEqual(defaultFormatForAgeGroup("U8"));
+    const own = { gameLength: 20, periods: 1, playersOnField: 4, hasGK: false, formation: "2-2", subInterval: 5 };
+    expect(resolveFormat(data(), { ...fives, plan: { format: own } })).toBe(own);
+    expect(resolveFormat(data(), fives).gameLength).toBe(30);
   });
 });

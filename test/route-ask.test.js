@@ -143,21 +143,41 @@ describe("POST /api/ask — prompt construction", () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it("says MiniRoos only for a MiniRoos age group: an older team, or one with no age group, is not told it plays MiniRoos", async () => {
-    let system = (await ask({ question: "rules?" }).then(() => sentBody())).system;
-    expect(system).toContain("THIS TEAM IS: U8 Div 1 — the Kangaroos pathway");
-    expect(system).toContain("MiniRoos U8/U9 does not publish match results");
+  it("builds nothing about a program in: no team is told it plays MiniRoos, and the rules are the coach's documents alone", async () => {
+    let body = await ask({ question: "rules?" }).then(() => sentBody());
+    expect(body.system).toContain("THIS TEAM IS: U8 Div 1. ");
+    expect(body.system).toContain("default to this team's (U8)");
+    expect(body.system).not.toMatch(/MiniRoos|pathway|does not publish match results/);
+    // With no documents loaded there are none: no built-in reference is added.
+    expect(body.messages.at(-1).content).toContain("TEAM DOCUMENTS:\n(none provided)\n\n");
+    expect(body.messages.at(-1).content).not.toMatch(/MiniRoos|Built-in reference/);
     fetch.mockClear();
-    getData.mockResolvedValue({ team: { name: "Team A", ageGroup: "U10", division: "" }, fixtures: [], sessions: [], players: [] });
-    system = (await ask({ question: "rules?" }).then(() => sentBody())).system;
-    expect(system).toContain("THIS TEAM IS: U10. ");
-    expect(system).toContain("default to this team's (U10)");
-    expect(system).not.toMatch(/Kangaroos pathway|does not publish match results/);
+    getData.mockResolvedValue({ team: { name: "Team A", ageGroup: "U10", division: "" }, fixtures: [], sessions: [], players: [], knowledge: [{ name: "Academy rules", text: "Games are 2 x 25 minutes." }] });
+    body = await ask({ question: "rules?" }).then(() => sentBody());
+    expect(body.system).toContain("THIS TEAM IS: U10. ");
+    expect(body.system).toContain("default to this team's (U10)");
+    expect(body.messages.at(-1).content).toContain("TEAM DOCUMENTS:\n### Document: Academy rules\nGames are 2 x 25 minutes.\n\n");
     fetch.mockClear();
     getData.mockResolvedValue({ team: { name: "Team A" }, fixtures: [], sessions: [], players: [] });
-    system = (await ask({ question: "rules?" }).then(() => sentBody())).system;
-    expect(system).toContain("THIS TEAM IS: a junior team. ");
-    expect(system).not.toMatch(/THIS TEAM IS: U8|Kangaroos pathway|default to this team's \(U8/);
+    body = await ask({ question: "rules?" }).then(() => sentBody());
+    expect(body.system).toContain("THIS TEAM IS: a junior team. ");
+    expect(body.system).toContain("default to this team's (its age group)");
+  });
+
+  it("gives a coming game in a competition with a format of its own that format, from the club's set-up", async () => {
+    const soon = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+    teamFromCookieHeader.mockReturnValue({ slug: "a", name: "Team A", competitions: [{ id: "cfives", name: "Summer Fives", format: { playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 } }] });
+    getData.mockResolvedValue({ team: { name: "Team A", ageGroup: "U10" }, sessions: [], players: [], fixtures: [
+      { id: "f1", dateISO: soon, time: "17:10", opponent: "Valley Vipers", venue: "Riverside Park – Field 1", homeAway: "H", status: "upcoming", comp: "cfives", compName: "Summer Fives", round: null, roundName: "Semi Finals" },
+      { id: "f2", dateISO: soon, time: "09:00", opponent: "Wests", venue: "Wests Oval", homeAway: "A", status: "upcoming", round: 9 }
+    ] });
+    const body = await ask({ question: "how long is the semi?" }).then(() => sentBody());
+    const lines = body.messages.at(-1).content.split("\n").filter((l) => l.startsWith("- "));
+    expect(lines.find((l) => l.includes("Valley Vipers"))).toContain("Summer Fives · Semi Finals");
+    expect(lines.find((l) => l.includes("Valley Vipers"))).toContain("| format: 5 a side with a keeper, 2 halves of 15 minutes");
+    // A season game plays the team's own format, so it says none.
+    expect(lines.find((l) => l.includes("Wests"))).not.toContain("format:");
+    expect(body.system).toContain("A coming game in a competition with a format of its own lists it");
   });
 
   it("truncates uploaded docs to the character budget, dropping overflow", async () => {

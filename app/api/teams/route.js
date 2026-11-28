@@ -133,6 +133,7 @@ export async function GET() {
       staff: Array.isArray(doc?.team?.staff) ? doc.team.staff.map(({ role, name, mobile, email }) => ({ role, name, mobile, email })) : [],
       coachPin: doc?.team?.coachPin || "",
       hasLogo: !!doc?.team?.logo, // the data URL itself is too heavy for the list
+      matchFormat: doc?.team?.matchFormat || null, // a competition being added starts from it
       hasData: !!doc
     };
   }));
