@@ -160,9 +160,40 @@ describe("POST /api/club-logos — a club added from its own website", () => {
     const j = await res.json();
     expect([res.status, j.key]).toEqual([200, "seaside-fc"]);
     expect(stored.named).toEqual({ "seaside-fc": { name: "Seaside FC", logo: SITE_LOGO, site: "https://seaside.example/", at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) } });
-    expect(j.named).toEqual([{ key: "seaside-fc", name: "Seaside FC", logo: SITE_LOGO, site: "https://seaside.example/", teams: 1 }]);
+    expect(j.named).toEqual([{ key: "seaside-fc", name: "Seaside FC", logo: SITE_LOGO, site: "https://seaside.example/", fill: 1, teams: 1 }]);
     expect(j.opponents.find((o) => o.name === "Seaside FC U10")).toMatchObject({ shown: "added", logo: SITE_LOGO });
     expect(takeLock).toHaveBeenCalledWith("_club", "logos", 20);
+  });
+
+  it("keeps the size the admin chose for the logo, within bounds, and shows the logo at that size", async () => {
+    const r = await route();
+    const j = await (await post(r, { action: "club", name: "Seaside FC", logo: SITE_LOGO, site: "https://seaside.example/", fill: 1.3 })).json();
+    expect(stored.named["seaside-fc"].fill).toBe(1.3);
+    expect(j.named[0].fill).toBe(1.3);
+    expect(j.opponents.find((o) => o.name === "Seaside FC U10").logo).toBe(SITE_LOGO + "#fill=1.3");
+    for (const [sent, kept] of [[9, 1.6], [1.04, 1.05], [0.5, undefined], ["big", undefined], [1, undefined]]) {
+      await post(r, { action: "club", name: "Seaside FC", logo: SITE_LOGO, fill: sent });
+      expect(stored.named["seaside-fc"].fill).toBe(kept);
+    }
+  });
+
+  it("changing a club's name replaces it; the same name, or a key that is not a club's, replaces nothing", async () => {
+    const r = await route();
+    const OTHER = "https://riverside.example/logo.png";
+    await post(r, { action: "club", name: "Seaside FC", logo: SITE_LOGO });
+    await post(r, { action: "club", name: "Riverside FC", logo: OTHER });
+    await post(r, { action: "club", name: "Seaside", logo: SITE_LOGO, replaces: "seaside-fc" });
+    expect(Object.keys(stored.named).sort()).toEqual(["riverside-fc", "seaside"]);
+    await post(r, { action: "club", name: "Seaside", logo: SITE_LOGO, fill: 1.2, replaces: "seaside" });
+    expect(Object.keys(stored.named).sort()).toEqual(["riverside-fc", "seaside"]);
+    expect(stored.named.seaside.fill).toBe(1.2);
+    for (const replaces of ["../riverside-fc", "Riverside-FC", "riverside fc", 42, { key: "riverside-fc" }, "a-".repeat(100) + "a"]) {
+      expect((await post(r, { action: "club", name: "Seaside", logo: SITE_LOGO, replaces })).status).toBe(200);
+    }
+    expect(Object.keys(stored.named).sort()).toEqual(["riverside-fc", "seaside"]);
+    // A bad club is refused before anything is replaced.
+    expect((await post(r, { action: "club", name: "FC", logo: SITE_LOGO, replaces: "riverside-fc" })).status).toBe(400);
+    expect(Object.keys(stored.named).sort()).toEqual(["riverside-fc", "seaside"]);
   });
 
   it("refuses a club with no name or no https logo before touching the library, and takes an added club out", async () => {

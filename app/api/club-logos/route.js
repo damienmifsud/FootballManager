@@ -33,9 +33,13 @@ const AUTH_ON = !!process.env.AUTH_SECRET;
 // POST { action: "site", url }             the club's website read for the
 //                                          images that may be its logo:
 //                                          { site, candidates }; nothing is saved
-// POST { action: "club", name, logo, site } a club added (or changed), held for
-//                                          the club: every team whose name has
-//                                          all its words is shown the logo
+// POST { action: "club", name, logo, site, fill?, replaces? }
+//                                          a club linked to its website (or
+//                                          changed), held for the club: every
+//                                          team whose name has all its words is
+//                                          shown the logo, enlarged by `fill`;
+//                                          `replaces` is the club's old key when
+//                                          its name was changed
 // POST { action: "unclub", key }           an added club taken out again
 async function requireSuperAdmin(req) {
   if (!AUTH_ON) return { error: "The logo library needs account login (set AUTH_SECRET).", status: 400 };
@@ -124,11 +128,14 @@ export async function POST(req) {
   if (action === "club") {
     // Checked before the library is locked, so a bad request never waits on it.
     const today = new Date().toISOString().slice(0, 10);
-    const tried = setNamedClub({}, { name: body.name, logo: body.logo, site: body.site, today });
+    const club = { name: body.name, logo: body.logo, site: body.site, fill: body.fill, today };
+    const tried = setNamedClub({}, club);
     if (tried.error) return NextResponse.json({ error: tried.error }, { status: 400 });
+    const replaces = typeof body.replaces === "string" && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(body.replaces) && body.replaces.length <= 200 ? body.replaces : "";
     const r = await changeLibrary((lib) => {
-      const out = setNamedClub(lib, { name: body.name, logo: body.logo, site: body.site, today });
-      return out.error ? { lib, changed: false } : { lib: out.lib, changed: true };
+      const out = setNamedClub(lib, club);
+      if (out.error) return { lib, changed: false };
+      return { lib: replaces && replaces !== out.key ? dropNamedClub(out.lib, replaces) : out.lib, changed: true };
     });
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 503 });
     return NextResponse.json({ ok: true, key: tried.key, ...(await report()) });

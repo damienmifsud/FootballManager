@@ -11,7 +11,7 @@ import {
   autoFillAssignments, minutesFor, rosterForFixture, seedAssignments, timerElapsed
 } from "@/lib/planner";
 import { fmtDate, initials, sideOf, roundLabel } from "@/lib/dashboardData";
-import { oppCrestFor } from "@/lib/clubs";
+import { oppCrestFor, crestFill } from "@/lib/clubs";
 
 /* ---------------------------------------------------------------------------
    MATCH DAY — per-fixture lineup + substitution planner.
@@ -1130,7 +1130,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
                 {teamName}
               </div>
               <div className="truncate text-xs" style={{ color: P.dim, marginTop: 1 }}>
-                {roundLabel(fixture) || "Match"} {fixture.homeAway === "H" ? "vs" : "@"} {oppCrest.src && <img className={"md-crest" + (oppCrest.drawn ? " drawn" : "")} src={oppCrest.src} alt="" {...(oppCrest.drawn ? { referrerPolicy: "no-referrer" } : {})} />}{fixture.opponent}{sideOf(data, fixture) ? " · " + sideOf(data, fixture) : ""} · {fmtDate(fixture.dateISO)}{tabLabel ? " · " + tabLabel : ""}
+                {roundLabel(fixture) || "Match"} {fixture.homeAway === "H" ? "vs" : "@"} {oppCrest.src && <img className={"md-crest" + (oppCrest.drawn ? " drawn" : "")} src={oppCrest.src} alt="" {...(oppCrest.drawn ? { referrerPolicy: "no-referrer", style: crestFill(oppCrest.src) } : {})} />}{fixture.opponent}{sideOf(data, fixture) ? " · " + sideOf(data, fixture) : ""} · {fmtDate(fixture.dateISO)}{tabLabel ? " · " + tabLabel : ""}
               </div>
             </div>
           </div>
@@ -1185,9 +1185,9 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
 const MDP_CSS = `
 @keyframes mdSlideUp { from { transform: translate(-50%, 24px); opacity: 0.6; } to { transform: translate(-50%, 0); opacity: 1; } }
 @keyframes mdFadeAway { 0% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
-/* The opposition's crest in the header line: registry artwork only (lib/clubs.js), never a hotlink. */
+/* The opposition's crest in the header line (lib/clubs.js oppCrestFor): our artwork, or a logo found or chosen for the club, fitted on white and enlarged as chosen. */
 .md-crest { width: 14px; height: 14px; border-radius: 50%; object-fit: cover; display: inline-block; vertical-align: -2px; margin-right: 4px; }
-.md-crest.drawn { object-fit: contain; background: #fff; padding: 1px; }
+.md-crest.drawn { object-fit: contain; background: #fff; padding: 0; }
 .mdp, .mdp * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 .mdp button { background: none; border: none; padding: 0; margin: 0; font: inherit; color: inherit; text-align: inherit; cursor: pointer; }
 .mdp input, .mdp select { font: inherit; }

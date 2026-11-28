@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sourceLogo, oppCrestFor, crestFor } from "@/lib/clubs";
+import { sourceLogo, oppCrestFor, crestFor, cleanFill, withFill, crestFill } from "@/lib/clubs";
 import {
   squadiLogoKind, providerOf, teamRefOf, cleanLibrary, learnFromGames, learnDriblClubs, crestFromLibrary, logoSummary, setManual, isRef, sameName, clubWords, namedKey, namedCovers, guessClubName, namedClubFor, setNamedClub, dropNamedClub, NAMED_MAX
 } from "@/lib/clubLogos";
@@ -44,8 +44,20 @@ describe("sourceLogo — which logos from a draw may be shown", () => {
 });
 
 describe("oppCrestFor — the crest beside a game's opponent", () => {
-  it("keeps the built-in crest for a club it has artwork for, whatever the draw says", () => {
-    expect(oppCrestFor("Lions FC U10 Blue", orgLogo(41), "https://cdn.dribl.com/other.png")).toEqual({ src: crestFor("Lions FC U10 Blue"), drawn: false });
+  it("keeps the built-in crest for a club it has artwork for, whatever the game's own logo says or when the server sends none", () => {
+    const built = { src: crestFor("Oxley United U9 Eagles"), drawn: false };
+    expect(oppCrestFor("Oxley United U9 Eagles", orgLogo(41))).toEqual(built);
+    expect(oppCrestFor("Oxley United U9 Eagles", orgLogo(41), null)).toEqual(built);
+    expect(oppCrestFor("Oxley United U9 Eagles", orgLogo(41), "javascript:alert(1)")).toEqual(built);
+  });
+  it("but a logo the server sends for it stands over the built-in crest: the admin chose it from the club's website", () => {
+    const chosen = "https://oxley.example/new-crest.png#fill=1.2";
+    expect(oppCrestFor("Oxley United U9 Eagles", orgLogo(41), chosen)).toEqual({ src: chosen, drawn: true });
+    // The size on the end is not part of the link: a logo as long as may be kept still shows with it.
+    const longest = `https://oxley.example/${"a".repeat(400 - 26)}.png`;
+    expect(longest).toHaveLength(400);
+    expect(oppCrestFor("Oxley United U9 Eagles", null, longest + "#fill=1.25")).toEqual({ src: longest + "#fill=1.25", drawn: true });
+    expect(oppCrestFor("Riverside FC U10", null, longest + "x#fill=1.25")).toEqual({ src: null, drawn: false });
   });
   it("otherwise takes the library's choice when the server sent one, a logo or none", () => {
     expect(oppCrestFor("Riverside FC U10", orgLogo(41), DRIBL_LOGO)).toEqual({ src: DRIBL_LOGO, drawn: true });
@@ -56,6 +68,29 @@ describe("oppCrestFor — the crest beside a game's opponent", () => {
     expect(oppCrestFor("Riverside FC U10", orgLogo(41))).toEqual({ src: orgLogo(41), drawn: true });
     expect(oppCrestFor("Riverside FC U10", compLogo)).toEqual({ src: null, drawn: false });
     expect(oppCrestFor("Riverside FC U10", "")).toEqual({ src: null, drawn: false });
+  });
+});
+
+// How much a logo the admin chose is enlarged in its circle, so one with a
+// margin of its own fills the circle as a built-in crest does.
+describe("the size of a chosen logo in its circle", () => {
+  it("is kept to steps of 5%, from the logo's own size up to 160%", () => {
+    expect([1, 1.02, 1.03, 1.25, 1.333, 1.6, 2, "1.4", "x", 0.8, -1, null, undefined, NaN, Infinity].map(cleanFill))
+      .toEqual([1, 1, 1.05, 1.25, 1.35, 1.6, 1.6, 1.4, 1, 1, 1, 1, 1, 1, 1]);
+  });
+  it("rides on the logo's address after #fill=, which never goes with the request for the image, and only when enlarged", () => {
+    const logo = "https://seaside.example/crest.png";
+    expect([withFill(logo, 1.3), withFill(logo, 1), withFill(logo, 7), withFill(logo, "x"), withFill("", 1.3), withFill(undefined, 1.3)])
+      .toEqual([logo + "#fill=1.3", logo, logo + "#fill=1.6", logo, "", ""]);
+  });
+  it("is drawn enlarged and cut back to the same circle, so it never spills past its place", () => {
+    const logo = "https://seaside.example/crest.png";
+    expect(crestFill(logo + "#fill=1.25")).toEqual({ transform: "scale(1.25)", clipPath: "circle(40.00% at 50% 50%)" });
+    expect(crestFill(logo + "#fill=1.6")).toEqual({ transform: "scale(1.6)", clipPath: "circle(31.25% at 50% 50%)" });
+    expect(crestFill(logo + "#fill=9")).toEqual({ transform: "scale(1.6)", clipPath: "circle(31.25% at 50% 50%)" });
+    for (const src of [logo, logo + "#fill=1", logo + "?fill=1.3", logo + "#fill=1.3&x", logo + "#fill=1.333", logo + "#fill=", "", null, undefined]) {
+      expect(crestFill(src)).toEqual({});
+    }
   });
 });
 
@@ -294,9 +329,11 @@ describe("clubs the admin adds from their own websites — held for the club", (
     expect(crestFromLibrary(lib, dr(4, "Valley Wanderers FC U10"))).toBe(SITE_LOGO);
     expect(crestFromLibrary(lib, sq(5, "Valley United U10", 7))).toBeNull();
     // The hidden team (squadi:team:6) shows the club's added logo: that was chosen.
-    // A built-in crest still comes first, whatever was added.
-    lib = add(lib, "Oxley United").lib;
+    // A club with a built-in crest keeps it until the admin links the club to
+    // its website: then the logo chosen there comes first, enlarged as chosen.
     expect(crestFromLibrary(lib, sq(6, "Oxley United U9 Eagles", 8))).toBeUndefined();
+    lib = setNamedClub(lib, { name: "Oxley United", logo: "https://oxley.example/crest.png", fill: 1.3 }).lib;
+    expect(crestFromLibrary(lib, sq(6, "Oxley United U9 Eagles", 8))).toBe("https://oxley.example/crest.png#fill=1.3");
   });
 
   it("gives a team the added club with the most of its words", () => {
@@ -319,7 +356,7 @@ describe("clubs the admin adds from their own websites — held for the club", (
       ["Valley Wanderers FC Academy U12", "added", "valley-wanderers-fc"], ["Valley Wanderers FC U11", "added", "valley-wanderers-fc"]
     ]);
     expect(counts).toMatchObject({ opponents: 4, builtIn: 1, added: 2, found: 0, missing: 1 });
-    expect(named).toEqual([{ key: "valley-wanderers-fc", name: "Valley Wanderers FC", logo: SITE_LOGO, site: "https://valleywanderers.example/", teams: 2 }]);
+    expect(named).toEqual([{ key: "valley-wanderers-fc", name: "Valley Wanderers FC", logo: SITE_LOGO, site: "https://valleywanderers.example/", fill: 1, teams: 2 }]);
   });
 
   it("keeps a club only with a name and an https logo; the same words are the same club; one can be taken out", () => {
