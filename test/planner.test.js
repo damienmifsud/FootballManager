@@ -211,6 +211,49 @@ describe("rosterForFixture: players without a jersey number", () => {
   });
 });
 
+import { shapeValid, shapeForPeriod, theirKnown, periodOfSegments, sanitizePlanShapes } from "@/lib/planner";
+
+describe("shape per period", () => {
+  it("shapeValid needs rows adding up to the outfield count", () => {
+    expect(shapeValid("3-2-1", 6)).toBe(true);
+    expect(shapeValid("3-2-2", 6)).toBe(false);
+    expect(shapeValid("7", 7)).toBe(false); // a row of 7 is too wide
+    expect(shapeValid("", 6)).toBe(false);
+  });
+
+  it("shapeForPeriod uses a valid override, else the home shape", () => {
+    expect(shapeForPeriod({ 1: "3-2-1" }, 1, "2-3-1", 6)).toBe("3-2-1");
+    expect(shapeForPeriod({ 1: "3-2-1" }, 0, "2-3-1", 6)).toBe("2-3-1");
+    expect(shapeForPeriod({ 1: "9-9" }, 1, "2-3-1", 6)).toBe("2-3-1");
+    expect(shapeForPeriod(undefined, 0, "2-3-1", 6)).toBe("2-3-1");
+  });
+
+  it("theirKnown carries the latest earlier entry over", () => {
+    expect(theirKnown({ 0: "2-2-2" }, 2)).toEqual({ val: "2-2-2", pd: 0 });
+    expect(theirKnown({ 0: "2-2-2", 2: "t:bus" }, 2)).toEqual({ val: "t:bus", pd: 2 });
+    expect(theirKnown({}, 1)).toBeNull();
+  });
+
+  it("periodOfSegments maps blocks to periods", () => {
+    expect(periodOfSegments(computeSegments(60, 3, [10, 30, 50]), 60, 3)).toEqual([0, 0, 1, 1, 2, 2]);
+  });
+
+  it("sanitizeAssignments takes one position list per block", () => {
+    const segs = computeSegments(20, 2, []);
+    const perBlock = [makePositions([2], false), makePositions([1, 1], false)];
+    const roster = [P(1), P(2)];
+    const out = sanitizeAssignments([{ r0c1: "p1" }, { r0c1: "p1", r1c0: "p2" }], segs, perBlock, roster);
+    expect(out).toEqual([{ r0c1: "p1" }, { r1c0: "p2" }]); // block 2's shape has no r0c1
+  });
+
+  it("sanitizePlanShapes keeps period keys 0-3 and formation strings (traits only when allowed)", () => {
+    expect(sanitizePlanShapes({ 0: "2-3-1", 1: " 3-2-1 ", 4: "2-2-2", 2: "drop table", 3: "t:bus" })).toEqual({ 0: "2-3-1", 1: "3-2-1" });
+    expect(sanitizePlanShapes({ 0: "t:bus", 1: "t:hack" }, ["bus"])).toEqual({ 0: "t:bus" });
+    expect(sanitizePlanShapes("junk")).toEqual({});
+    expect(sanitizePlanShapes([1, 2])).toEqual({});
+  });
+});
+
 // A competition played in a format of its own (the club's set-up, sent with
 // the team's document as data.competitionFormats): its games start from it.
 describe("a competition's format", () => {

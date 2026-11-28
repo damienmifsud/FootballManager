@@ -319,6 +319,20 @@ describe("redactForViewer — players' last names", () => {
   });
 });
 
+describe("redactForViewer — the live plan keeps our shapes, not the coach's read of them", () => {
+  it("drops opposition and theirShapes from today's live lineup, keeps shapes", () => {
+    const plan = { ...PLAN(), opposition: "hardest", shapes: { 1: "3-2-1" }, theirShapes: { 0: "t:3fwd" } };
+    const src = doc(see());
+    src.fixtures = src.fixtures.map((f) => ({ ...f, plan }));
+    for (const role of NON_COACH) {
+      const today = byId(redact(src, role), "f-today").plan;
+      expect(today.shapes).toEqual({ 1: "3-2-1" });
+      expect("opposition" in today).toBe(false);
+      expect("theirShapes" in today).toBe(false);
+    }
+  });
+});
+
 describe("redactForViewer — the plan", () => {
   describe.each(NON_COACH)("as a %s", (role) => {
     it("with defaults, shows today's lineup only, without coach working state", () => {

@@ -128,6 +128,42 @@ describe("POST /api/plan — account mode", () => {
     expect(saved.team).toEqual({ name: "A" });
     expect(saved.players).toHaveLength(2);
   });
+
+  it("keeps the opposition strength when it is one of the four, drops it otherwise", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    for (const opposition of ["weaker", "even", "stronger", "hardest"]) {
+      setData.mockClear();
+      await POST(fakeRequest({ body: { fixtureId: "f1", plan: { ...PLAN, opposition } } }));
+      expect(setData.mock.calls[0][1].fixtures[0].plan.opposition).toBe(opposition);
+    }
+    for (const opposition of ["brutal", 3, null, ""]) {
+      setData.mockClear();
+      const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: { ...PLAN, opposition } } }));
+      expect(res.status).toBe(200);
+      expect(setData.mock.calls[0][1].fixtures[0].plan).toEqual(PLAN);
+    }
+  });
+});
+
+describe("POST /api/plan — shapes per period", () => {
+  it("keeps valid shapes and their shapes (traits allowed for theirs), drops the rest", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    await POST(fakeRequest({ body: { fixtureId: "f1", plan: { ...PLAN,
+      shapes: { 0: "2-3-1", 1: "t:bus", 9: "3-2-1" },
+      theirShapes: { 0: "t:3fwd", 1: "3-2-1", 2: "t:nope", 3: "<b>" } } } }));
+    const plan = setData.mock.calls[0][1].fixtures[0].plan;
+    expect(plan.shapes).toEqual({ 0: "2-3-1" });
+    expect(plan.theirShapes).toEqual({ 0: "t:3fwd", 1: "3-2-1" });
+  });
+
+  it("leaves a plan without shapes as it was sent", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    await POST(fakeRequest({ body: { fixtureId: "f1", plan: PLAN } }));
+    expect(setData.mock.calls[0][1].fixtures[0].plan).toEqual(PLAN);
+  });
 });
 
 describe("POST /api/plan — legacy team-code mode", () => {

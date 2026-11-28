@@ -83,7 +83,7 @@ describe("coach view", () => {
 
   it("auto-fill fills the empty spots with available players only", async () => {
     renderPlanner();
-    fireEvent.click(screen.getByText(/Auto-fill for fair minutes/));
+    fireEvent.click(screen.getByText("Auto-fill"));
     await waitFor(() => {
       const last = onSavePlan.mock.calls.at(-1);
       expect(last).toBeTruthy();
@@ -353,6 +353,87 @@ describe("the shirts on the pitch", () => {
     renderPlanner();
     expect(painted(RED)).toBeGreaterThan(0);
     expect(painted(BLUE)).toBe(0);
+  });
+});
+
+// Slice 3 step 1: opposition chips, the ratings-aware auto-fill, the "Why this
+// lineup" receipts and the unrated nudge.
+describe("ratings-aware auto-fill", () => {
+  const rated = () => {
+    const d = makeData();
+    d.team.rules = [{ id: "bi-period", text: "Everyone available plays in both halves", builtin: true }];
+    d.players = d.players.map((p) => p.id === "p1" ? { ...p, coach: { ratings: { GK: 4, DEF: 2, MID: 2, FWD: 2 } } } : p);
+    return d;
+  };
+
+  it("saves the chosen opposition with the plan and shows its blurb", async () => {
+    renderPlanner();
+    expect(screen.getByText(/Balanced: fair minutes/)).toBeTruthy(); // About even by default
+    fireEvent.click(screen.getByText("Much stronger"));
+    expect(screen.getByText(/Strongest shape all game/)).toBeTruthy();
+    await waitFor(() => expect(onSavePlan.mock.calls.at(-1)?.[1].opposition).toBe("hardest"), { timeout: 2500 });
+  });
+
+  it("opens with the fixture's saved opposition", () => {
+    renderPlanner({ fixture: makeFixture({ plan: { opposition: "weaker", subTimes: [10, 30], assignments: [{}, {}, {}, {}], hintSeen: true } }) });
+    expect(screen.getByText(/Mix it up/)).toBeTruthy();
+  });
+
+  it("shows the Why this lineup card after auto-fill, with a row for every active rule", async () => {
+    renderPlanner({ data: rated() });
+    expect(screen.queryByText("Why this lineup")).toBeNull();
+    fireEvent.click(screen.getByText("Auto-fill"));
+    expect(await screen.findByText("Why this lineup")).toBeTruthy();
+    // The stored list held only rule 1; the other five are appended, on.
+    for (const label of ["Everyone available plays in every half", "Keeper changes only at the break",
+      "Nobody plays a spot they're rated 0 in", "Players come back on in the position they left"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    expect(screen.getByText("Uses ratings and your lineup rules")).toBeTruthy();
+  });
+
+  it("nudges about unrated players and opens the first one", () => {
+    const onOpenPlayer = vi.fn();
+    renderPlanner({ data: rated(), onOpenPlayer });
+    expect(screen.getByText(/1 player has no ratings yet, so auto-fill treats them as average/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Rate them in Squad."));
+    expect(onOpenPlayer).toHaveBeenCalledWith("p3");
+  });
+});
+
+// Slice 3 step 2: a shape per period, what they play, and the counter card.
+describe("shape card", () => {
+  it("records their shape, shows the counters with zones and the call, and Use changes this half's shape", async () => {
+    renderPlanner();
+    // Collapsed: our home shape for the 1st half, their shape not set.
+    expect(screen.getByText(/1st half · their shape not set/)).toBeTruthy();
+    fireEvent.click(screen.getByText(/1st half · their shape not set/));
+    expect(screen.getByText("Your shape, 1st half")).toBeTruthy();
+    // They play 2-3-1 (U8: 7v7, our home is 2-3-1). Their chips come after ours.
+    fireEvent.click(screen.getAllByText("2-3-1").at(-1));
+    expect(screen.getByText("Counter to their 2-3-1")).toBeTruthy();
+    // About even lists defend first: 3-2-1, with GameDay's call for it.
+    expect(screen.getByText("DEFEND")).toBeTruthy();
+    expect(screen.getByText("Drop in: centre mid between the backs")).toBeTruthy();
+    expect(screen.getByText(/Back 3v1/)).toBeTruthy();
+    fireEvent.click(screen.getAllByText("Use")[0]);
+    expect(screen.getByText("changed")).toBeTruthy();
+    // The pitch now has three backs: LB, CB, RB.
+    expect(screen.getByText("CB")).toBeTruthy();
+    await waitFor(() => {
+      const plan = onSavePlan.mock.calls.at(-1)?.[1];
+      expect(plan?.shapes).toEqual({ 0: "3-2-1" });
+      expect(plan?.theirShapes).toEqual({ 0: "2-3-1" });
+    }, { timeout: 2500 });
+  });
+
+  it("carries their shape into the next half and opens with saved shapes", () => {
+    renderPlanner({ fixture: makeFixture({ plan: { subTimes: [10, 30], assignments: [{}, {}, {}, {}], hintSeen: true, shapes: { 1: "2-2-2" }, theirShapes: { 0: "t:3fwd" } } }) });
+    expect(screen.getByText(/they play three forwards/)).toBeTruthy();
+    // Block 3 is the 2nd half: our 2-2-2, their shape carried over.
+    fireEvent.click(screen.getByText("20–30'").closest("button"));
+    expect(screen.getByText(/they played three forwards in the 1st half/)).toBeTruthy();
+    expect(screen.getAllByText("2-2-2").length).toBeGreaterThan(0);
   });
 });
 

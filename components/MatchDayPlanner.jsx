@@ -2,17 +2,24 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Settings, ClipboardList, BarChart3, Timer,
-  Play, Pause, RotateCcw, Plus, X, Copy, Wand2, Check
+  Play, Pause, RotateCcw, Plus, X, Copy, Wand2, Check, AlertTriangle,
+  Swords, ChevronDown, ChevronUp
 } from "lucide-react";
 import {
   FORMATION_PRESETS, round1, fmtMin, fmtRange, fmtClock,
   baseFormat, parseFormation, fallbackFormation, makePositions,
   computeAutoSubs, computeSegments, sanitizeAssignments, diffOnOff,
-  autoFillAssignments, minutesFor, rosterForFixture, seedAssignments, timerElapsed
+  minutesFor, rosterForFixture, seedAssignments, timerElapsed,
+  shapeValid, shapeForPeriod, theirKnown, periodOfSegments
 } from "@/lib/planner";
+import {
+  COUNTER_POOL, STYLE_COLOUR, THEIR_TRAITS, shapeNote, counterFor, describeChange,
+  resolveTheirShape, theirLabel
+} from "@/lib/shapes";
+import { buildLineupCtx, fillLineup, ruleReceipts, hasRatings, OPPOSITION_CHIPS, sanitizeOpposition } from "@/lib/lineup";
 import { fmtDate, initials, sideOf, roundLabel } from "@/lib/dashboardData";
 import { oppCrestFor, crestFill } from "@/lib/clubs";
-import { gameKit } from "@/lib/teamSetup";
+import { gameKit, teamRules } from "@/lib/teamSetup";
 
 /* ---------------------------------------------------------------------------
    MATCH DAY — per-fixture lineup + substitution planner.
@@ -213,7 +220,7 @@ function PitchSVG() {
 
 /* --------------------------------- app ----------------------------------- */
 
-export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, close }) {
+export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, onOpenPlayer, close }) {
   const plan0 = fixture.plan || null;
   // The game's own format, else its competition's, else the team's (lib/planner.js).
   const initialFormat = () => plan0?.format || baseFormat(data, fixture);
@@ -224,6 +231,16 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
     plan0?.subTimes ?? computeAutoSubs(initialFormat().gameLength, initialFormat().periods, initialFormat().subInterval)
   );
   const [overrides, setOverrides] = useState(() => plan0?.overrides || {});
+  // How strong the other side is: the one knob that trades minutes for strength.
+  const [opposition, setOpposition] = useState(() => sanitizeOpposition(plan0?.opposition));
+  // The last auto-fill's output and the slots the coach had placed before it,
+  // so the "Why this lineup" card can tell the coach's picks from the fill's.
+  const [lastFill, setLastFill] = useState(null);
+  // Shape per period (fixture.plan.shapes[pd], else the home shape) and what
+  // the opposition plays (fixture.plan.theirShapes[pd]).
+  const [shapes, setShapes] = useState(() => plan0?.shapes || {});
+  const [theirShapes, setTheirShapes] = useState(() => plan0?.theirShapes || {});
+  const [shapeOpen, setShapeOpen] = useState(false);
   const [assignments, setAssignments] = useState(() => {
     if (plan0?.assignments) return plan0.assignments;
     // Fresh plan: pin the fixture's in-goal duty into GK for every block.
@@ -280,9 +297,26 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
     () => computeSegments(format.gameLength, format.periods, subTimes),
     [format.gameLength, format.periods, subTimes]
   );
+  // The home shape is this game's formation; each period may override it.
+  const homeShape = rows.join("-");
+  const periodOf = useMemo(
+    () => periodOfSegments(segments, format.gameLength, format.periods),
+    [segments, format.gameLength, format.periods]
+  );
+  const shapeOf = (pd) => shapeForPeriod(shapes, pd, homeShape, outfield);
+  const positionsByPeriod = useMemo(
+    () => Array.from({ length: Math.max(1, format.periods) }, (_, pd) =>
+      makePositions(parseFormation(shapeForPeriod(shapes, pd, homeShape, outfield)), format.hasGK)),
+    [format.periods, shapes, homeShape, outfield, format.hasGK]
+  );
+  const positionsBySeg = useMemo(
+    () => segments.map((_, i) => positionsByPeriod[periodOf[i]] || positions),
+    [segments, periodOf, positionsByPeriod, positions]
+  );
+  const posFor = (i) => positionsBySeg[i] || positions;
   const plan = useMemo(
-    () => sanitizeAssignments(assignments, segments, positions, roster),
-    [assignments, segments, positions, roster]
+    () => sanitizeAssignments(assignments, segments, positionsBySeg, roster),
+    [assignments, segments, positionsBySeg, roster]
   );
   const playersById = useMemo(() => {
     const m = {};
@@ -327,7 +361,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
     if (!isCoach) return;
     const gkFirst = plan[0]?.GK || "";
     if (gkBaseRef.current === null) gkBaseRef.current = gkFirst;
-    const payload = { format, subTimes, assignments: plan, overrides, timer, hintSeen };
+    const payload = { format, subTimes, assignments: plan, overrides, timer, hintSeen, opposition, shapes, theirShapes };
     const json = JSON.stringify(payload);
     if (json === lastSavedRef.current) return;
     const t = setTimeout(() => {
@@ -339,7 +373,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
       setSavedTick((x) => x + 1);
     }, 700);
     return () => clearTimeout(t);
-  }, [format, subTimes, plan, overrides, timer, hintSeen, isCoach, fixture.id, fixture.gk, onSavePlan]);
+  }, [format, subTimes, plan, overrides, timer, hintSeen, opposition, shapes, theirShapes, isCoach, fixture.id, fixture.gk, onSavePlan]);
 
   /* settings updaters (regenerate sub times when the match shape changes) */
   const setGameLength = (v) => {
@@ -366,7 +400,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
   /* assignment ops */
   const mutatePlan = (fn) => {
     setAssignments((raw) => {
-      const base = sanitizeAssignments(raw, segments, positions, roster).map((s) => ({ ...s }));
+      const base = sanitizeAssignments(raw, segments, positionsBySeg, roster).map((s) => ({ ...s }));
       fn(base);
       return base;
     });
@@ -388,13 +422,38 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
   };
   const assignPlayer = (i, posKey, playerId, all) => {
     mutatePlan((base) => {
-      (all ? base.map((_, k) => k) : [i]).forEach((k) => applyAssign(base, k, posKey, playerId));
+      // "Every block" means every block whose shape has this spot.
+      (all ? base.map((_, k) => k).filter((k) => posFor(k).some((q) => q.key === posKey)) : [i])
+        .forEach((k) => applyAssign(base, k, posKey, playerId));
     });
   };
   const copyPrev = (i) => { if (i > 0) mutatePlan((base) => { base[i] = { ...base[i - 1] }; }); };
   const clearBlock = (i) => mutatePlan((base) => { base[i] = {}; });
   const clearAllBlocks = () => mutatePlan((base) => { base.forEach((_, i) => (base[i] = {})); });
-  const runAutoFill = () => setAssignments(autoFillAssignments(plan, segments, positions, roster));
+  // Ratings, rules and opposition for the lineup engine (lib/lineup.js).
+  // Ratings and rules only reach a coach's session; the fill still runs
+  // without them, treating everyone as average.
+  const rules = useMemo(() => teamRules(data.team), [data.team]);
+  const lineupCtx = useMemo(
+    () => buildLineupCtx({ segments, positions, positionsByBlock: positionsBySeg, roster, rules, format, opposition }),
+    [segments, positions, positionsBySeg, roster, rules, format, opposition]
+  );
+  const runAutoFill = () => {
+    const res = fillLineup(plan, lineupCtx);
+    setAssignments(res.plan);
+    setLastFill({ plan: res.plan, locked: res.locked, notes: res.notes });
+  };
+  // Live receipts: recomputed as the coach edits after a fill. A slot counts
+  // as the coach's pick unless the fill put that same player there.
+  const receipts = useMemo(() => {
+    if (!lastFill) return null;
+    const locked = new Set();
+    plan.forEach((seg, i) => Object.keys(seg).forEach((k) => {
+      if (lastFill.locked.has(i + ":" + k) || lastFill.plan[i]?.[k] !== seg[k]) locked.add(i + ":" + k);
+    }));
+    return ruleReceipts(plan, { ...lineupCtx, locked });
+  }, [lastFill, plan, lineupCtx]);
+  const unrated = roster.filter((p) => p.available && !hasRatings(p));
 
   const resetPlan = () => {
     const fmt = baseFormat(data, fixture);
@@ -407,6 +466,8 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
     setFormat(fmt);
     setSubTimes(st);
     setOverrides({});
+    setShapes({});
+    setTheirShapes({});
     setAssignments(seedAssignments(segs, pos, rosterForFixture(data, fixture, {}), fixture.gk));
     setSegIdx(0);
     setTimer({ running: false, elapsed: 0, anchorTs: null });
@@ -675,6 +736,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
           </div>
           <span className="flex items-center gap-2">
             {tag && <span className="rounded-full px-2 py-1 text-xs" style={{ background: kit, color: kitText, fontWeight: 700 }}>{tag === "HT" ? "HALF-TIME" : tag}</span>}
+            {(tag || shapeOf(periodOf[i]) !== homeShape) && <span className="rounded-full px-2 py-1 text-xs" style={{ background: P.soft, fontWeight: 700 }}>{shapeOf(periodOf[i])}</span>}
             <span className="rounded-full px-3 py-1 text-xs" style={{ background: P.soft, fontWeight: 700 }}>{fmtRange(segments[i].start, segments[i].end)}</span>
           </span>
         </div>
@@ -696,6 +758,165 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
     );
   };
 
+  /* --------------------- shape per period and counters -------------------- */
+  // Ported from GameDay's Shape card: our shape for the current block's
+  // period, what they play, and the attack / defend counters with the zones
+  // and the call to shout. Saved per period in fixture.plan.shapes and
+  // .theirShapes.
+  const periodUnit = format.periods === 2 ? "half" : format.periods === 3 ? "third" : format.periods === 4 ? "quarter" : "period";
+  const ordinal = (n) => ["1st", "2nd", "3rd", "4th"][n] || n + 1 + "th";
+  const setOurShape = (pd, shape) => setShapes((m) => {
+    const next = { ...m };
+    if (!shape || shape === homeShape) delete next[pd]; else next[pd] = shape;
+    return next;
+  });
+  const setTheirShape = (pd, val) => setTheirShapes((m) => {
+    const next = { ...m };
+    if (!val) delete next[pd]; else next[pd] = val;
+    return next;
+  });
+  const styleTag = (shape) => {
+    const n = shapeNote(shape, outfield);
+    if (!n) return null;
+    return (
+      <span style={{ color: STYLE_COLOUR[n.style] || P.dim, fontFamily: DISPLAY, fontWeight: 700, fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+        {n.style}{n.tag ? " · " + n.tag : ""}
+      </span>
+    );
+  };
+  const zoneChips = (z) => z ? (
+    <span className="inline-flex flex-wrap gap-1">
+      {[["Back", z.back], ["Middle", z.middle], ["Front", z.front]].map(([lab, v]) => (
+        <span key={lab} className="inline-flex items-center gap-1 rounded-full px-2 text-xs" data-zone={v.state}
+          style={{ paddingTop: 2, paddingBottom: 2, fontWeight: 700,
+            background: v.state === "ok" ? "rgba(31,143,82,0.12)" : v.state === "warn" ? "rgba(224,123,31,0.14)" : P.soft,
+            color: v.state === "ok" ? "#1F6B3A" : v.state === "warn" ? "#A04B00" : P.dim }}>
+          {v.state === "ok" ? <Check size={11} /> : v.state === "warn" ? <AlertTriangle size={11} /> : null}
+          {lab} {v.txt}
+        </span>
+      ))}
+    </span>
+  ) : null;
+
+  const ShapeCard = (() => {
+    if (!segments.length || outfield < 1) return null;
+    const pd = periodOf[segIdx] || 0;
+    const ours = shapeOf(pd);
+    const isHome = ours === homeShape;
+    const rawOurs = shapes[pd] || "";
+    const rawBad = !!rawOurs && !shapeValid(rawOurs, outfield);
+    const n = shapeNote(ours, outfield);
+    const tk = theirKnown(theirShapes, pd);
+    const theirShape = tk ? resolveTheirShape(tk.val, outfield) : "";
+    const theirText = tk ? theirLabel(tk.val, outfield) : "";
+    const counters = theirShape ? counterFor(theirShape, outfield) : null;
+    // With no live score yet, a weaker side lists attack first, anyone else defend.
+    const attackFirst = opposition === "weaker";
+    const options = counters
+      ? (attackFirst ? [["Attack", counters.attack], ["Defend", counters.defend]] : [["Defend", counters.defend], ["Attack", counters.attack]]).filter((x) => x[1])
+      : [];
+    const pdLabel = format.periods > 1 ? ordinal(pd) + " " + periodUnit : "this game";
+    const fromShape = pd > 0 ? shapeOf(pd - 1) : homeShape;
+    const pool = (COUNTER_POOL[outfield] || FORMATION_PRESETS[outfield] || []).filter((f) => shapeValid(f, outfield));
+    const pickList = pool.includes(homeShape) ? pool : [homeShape, ...pool];
+    const traitChips = THEIR_TRAITS.filter((t) => t.shape[outfield]);
+    return (
+      <Card className="p-3" style={!isHome ? { borderColor: kit } : undefined}>
+        <button onClick={() => setShapeOpen((o) => !o)} className="flex w-full items-center justify-between gap-2 text-left" aria-expanded={shapeOpen}>
+          <span className="flex min-w-0 items-center gap-2">
+            <Swords size={15} color={P.dim} />
+            <span className="min-w-0">
+              <span className="flex flex-wrap items-center gap-2">
+                <span style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 18, letterSpacing: 0.4 }}>{ours}</span>
+                {styleTag(ours)}
+                {!isHome && <span className="rounded-full px-2 text-xs" style={{ background: kit, color: kitText, fontWeight: 700, paddingTop: 1, paddingBottom: 1 }}>changed</span>}
+              </span>
+              <span className="block text-xs" style={{ color: P.dim }}>
+                {pdLabel.charAt(0).toUpperCase() + pdLabel.slice(1)}
+                {tk ? " · they " + (tk.pd === pd ? "play " : "played ") + theirText + (tk.pd !== pd ? " in the " + ordinal(tk.pd) + " " + periodUnit : "") : " · their shape not set"}
+              </span>
+            </span>
+          </span>
+          {shapeOpen ? <ChevronUp size={18} color={P.dim} /> : <ChevronDown size={18} color={P.dim} />}
+        </button>
+        {shapeOpen && (
+          <div className="mt-3 flex flex-col gap-3">
+            <div>
+              <div className="text-sm" style={{ fontWeight: 600 }}>Your shape, {pdLabel}</div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {pickList.map((f) => (
+                  <Chip key={f} kit={kit} active={ours === f && !rawBad} onClick={() => setOurShape(pd, f)}>{f}{f === homeShape ? " · home" : ""}</Chip>
+                ))}
+                <input
+                  value={pickList.includes(rawOurs) ? "" : rawOurs}
+                  onChange={(e) => setOurShape(pd, e.target.value)}
+                  placeholder="custom"
+                  aria-label="Custom shape"
+                  className="w-24 rounded-xl px-3 py-1 text-sm"
+                  style={{ border: "1px solid " + (rawBad ? P.warn : P.hair), background: P.card, fontWeight: 600, letterSpacing: 1 }}
+                />
+              </div>
+              {rawBad && <div className="mt-1 text-xs" style={{ color: P.warn, fontWeight: 600 }}>Rows need to add up to {outfield}, so {ours} is used for now.</div>}
+              {n && <div className="mt-2 text-xs" style={{ color: P.dim }}>{n.sum}{n.key ? " " + n.key : ""}</div>}
+            </div>
+
+            <div>
+              <div className="text-sm" style={{ fontWeight: 600 }}>Their shape</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {pool.map((f) => (
+                  <Chip key={"t" + f} kit={P.ink} active={theirShapes[pd] === f} onClick={() => setTheirShape(pd, theirShapes[pd] === f ? "" : f)}>{f}</Chip>
+                ))}
+                {traitChips.map((t) => (
+                  <Chip key={t.id} kit={P.ink} active={theirShapes[pd] === "t:" + t.id} onClick={() => setTheirShape(pd, theirShapes[pd] === "t:" + t.id ? "" : "t:" + t.id)}>{t.label}</Chip>
+                ))}
+              </div>
+              <div className="mt-1 text-xs" style={{ color: P.dim }}>
+                {tk && tk.pd !== pd ? "Carried over from the " + ordinal(tk.pd) + " " + periodUnit + ". Tap a shape if it changed."
+                  : tk ? "Tap the same chip again to clear it." : "Tap what you see. The counter appears once it's set."}
+              </div>
+            </div>
+
+            {theirShape && (
+              <div>
+                <div className="text-sm" style={{ fontWeight: 600 }}>Counter to their {theirShape}{theirText !== theirShape ? " (" + theirText + ")" : ""}</div>
+                <div className="mt-1 text-xs" style={{ color: P.dim }}>Zones: your backs v their forwards, middle v middle, your forwards v their backs. You can only win two.</div>
+                <div className="mt-2 flex flex-col gap-2">
+                  {options.length === 0 && <div className="text-xs" style={{ color: P.dim }}>No counter worked out for that shape.</div>}
+                  {options.map(([label, opt]) => {
+                    const att = label === "Attack";
+                    const call = describeChange(fromShape, opt.shape, outfield, homeShape);
+                    return (
+                      <div key={label} className="rounded-xl p-3" style={{ border: "1px solid " + (att ? "rgba(214,58,58,0.4)" : "rgba(40,87,196,0.4)"), background: P.card }}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded px-2 text-xs" style={{ background: att ? "#D63A3A" : "#2857C4", color: "#FFF", fontWeight: 800, paddingTop: 2, paddingBottom: 2 }}>{label.toUpperCase()}</span>
+                            <span style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 20, letterSpacing: 0.4 }}>{opt.shape}</span>
+                            {styleTag(opt.shape)}
+                          </div>
+                          {ours === opt.shape ? (
+                            <span className="inline-flex shrink-0 items-center gap-1 text-xs" style={{ color: P.on, fontWeight: 700 }}><Check size={13} />In use</span>
+                          ) : (
+                            <button onClick={() => setOurShape(pd, opt.shape)} className="shrink-0 rounded-xl px-3 py-1 text-sm" style={{ background: P.ink, color: "#FFF", fontWeight: 700 }}>Use</button>
+                          )}
+                        </div>
+                        <div className="mt-2">{zoneChips(opt.z)}</div>
+                        <div className="mt-2 text-xs" style={{ color: P.dim }}>{opt.why}</div>
+                        {call && <div className="mt-1 text-xs"><b>Say: </b>{call}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="text-xs" style={{ color: P.faint }}>
+              Changing a shape clears any pick in a spot the new shape doesn't have. Tap Auto-fill to refill that {periodUnit}.
+            </div>
+          </div>
+        )}
+      </Card>
+    );
+  })();
+
   const PlanView = (
     <div className="flex flex-col gap-3">
       {roster.length === 0 ? (
@@ -713,6 +934,18 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
             </Card>
           )}
 
+          <Card className="p-3">
+            <Eyebrow>Opposition</Eyebrow>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {OPPOSITION_CHIPS.map((o) => (
+                <Chip key={o.id} kit={kit} active={opposition === o.id} onClick={() => setOpposition(o.id)}>{o.label}</Chip>
+              ))}
+            </div>
+            <div className="mt-2 text-xs" style={{ color: P.dim }}>
+              {OPPOSITION_CHIPS.find((o) => o.id === opposition).blurb}
+            </div>
+          </Card>
+
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
             {segments.map((s, i) => (
               <Chip key={i} kit={kit} active={i === segIdx} onClick={() => setSegIdx(i)} dot={blockIncomplete(i)}>
@@ -729,6 +962,8 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
             </div>
           )}
 
+          {ShapeCard}
+
           <Card className="p-4">{summaryFor(segIdx)}</Card>
 
           <div
@@ -737,7 +972,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
           >
             <PitchSVG />
             <div className="absolute inset-0">
-              {positions.map((pos) => {
+              {posFor(segIdx).map((pos) => {
                 const pid = curAssign[pos.key];
                 const player = pid ? playersById[pid] : null;
                 const absent = player && !player.available;
@@ -799,9 +1034,46 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
             </div>
           </Card>
 
-          <button onClick={runAutoFill} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-base" style={{ background: kit, color: kitText, fontWeight: 700, boxShadow: "0 4px 12px rgba(23,33,27,0.15)" }}>
-            <Wand2 size={18} /> Auto-fill for fair minutes
+          {receipts && (
+            <Card className="p-3">
+              <Eyebrow>Why this lineup</Eyebrow>
+              <div className="mt-2 flex flex-col gap-2">
+                {receipts.map((r) => (
+                  <div key={r.ruleId} className="flex items-start gap-2 text-sm" data-state={r.state}>
+                    <span className="mt-px inline-flex shrink-0 items-center justify-center" style={{ width: 16, height: 16 }}>
+                      {r.state === "ok" ? <Check size={15} color={P.on} aria-label="Done" />
+                        : r.state === "warn" ? <AlertTriangle size={14} color={P.warn} aria-label="Warning" />
+                        : <span className="rounded-full" aria-label={r.state === "na" ? "Doesn't apply" : "Not checked"} style={{ width: 6, height: 6, background: P.faint }} />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span style={{ fontWeight: 600, color: r.state === "ok" || r.state === "warn" ? P.ink : P.dim }}>{r.label}</span>
+                      {r.note && (r.state === "warn" || r.state === "na") && (
+                        <span className="block text-xs" style={{ color: r.state === "warn" ? P.warn : P.dim }}>{r.note}</span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {lastFill.notes.length > 0 && (
+                <div className="mt-2 flex flex-col gap-1 text-xs" style={{ color: P.dim }}>
+                  {lastFill.notes.map((n, i) => <div key={i}>{n}</div>)}
+                </div>
+              )}
+            </Card>
+          )}
+
+          <button onClick={runAutoFill} className="flex w-full flex-col items-center justify-center rounded-2xl py-3 text-base" style={{ background: kit, color: kitText, fontWeight: 700, boxShadow: "0 4px 12px rgba(23,33,27,0.15)" }}>
+            <span className="inline-flex items-center gap-2"><Wand2 size={18} /> Auto-fill</span>
+            <span className="text-xs" style={{ fontWeight: 500, opacity: 0.85 }}>Uses ratings and your lineup rules</span>
           </button>
+          {unrated.length > 0 && (
+            <div className="px-1 text-xs" style={{ color: P.dim }}>
+              {unrated.length === 1 ? "1 player has" : unrated.length + " players have"} no ratings yet, so auto-fill treats them as average.{" "}
+              {onOpenPlayer ? (
+                <button onClick={() => onOpenPlayer(unrated[0].id)} style={{ color: P.ink, fontWeight: 600, textDecoration: "underline" }}>Rate them in Squad.</button>
+              ) : "Rate them in Squad."}
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => copyPrev(segIdx)}
@@ -872,7 +1144,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
                   {segments.map((s, i) => {
                     const seg = plan[i] || {};
                     const posKey = Object.keys(seg).find((k) => seg[k] === p.id);
-                    const pos = posKey ? positions.find((q) => q.key === posKey) : null;
+                    const pos = posKey ? posFor(i).find((q) => q.key === posKey) : null;
                     const on = !!pos;
                     const isGK = pos && pos.gk;
                     return (
@@ -993,7 +1265,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
           <Card className="p-4">
             <Eyebrow>On the pitch now</Eyebrow>
             <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
-              {positions.map((pos) => {
+              {posFor(liveIdx).map((pos) => {
                 const pl = liveAssign[pos.key] ? playersById[liveAssign[pos.key]] : null;
                 return (
                   <div key={pos.key} className="flex items-center gap-2 text-sm">
@@ -1014,7 +1286,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
 
   /* --------------------------- assignment sheet --------------------------- */
 
-  const sheetPos = sheet ? positions.find((p) => p.key === sheet.posKey) : null;
+  const sheetPos = sheet ? posFor(segIdx).find((p) => p.key === sheet.posKey) : null;
   const sheetOccupantId = sheetPos ? curAssign[sheetPos.key] : null;
   const sheetBench = sheetPos
     ? roster
@@ -1026,7 +1298,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
     : [];
   const posOfPlayer = (id) => {
     const k = Object.keys(curAssign).find((key) => curAssign[key] === id);
-    const pos = k ? positions.find((q) => q.key === k) : null;
+    const pos = k ? posFor(segIdx).find((q) => q.key === k) : null;
     return pos ? pos.label : "";
   };
   const pickPlayer = (id) => {

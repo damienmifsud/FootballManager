@@ -120,17 +120,36 @@ describe("parents see", () => {
 describe("rules", () => {
   const custom = (id, text, extra = {}) => ({ id, text, builtin: false, ...extra });
 
-  it("BUILTIN_RULES covers all six ids; DEFAULT_RULES seeds three of them in priority order", () => {
-    expect(Object.keys(BUILTIN_RULES)).toEqual(["bi-period", "bi-gk-break", "bi-rating-zero", "bi-weak-wide", "bi-no-double-bench", "bi-sticky-positions"]);
+  const ALL6 = ["bi-period", "bi-gk-break", "bi-rating-zero", "bi-weak-wide", "bi-no-double-bench", "bi-sticky-positions"];
+
+  it("BUILTIN_RULES covers all six ids; DEFAULT_RULES seeds all six, switched on, in priority order", () => {
+    expect(Object.keys(BUILTIN_RULES)).toEqual(ALL6);
     expect(DEFAULT_RULES).toEqual([
-      { id: "bi-period", text: "Everyone available plays in both halves", builtin: true },
+      { id: "bi-period", text: "Everyone available plays in every half", builtin: true },
       { id: "bi-gk-break", text: "Keeper changes only at the break", builtin: true },
-      { id: "bi-rating-zero", text: "Nobody plays a spot they're rated 0 in", builtin: true }
+      { id: "bi-rating-zero", text: "Nobody plays a spot they're rated 0 in", builtin: true },
+      { id: "bi-weak-wide", text: BUILTIN_RULES["bi-weak-wide"], builtin: true },
+      { id: "bi-no-double-bench", text: BUILTIN_RULES["bi-no-double-bench"], builtin: true },
+      { id: "bi-sticky-positions", text: BUILTIN_RULES["bi-sticky-positions"], builtin: true }
     ]);
   });
 
+  it("teamRules on a team holding the old three rules returns all six, in order, the new three on", () => {
+    const old = [
+      { id: "bi-period", text: "Everyone available plays in both halves", builtin: true, off: true },
+      custom("r_a", "Twins never on together"),
+      { id: "bi-gk-break", text: BUILTIN_RULES["bi-gk-break"], builtin: true },
+      { id: "bi-rating-zero", text: BUILTIN_RULES["bi-rating-zero"], builtin: true }
+    ];
+    const out = teamRules({ rules: old });
+    expect(out.map((r) => r.id)).toEqual(["bi-period", "r_a", "bi-gk-break", "bi-rating-zero", "bi-weak-wide", "bi-no-double-bench", "bi-sticky-positions"]);
+    expect(out[0].off).toBe(true); // the coach's switch is kept
+    expect(out.slice(4).every((r) => r.builtin && !r.off)).toBe(true);
+    expect(old).toHaveLength(4); // the stored list isn't mutated
+  });
+
   it("teamRules returns the team's own list, else a fresh copy of the defaults", () => {
-    const own = [custom("r_a", "Twins never on together")];
+    const own = [...DEFAULT_RULES, custom("r_a", "Twins never on together")];
     expect(teamRules({ rules: own })).toBe(own);
     const fallback = teamRules({ rules: [] });
     expect(fallback).toEqual(DEFAULT_RULES);
@@ -154,9 +173,9 @@ describe("rules", () => {
       { id: "bi-period" },
       { id: "bi-rating-zero", text: "x", builtin: "no" }
     ]);
-    expect(out.map((r) => r.id)).toEqual(["r_a", "bi-gk-break", "bi-period", "bi-rating-zero"]);
+    expect(out.map((r) => r.id)).toEqual(["r_a", "bi-gk-break", "bi-period", "bi-rating-zero", "bi-weak-wide", "bi-no-double-bench", "bi-sticky-positions"]);
     expect(out[1]).toEqual({ id: "bi-gk-break", text: "Keeper changes only at the break", builtin: true });
-    expect(out[2]).toEqual({ id: "bi-period", text: "Everyone available plays in both halves", builtin: true });
+    expect(out[2]).toEqual({ id: "bi-period", text: "Everyone available plays in every half", builtin: true });
     expect(out[3]).toEqual({ id: "bi-rating-zero", text: "Nobody plays a spot they're rated 0 in", builtin: true });
   });
 
@@ -219,34 +238,34 @@ describe("rules", () => {
 
   it("drops duplicate ids, first wins", () => {
     const out = sanitizeRules([...DEFAULT_RULES, custom("r_1", "First"), custom("r_1", "Second"), { id: "bi-period", off: true }]);
-    expect(out.map((r) => r.id)).toEqual(["bi-period", "bi-gk-break", "bi-rating-zero", "r_1"]);
+    expect(out.map((r) => r.id)).toEqual([...ALL6, "r_1"]);
     expect(out[0]).not.toHaveProperty("off");
-    expect(out[3].text).toBe("First");
+    expect(out[6].text).toBe("First");
   });
 
   it("drops junk entries and ignores builtin:true on unknown ids", () => {
     const out = sanitizeRules([...DEFAULT_RULES, null, "string", 7, { id: "r_1", text: "Real", builtin: true }]);
-    expect(out).toHaveLength(4);
-    expect(out[3]).toEqual({ id: "r_1", text: "Real", builtin: false });
+    expect(out).toHaveLength(7);
+    expect(out[6]).toEqual({ id: "r_1", text: "Real", builtin: false });
   });
 
   it("an inherited object key is not a built-in id", () => {
     const out = sanitizeRules([...DEFAULT_RULES, { id: "toString", text: "Sneaky" }, { id: "constructor" }]);
-    expect(out).toHaveLength(4);
-    expect(out[3]).toEqual({ id: "toString", text: "Sneaky", builtin: false });
+    expect(out).toHaveLength(7);
+    expect(out[6]).toEqual({ id: "toString", text: "Sneaky", builtin: false });
   });
 
   it("caps the list at 20", () => {
     const many = Array.from({ length: 30 }, (_, i) => custom("r_" + i, "Rule " + i));
     const out = sanitizeRules([...DEFAULT_RULES, ...many]);
     expect(out).toHaveLength(20);
-    expect(out.slice(0, 3)).toEqual(DEFAULT_RULES);
-    expect(out[19].id).toBe("r_16");
+    expect(out.slice(0, 6)).toEqual(DEFAULT_RULES);
+    expect(out[19].id).toBe("r_13");
     // Even with only custom rules, the seeded built-ins fit inside the cap.
     const onlyCustom = sanitizeRules(many);
     expect(onlyCustom).toHaveLength(20);
-    expect(onlyCustom.slice(-3).map((r) => r.id)).toEqual(["bi-period", "bi-gk-break", "bi-rating-zero"]);
-    expect(onlyCustom.slice(0, 17).map((r) => r.id)).toEqual(many.slice(0, 17).map((r) => r.id));
+    expect(onlyCustom.slice(-6).map((r) => r.id)).toEqual(ALL6);
+    expect(onlyCustom.slice(0, 14).map((r) => r.id)).toEqual(many.slice(0, 14).map((r) => r.id));
   });
 
   it("keeps a built-in's off switch even when it is ranked past the cap", () => {
@@ -257,20 +276,19 @@ describe("rules", () => {
     expect(out).toHaveLength(20);
     const rz = out.find((r) => r.id === "bi-rating-zero");
     expect(rz).toEqual({ id: "bi-rating-zero", text: BUILTIN_RULES["bi-rating-zero"], builtin: true, off: true });
-    // The lowest-priority custom rule made room, not a built-in.
-    expect(out.filter((r) => !r.builtin)).toHaveLength(17);
-    expect(out.map((r) => r.id)).not.toContain("r_17");
+    // The lowest-priority custom rules made room, not a built-in.
+    expect(out.filter((r) => !r.builtin)).toHaveLength(14);
+    expect(out.map((r) => r.id)).not.toContain("r_14");
   });
 
   it("re-appends missing seeded built-ins at the end, switched on", () => {
     const out = sanitizeRules([{ id: "bi-gk-break", off: true }, custom("r_1", "Mine")]);
-    expect(out.map((r) => r.id)).toEqual(["bi-gk-break", "r_1", "bi-period", "bi-rating-zero"]);
+    expect(out.map((r) => r.id)).toEqual(["bi-gk-break", "r_1", "bi-period", "bi-rating-zero", "bi-weak-wide", "bi-no-double-bench", "bi-sticky-positions"]);
     expect(out[0].off).toBe(true);
     expect(out[2]).toEqual({ id: "bi-period", text: BUILTIN_RULES["bi-period"], builtin: true });
     expect(out[3]).toEqual({ id: "bi-rating-zero", text: BUILTIN_RULES["bi-rating-zero"], builtin: true });
+    expect(out[6]).toEqual({ id: "bi-sticky-positions", text: BUILTIN_RULES["bi-sticky-positions"], builtin: true });
     expect(sanitizeRules([])).toEqual(DEFAULT_RULES);
-    // Optional built-ins (not seeded) are not forced back in.
-    expect(sanitizeRules(DEFAULT_RULES).map((r) => r.id)).not.toContain("bi-weak-wide");
   });
 });
 
