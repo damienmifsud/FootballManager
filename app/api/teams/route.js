@@ -6,7 +6,7 @@ import { auth } from "@/auth";
 import { isAdminEmail, isClubAdminEmail } from "@/lib/directory";
 import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
-import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE, sanitizeSeason } from "@/lib/teamSetup";
+import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE, sanitizeSeason, sanitizeStrip } from "@/lib/teamSetup";
 import { sanitizeCompetitions, competitionsError, squadiFeeds, websiteLinksError, sanitizeSeasonName } from "@/lib/competitions";
 
 export const dynamic = "force-dynamic";
@@ -108,7 +108,7 @@ async function clash(field, value, exceptSlug) {
 
 // GET: every team, flagged by source, including codes/keys (admin-only view)
 // plus the doc-held fields the wizard can edit (division, WhatsApp, features,
-// what parents can see, the season window).
+// what parents can see, the season window, the kit the team wears).
 export async function GET() {
   const gate = await requireTeamManager();
   if (gate.error) return NextResponse.json({ error: gate.error }, { status: gate.status });
@@ -129,6 +129,7 @@ export async function GET() {
       season: sanitizeSeason(doc?.team?.season),
       features: { ...DEFAULT_FEATURES, ...(doc?.team?.features || {}) },
       parentsSee: { ...DEFAULT_PARENTS_SEE, ...(doc?.team?.parentsSee || {}) },
+      strip: sanitizeStrip(doc?.team?.strip),
       staff: Array.isArray(doc?.team?.staff) ? doc.team.staff.map(({ role, name, mobile, email }) => ({ role, name, mobile, email })) : [],
       coachPin: doc?.team?.coachPin || "",
       hasLogo: !!doc?.team?.logo, // the data URL itself is too heavy for the list
@@ -186,7 +187,7 @@ export async function POST(req) {
   // like Squadi-synced games), the season window the training runs inside
   // (the sessions themselves stay unbounded, so moving the season later moves
   // the training with it), the team's feature flags and what parents can see
-  // of match day (defaults when omitted).
+  // of match day (defaults when omitted), and the kit the team wears.
   const players = sanitizePlayers(body.players);
   const sessions = sanitizeTrainingSessions(body.training);
   let seeded = 0;
@@ -203,6 +204,7 @@ export async function POST(req) {
         matchFormat: defaultFormatForAgeGroup(team.ageGroup),
         features: sanitizeFeatures(body.features),
         parentsSee: sanitizeParentsSee(body.parentsSee),
+        ...(sanitizeStrip(body.strip) ? { strip: sanitizeStrip(body.strip) } : {}),
         ...(sidesOf(team) ? { sides: sidesOf(team) } : {})
       },
       players, fixtures: [], sessions
@@ -258,7 +260,7 @@ export async function PATCH(req) {
 
   // Doc-held fields (shown throughout the dashboard) update in place too.
   let docUpdated = false;
-  if (body.division != null || body.whatsapp != null || body.features != null || body.parentsSee != null ||
+  if (body.division != null || body.whatsapp != null || body.features != null || body.parentsSee != null || body.strip != null ||
       body.name != null || body.logo != null || body.staff != null || body.coachPin != null || body.season !== undefined ||
       body.squadi != null) {
     const doc = await getData(slug);
@@ -270,6 +272,8 @@ export async function PATCH(req) {
       if (body.season !== undefined) teamDoc.season = sanitizeSeason(body.season); // null clears
       if (body.features != null) teamDoc.features = sanitizeFeatures(body.features);
       if (body.parentsSee != null) teamDoc.parentsSee = sanitizeParentsSee(body.parentsSee);
+      // The kit the team wears: "Red" or "Blue"; sent empty, the team has none set.
+      if (body.strip != null) { const strip = sanitizeStrip(body.strip); if (strip) teamDoc.strip = strip; else delete teamDoc.strip; }
       if (body.logo != null) { const l = sanitizeLogo(body.logo); if (l) teamDoc.logo = l; }
       if (body.staff != null) {
         // Staff is replaced wholesale, but for rows kept by name we preserve

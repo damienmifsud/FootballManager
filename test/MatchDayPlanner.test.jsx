@@ -334,3 +334,24 @@ describe("two-team squads and missing numbers", () => {
     expect(discs).not.toContain("0");
   });
 });
+
+describe("the shirts on the pitch", () => {
+  // Every element painted in the kit's colour (jsdom reports it as rgb()).
+  const painted = (rgb) => [...document.querySelectorAll("[style]")].filter((el) => el.style.background === rgb || el.style.backgroundColor === rgb).length;
+  const BLUE = "rgb(40, 87, 196)", RED = "rgb(200, 16, 46)";
+
+  it("are the team's kit, the game's own when it was switched, and red when neither says", () => {
+    const withTeamKit = (strip) => ({ ...makeData(), team: { ...makeData().team, strip } });
+    renderPlanner({ data: withTeamKit("Blue") });
+    expect(painted(BLUE)).toBeGreaterThan(0);
+    expect(painted(RED)).toBe(0);
+    cleanup();
+    renderPlanner({ data: withTeamKit("Blue"), fixture: makeFixture({ strip: "Red" }) });
+    expect(painted(RED)).toBeGreaterThan(0);
+    expect(painted(BLUE)).toBe(0);
+    cleanup();
+    renderPlanner();
+    expect(painted(RED)).toBeGreaterThan(0);
+    expect(painted(BLUE)).toBe(0);
+  });
+});

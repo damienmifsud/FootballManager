@@ -419,3 +419,21 @@ describe("season window", () => {
     expect(seasonMonths({ startISO: "2026-12-31", endISO: "2026-01-01" })).toEqual([]);
   });
 });
+
+describe("playing kit — the team's kit and a game's", () => {
+  it("knows the club's two kits, and takes nothing else", async () => {
+    const { KITS, sanitizeStrip } = await import("@/lib/teamSetup");
+    expect(KITS.map((k) => [k.strip, k.side, k.name, k.colour])).toEqual([["Red", "Home", "home kit", "red"], ["Blue", "Away", "away kit", "blue"]]);
+    expect(["Red", "Blue", "red", "Green", "", null, undefined, 1, {}].map(sanitizeStrip)).toEqual(["Red", "Blue", "", "", "", "", "", "", ""]);
+  });
+
+  it("a game wears its own kit when switched, else the team's, else none", async () => {
+    const { gameKit } = await import("@/lib/teamSetup");
+    expect(gameKit({ strip: "Red" }, {})).toMatchObject({ strip: "Red", name: "home kit", colour: "red", from: "team" });
+    expect(gameKit({ strip: "Red" }, { strip: "Blue" })).toMatchObject({ strip: "Blue", name: "away kit", from: "game" });
+    expect(gameKit({}, { strip: "Blue" })).toMatchObject({ strip: "Blue", from: "game" });
+    expect(gameKit({ strip: "Red" }, { strip: "Purple" })).toMatchObject({ strip: "Red", from: "team" });
+    expect(gameKit({}, {})).toBeNull();
+    expect(gameKit(undefined, undefined)).toBeNull();
+  });
+});

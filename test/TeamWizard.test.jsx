@@ -127,13 +127,13 @@ describe("TeamWizard — the team list", () => {
 });
 
 describe("TeamWizard — creating a team", () => {
-  it("numbers the eleven steps in order", async () => {
+  it("numbers the twelve steps in order", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
     expect(screen.getByRole("heading", { level: 3, name: "New team" })).toBeTruthy();
     expect(stepTitles()).toEqual([
-      "1 Team name", "2 Age group", "3 Team code", "4 Extra coach logins", "5 Competitions", "6 Players and parents",
-      "7 Season", "8 Weekly training", "9 Features", "10 Parents can see", "11 Team identity"
+      "1 Team name", "2 Age group", "3 Playing kit", "4 Team code", "5 Extra coach logins", "6 Competitions", "7 Players and parents",
+      "8 Season", "9 Weekly training", "10 Features", "11 Parents can see", "12 Team identity"
     ]);
   });
 
@@ -350,13 +350,13 @@ describe("TeamWizard — creating a team", () => {
 });
 
 describe("TeamWizard — editing a team", () => {
-  it("prefills from the team, numbers nine steps and keeps every staff row", async () => {
+  it("prefills from the team, numbers ten steps and keeps every staff row", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Edit Olympic FC U8 White" }));
     expect(screen.getByRole("heading", { level: 3, name: "Edit Olympic FC U8 White" })).toBeTruthy();
     expect(stepTitles()).toEqual([
-      "1 Team name", "2 Age group", "3 Team code", "4 Extra coach logins", "5 Competitions",
-      "6 Season", "7 Features", "8 Parents can see", "9 Team identity"
+      "1 Team name", "2 Age group", "3 Playing kit", "4 Team code", "5 Extra coach logins", "6 Competitions",
+      "7 Season", "8 Features", "9 Parents can see", "10 Team identity"
     ]);
     expect(screen.getByLabelText("Team name").value).toBe("Olympic FC U8 White");
     expect(screen.getByLabelText("Team code").value).toBe("red-kanga-42");
@@ -943,5 +943,40 @@ describe("TeamWizard — a competition on Dribl", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].body.competitions).toEqual([{ id: "cprem0001", name: "Premier Invitational" }]);
+  });
+});
+
+describe("TeamWizard — the playing kit", () => {
+  const kitGroup = () => screen.getByRole("group", { name: "Playing kit" });
+  const pressed = () => within(kitGroup()).getAllByRole("button").filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.textContent);
+  const saveEdit = async () => { fireEvent.click(screen.getByRole("button", { name: /^Save/ })); await waitFor(() => expect(calls).toHaveLength(1)); return calls[0].body; };
+
+  it("a new team wears the home kit unless the away kit is picked, and saves the one picked", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    expect(within(kitGroup()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Home kit (red)", "Away kit (blue)"]);
+    expect(pressed()).toEqual(["Home kit (red)"]);
+    fireEvent.click(screen.getByRole("button", { name: "Away kit (blue)" }));
+    expect(pressed()).toEqual(["Away kit (blue)"]);
+    fireEvent.change(screen.getByLabelText("Team name"), { target: { value: "Riverside FC U11" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.strip).toBe("Blue");
+  });
+
+  it("editing shows the team's kit and saves a change to it", async () => {
+    teams = [{ ...U8, strip: "Blue" }, ENV];
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: `Edit ${U8.name}` }));
+    expect(pressed()).toEqual(["Away kit (blue)"]);
+    fireEvent.click(screen.getByRole("button", { name: "Home kit (red)" }));
+    expect((await saveEdit()).strip).toBe("Red");
+  });
+
+  it("a team with no kit set shows none picked, and saving something else leaves it without one", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: `Edit ${U8.name}` }));
+    expect(pressed()).toEqual([]);
+    expect((await saveEdit()).strip).toBe("");
   });
 });

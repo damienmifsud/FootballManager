@@ -128,10 +128,36 @@ describe("POST /api/ask — prompt construction", () => {
       players: [{ id: "p1" }, { id: "p2" }]
     });
     const userContent = (await ask({ question: "how did we go?" }).then(sentBodyContent));
-    expect(userContent).toContain("Round 3: vs Wests");
-    expect(userContent).toContain("result 2-1");
-    expect(userContent).toContain("Training (weekly");
-    expect(userContent).toContain("Squad size: 2");
+    expect(userContent).toContain("LIVE TEAM DATA:\nToday is ");
+    expect(userContent).toContain("| Season, round 3 | home vs Wests | ground: Perry Park | won 2–1");
+    expect(userContent).toContain("- Training: weekly 17:00");
+    expect(userContent).toContain("Squad: 2 players.");
+  });
+
+  it("dates the data in Brisbane: just after 2pm UTC is already tomorrow there", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-27T14:30:00Z"));
+    try {
+      const userContent = await ask({ question: "next game?" }).then(sentBodyContent);
+      expect(userContent).toContain("Today is Saturday 28 November 2026 (Brisbane).");
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("says MiniRoos only for a MiniRoos age group: an older team, or one with no age group, is not told it plays MiniRoos", async () => {
+    let system = (await ask({ question: "rules?" }).then(() => sentBody())).system;
+    expect(system).toContain("THIS TEAM IS: U8 Div 1 — the Kangaroos pathway");
+    expect(system).toContain("MiniRoos U8/U9 does not publish match results");
+    fetch.mockClear();
+    getData.mockResolvedValue({ team: { name: "Team A", ageGroup: "U10", division: "" }, fixtures: [], sessions: [], players: [] });
+    system = (await ask({ question: "rules?" }).then(() => sentBody())).system;
+    expect(system).toContain("THIS TEAM IS: U10. ");
+    expect(system).toContain("default to this team's (U10)");
+    expect(system).not.toMatch(/Kangaroos pathway|does not publish match results/);
+    fetch.mockClear();
+    getData.mockResolvedValue({ team: { name: "Team A" }, fixtures: [], sessions: [], players: [] });
+    system = (await ask({ question: "rules?" }).then(() => sentBody())).system;
+    expect(system).toContain("THIS TEAM IS: a junior team. ");
+    expect(system).not.toMatch(/THIS TEAM IS: U8|Kangaroos pathway|default to this team's \(U8/);
   });
 
   it("truncates uploaded docs to the character budget, dropping overflow", async () => {
