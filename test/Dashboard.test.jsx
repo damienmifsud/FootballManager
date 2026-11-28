@@ -1584,7 +1584,7 @@ describe("S2 Home — Direction C cards", () => {
     expect(document.querySelector(".nav button.active").textContent).toBe("Calendar");
   });
 
-  it("season so far: tiles, form pips and for/against from played fixtures, with the MiniRoos footnote at U8", async () => {
+  it("season so far: tiles, form pips and for/against from played fixtures, with no MiniRoos footnote at any age", async () => {
     await load(makeData({ fixtures: [
       game(),
       { id: "f5", round: 5, status: "played", dateISO: daysFromNow(-14), time: "09:00", opponent: "Rovers", homeAway: "A", venue: "X", us: 1, them: 1 },
@@ -1594,11 +1594,11 @@ describe("S2 Home — Direction C cards", () => {
     expect(document.querySelector(".tile.pts .v").textContent).toBe("4");
     expect([...document.querySelectorAll(".pip")].map((p) => p.textContent + ":" + p.className)).toEqual(["D:pip D", "W:pip W"]);
     expect(screen.getByText("4 for · 2 against")).toBeTruthy();
-    expect(screen.getByText("MiniRoos doesn't publish ladders at U8 — these are just our own numbers.")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/MiniRoos/);
     expect(screen.getByText("All stats ›")).toBeTruthy(); // the push itself is covered by the S1 shell tests
   });
 
-  it("no ladder footnote outside MiniRoos ages", async () => {
+  it("no ladder footnote for an older team either", async () => {
     const data = makeData({ fixtures: [game()] });
     data.team.ageGroup = "U12";
     await load(data);
@@ -1711,17 +1711,11 @@ describe("S3 Results + Match detail", () => {
     expect(row.querySelector(".mr-side.away.ours img.mcrest.ours").getAttribute("src")).toBe("/crests/olympic-fc.png");
   });
 
-  it("the MiniRoos footnote shows at U6–U9 only", async () => {
-    const data = makeData({ fixtures: [game()] });
-    await load(data);
+  it("Results carries no MiniRoos footnote, whatever the age group", async () => {
+    await load(makeData({ fixtures: [game()] }));
     toResults();
-    expect(screen.getByText("MiniRoos doesn't publish ladders at U8 — results only help grade the leagues. These are just our own numbers.").className).toBe("footnote res-foot");
-    cleanup();
-    const older = makeData({ fixtures: [game()] });
-    older.team.ageGroup = "U12";
-    await load(older);
-    toResults();
-    expect(screen.queryByText(/MiniRoos doesn't publish ladders/)).toBeNull();
+    expect(document.querySelector(".reslist")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/MiniRoos/);
   });
 
   it("tapping a row pushes Match detail (Round title, opponent + date kicker); Back returns to Results", async () => {
@@ -3627,7 +3621,7 @@ describe("S8 Stats — Direction C", () => {
 });
 
 describe("S9 Ask — Direction C", () => {
-  const FALLBACK = "That isn't covered by the team's documents or schedule, so I won't guess. Try fixtures, training, duties or the MiniRoos rules — or message Coach Byron.";
+  const FALLBACK = "That isn't covered by the team's documents or schedule, so I won't guess. Try fixtures, training, duties or the team's documents — or message Coach Byron.";
   const load = async (d) => { storage.get.mockResolvedValue({ value: JSON.stringify(d) }); render(<App />); await waitForLoaded(); };
   const toAsk = async () => { fireEvent.click(screen.getByText("Ask")); return screen.findByPlaceholderText("Ask about the team…"); };
   const askCalls = () => fetch.mock.calls.filter(([url]) => String(url).includes("/api/ask"));
@@ -3646,7 +3640,7 @@ describe("S9 Ask — Direction C", () => {
     await load(makeData({ fixtures }));
     await enterCoachMode();
     await toAsk();
-    expect(screen.getByText("Ask about fixtures, training, duties or the MiniRoos rules.").className).toBe("ask-intro-title");
+    expect(screen.getByText("Ask about fixtures, training, duties or the team's documents.").className).toBe("ask-intro-title");
     const sub = document.querySelector(".ask-intro-sub");
     expect(sub.textContent).toBe("It answers from our documents and schedule. It won't make up rules.No documents loaded yet. Add club and Football Queensland PDFs in Team settings.");
     expect(document.querySelector(".ask-intro .lc-ic svg")).toBeTruthy();
@@ -3674,7 +3668,10 @@ describe("S9 Ask — Direction C", () => {
   });
 
   it("a chip tap shows the user bubble, then the typing bubble, then the canned answer with its source — no API call", async () => {
-    await load(makeData({ fixtures }));
+    // The halves come from the format the coach set in Team settings.
+    const data = makeData({ fixtures });
+    data.team.matchFormat = { gameLength: 40, periods: 2, playersOnField: 7, hasGK: true, formation: "2-3-1", subInterval: 10 };
+    await load(data);
     await enterCoachMode();
     await toAsk();
     fireEvent.click(screen.getByText("How long are the halves at U8?"));
@@ -3683,7 +3680,7 @@ describe("S9 Ask — Direction C", () => {
     expect(document.querySelector(".ask-chips")).toBeNull(); // chips go once the thread starts
     const ai = await screen.findByText(/U8 plays two 20-minute halves/, {}, { timeout: 2000 });
     expect(ai.className).toBe("ask-ai");
-    expect(ai.textContent).toBe("U8 plays two 20-minute halves with at least a 5-minute break. It's 7-a-side including a goalkeeper, size 3 ball, and there's no offside.From: MiniRoos National Playing Formats");
+    expect(ai.textContent).toBe("U8 plays two 20-minute halves. It's 7-a-side including a goalkeeper.From: Team settings · Match format");
     expect(screen.queryByText("Checking the team's documents…")).toBeNull();
     expect(askCalls()).toEqual([]);
   });
@@ -3757,7 +3754,7 @@ describe("S9 Ask — Direction C", () => {
     fireEvent.change(input, { target: { value: "Who brings fruit?" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect((await screen.findByText(/or message the coach\.$/, { exact: false })).textContent)
-      .toBe("That isn't covered by the team's documents or schedule, so I won't guess. Try fixtures, training, duties or the MiniRoos rules — or message the coach.From: Team assistant");
+      .toBe("That isn't covered by the team's documents or schedule, so I won't guess. Try fixtures, training, duties or the team's documents — or message the coach.From: Team assistant");
   });
 
   it("a typed question that matches a chip takes the canned path", async () => {
@@ -3805,7 +3802,7 @@ describe("S9 Ask — Direction C", () => {
     fireEvent.click(screen.getByText("Ask"));
     expect(await screen.findByText("Sign in to ask.")).toBeTruthy();
     expect(screen.getByText("Open Viewing as and choose who you are, then come back here.").className).toBe("ask-signin-sub");
-    expect(screen.getByText("Ask about fixtures, training, duties or the MiniRoos rules.")).toBeTruthy();
+    expect(screen.getByText("Ask about fixtures, training, duties or the team's documents.")).toBeTruthy();
     expect(screen.queryByPlaceholderText("Ask about the team…")).toBeNull();
     expect(document.querySelector(".ask-chip")).toBeNull();
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
@@ -5196,5 +5193,49 @@ describe("Playing kit: the team's kit, switched for one game", () => {
     await openGame();
     const href = decodeURIComponent(screen.getByText("Share to WhatsApp").getAttribute("href"));
     expect(href).toContain("Strip: Blue");
+  });
+});
+
+// The header line under the team's name, and a round with no number named as
+// its draw names it (lib/rounds.js), wherever a round number usually goes.
+describe("the header line, and named rounds", () => {
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); render(<App />); return waitForLoaded(); };
+  const semi = { id: "fsf", status: "upcoming", round: null, roundName: "Semi Finals", comp: "cfives", compName: "Summer Fives", dateISO: daysFromNow(3), time: "17:10", opponent: "Valley Vipers", homeAway: "H", venue: "Riverside Park – Field 1", availability: {} };
+
+  it("has no stray dot when the team has no division, or no age group", async () => {
+    const data = makeData();
+    data.team.division = "";
+    await load(data);
+    expect(headerKicker()).toBe("U8");
+    cleanup();
+    const noAge = makeData();
+    noAge.team.ageGroup = "  ";
+    await load(noAge);
+    expect(headerKicker()).toBe("Div 1");
+  });
+
+  it("a semi-final reads SF where the round goes, its name in full on hover and in its label", async () => {
+    await load(makeData({ fixtures: [semi] }));
+    fireEvent.click(within(screen.getByRole("navigation")).getByText("Results"));
+    await waitFor(() => expect(document.querySelector(".reslist")).toBeTruthy());
+    const tag = document.querySelector(".reslist .mr-round .r abbr");
+    expect([tag.textContent, tag.getAttribute("title")]).toEqual(["SF", "Semi Finals"]);
+    // The game's own screen is titled by it.
+    fireEvent.click(document.querySelector(".reslist .mrow"));
+    await waitFor(() => expect(headerTitle()).toBe("Summer Fives · Semi Finals"));
+  });
+
+  it("the duties list and the stats chart name it the same way", async () => {
+    const played = { ...semi, id: "fgf", status: "played", comp: undefined, compName: undefined, roundName: "Grand Final", dateISO: daysFromNow(-3), us: 2, them: 1 };
+    await load(makeData({ fixtures: [semi, played] }));
+    fireEvent.click(screen.getByRole("button", { name: "Duties" }));
+    await waitFor(() => expect(document.querySelector(".du-round")).toBeTruthy());
+    expect([...document.querySelectorAll(".du-round")].map((e) => e.textContent)).toContain("SF");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.getByText("All stats ›")).toBeTruthy());
+    fireEvent.click(screen.getByText("All stats ›"));
+    await waitFor(() => expect(document.querySelector(".st-rd")).toBeTruthy());
+    expect(document.querySelector(".st-rd").textContent).toBe("GF");
+    expect(document.querySelector(".st-col").getAttribute("aria-label")).toBe("Grand Final, 2–1");
   });
 });

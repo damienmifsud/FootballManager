@@ -13,7 +13,8 @@ import { Plus, RefreshCw, X, Check, ExternalLink } from "lucide-react";
 import { parsePlayerImport, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES, seasonLabel, KITS } from "@/lib/teamSetup";
 import { downscaleImage } from "@/lib/clientImage";
-import { MAX_COMPETITIONS, websiteLink, SEASON_NAME_MAX } from "@/lib/competitions";
+import { MAX_COMPETITIONS, websiteLink, SEASON_NAME_MAX, GROUND_MAX, formatWords } from "@/lib/competitions";
+import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { parseFeedLink, feedProvider } from "@/lib/feedLinks";
 import { parseMajestriLink, majestriCompUrl } from "@/lib/majestriDraw";
 import { readDriblLink } from "@/lib/driblLink";
@@ -86,10 +87,68 @@ const onMajestri = (c) => {
 // as the link, since that is where it is read from. `scores` is the choice to
 // take the competition's scores from its draw (Squadi, Dribl or Majestri): on
 // for a competition being added, and as it was saved for one already there.
-const competitionRow = (c = {}) => ({
+// `ground` is where it is played, for a draw that names only the field.
+// `format` is how its games are played; a competition being added starts
+// with the season's (`start`) and is saved only once the format is confirmed
+// (`formatOk`), and one saved without a format plans in the team's own.
+const competitionRow = (c = {}, start = null) => ({
   ...(c.id ? { id: c.id } : {}), name: c.name || "", squadi: squadiForEdit(c.squadi), dribl: driblForEdit(c.dribl), majestri: majestriForEdit(c.majestri),
-  scores: c.id ? c.scores === true : true, link: c.link || c.majestri?.url || "", note: null, teams: []
+  scores: c.id ? c.scores === true : true, link: c.link || c.majestri?.url || "", note: null, teams: [],
+  ground: c.ground || "", format: c.format ? { ...c.format } : c.id ? null : start, formatOk: !!c.format
 });
+// The season's format, as a competition being added starts with it: the one
+// the coach set in Team settings, else the age group's.
+const seasonFormat = (form) => {
+  const f = form.matchFormat || defaultFormatForAgeGroup(form.ageGroup);
+  return { playersOnField: f.playersOnField, hasGK: !!f.hasGK, periods: f.periods, gameLength: f.gameLength };
+};
+const capital = (text) => (text ? text[0].toUpperCase() + text.slice(1) : "");
+const SIDES = [4, 5, 6, 7, 8, 9, 11];
+const SPLITS = [[1, "Straight through"], [2, "Halves"], [3, "Thirds"], [4, "Quarters"]];
+const ONE_PERIOD = { 2: "half", 3: "third", 4: "quarter" };
+
+// How a competition's games are played: players a side and keepers, the
+// periods the game is split into and how long each is, read back in words and
+// confirmed. The minutes are typed freely and taken once they make a game of
+// 10 to 120 minutes.
+function FormatPicker({ id, who, value, onChange, onConfirm }) {
+  const f = value;
+  const each = Math.round(f.gameLength / f.periods);
+  const [minutes, setMinutes] = useState(String(each));
+  useEffect(() => { setMinutes(String(Math.round(f.gameLength / f.periods))); }, [f.gameLength, f.periods]);
+  const lengthFor = (mins, periods) => (Number.isInteger(mins) && mins * periods >= 10 && mins * periods <= 120 ? mins * periods : null);
+  const typed = lengthFor(Number(minutes), f.periods);
+  return (
+    <div className="adm-fmt">
+      <div className="adm-note">How {who} is played. It often differs from the season, so check with the organisers.</div>
+      <div className="adm-chips" role="group" aria-label={`${who}: players a side`} style={{ marginTop: 8 }}>
+        {SIDES.map((n) => (
+          <button type="button" key={n} className={"adm-chip" + (f.playersOnField === n ? " on" : "")} aria-pressed={f.playersOnField === n}
+            onClick={() => onChange({ ...f, playersOnField: n, hasGK: n >= 5 })}>{n}v{n}</button>
+        ))}
+      </div>
+      <div className="adm-swrow">
+        <span>Keepers</span>
+        <AdminSwitch on={f.hasGK} label={`${who}: keepers`} onClick={() => onChange({ ...f, hasGK: !f.hasGK })} />
+      </div>
+      <div className="adm-seg" role="group" aria-label={`${who}: the game is played`} style={{ marginTop: 8 }}>
+        {SPLITS.map(([n, label]) => (
+          <button type="button" key={n} className={f.periods === n ? "on" : ""} aria-pressed={f.periods === n}
+            onClick={() => onChange({ ...f, periods: n, gameLength: lengthFor(each, n) || Math.min(120, Math.max(10, each * n)) })}>{label}</button>
+        ))}
+      </div>
+      <label className="adm-fl" htmlFor={`fmt-min-${id}`} style={{ marginTop: 10 }}>{f.periods === 1 ? "Minutes" : `Minutes each ${ONE_PERIOD[f.periods]}`}</label>
+      <input id={`fmt-min-${id}`} className="adm-inp" type="number" inputMode="numeric" min="1" max="120" value={minutes}
+        onChange={(e) => { setMinutes(e.target.value); const len = lengthFor(Number(e.target.value), f.periods); if (len) onChange({ ...f, gameLength: len }); }} />
+      <div className="adm-note" role="status">
+        {typed ? `${capital(formatWords(f))}: ${f.gameLength} minutes in all.` : "A game is 10 to 120 minutes in all."}
+      </div>
+      <div className="adm-form">
+        <button type="button" className="adm-btn sm" disabled={!typed} aria-label={`Confirm how ${who} is played`} onClick={onConfirm}>Confirm the format</button>
+      </div>
+    </div>
+  );
+}
 // Where a row's scores can come from: the site its draw is on.
 const scoresSite = (c) => (onMajestri(c) ? "Majestri" : hasSquadiIds(c.squadi) ? "Squadi" : c.dribl.url.trim() ? "Dribl" : "");
 
@@ -305,7 +364,8 @@ export default function TeamWizard({ onTeamsChanged }) {
       features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
       parentsSee: { ...DEFAULT_PARENTS_SEE, ...(t.parentsSee || {}) },
       logo: "", hasLogo: !!t.hasLogo, coachPin: t.coachPin || "",
-      staff: staffForEdit(t.staff)
+      staff: staffForEdit(t.staff),
+      matchFormat: t.matchFormat || null
     });
   };
 
@@ -440,6 +500,9 @@ export default function TeamWizard({ onTeamsChanged }) {
         : "";
       if (bad) { setErr(bad); return; }
     }
+    // A competition's format is asked for and confirmed before it is kept.
+    const unconfirmed = form.competitions.find((c) => (c.name.trim() || hasSquadiIds(c.squadi) || c.dribl.url.trim() || c.link.trim()) && c.format && !c.formatOk);
+    if (unconfirmed) { setErr(`Confirm how ${unconfirmed.name.trim() || "the new competition"} is played (its match format) before saving.`); return; }
     setBusy(true); setErr("");
     const linkOf = (r) => (r.link.trim() ? { link: r.link.trim() } : {});
     const idsOf = ({ competitionId, divisionId, teamId }) => ({ competitionId, divisionId, teamId });
@@ -455,7 +518,9 @@ export default function TeamWizard({ onTeamsChanged }) {
         // A Majestri row with no team chosen is sent as it is, and the server says what is missing.
         ...(onMajestri(c) ? { majestri: { url: c.majestri.url, team: c.majestri.team.trim(), ...(c.majestri.teamId ? { teamId: c.majestri.teamId } : {}) } } : {}),
         ...(c.scores && scoresSite(c) ? { scores: true } : {}),
-        ...linkOf(c)
+        ...linkOf(c),
+        ...(c.ground.trim() ? { ground: c.ground.trim() } : {}),
+        ...(c.format && c.formatOk ? { format: { playersOnField: c.format.playersOnField, hasGK: !!c.format.hasGK, periods: c.format.periods, gameLength: c.format.gameLength } } : {})
       }));
     const season = form.season.startISO || form.season.endISO ? { startISO: form.season.startISO, endISO: form.season.endISO } : null;
     const payload = {
@@ -747,6 +812,27 @@ export default function TeamWizard({ onTeamsChanged }) {
                     </div>
                   )}
                   <div className="adm-line">
+                    <input className="adm-inp" style={{ flex: "1 1 100%" }} aria-label={`${who} ground`} maxLength={GROUND_MAX} autoComplete="off"
+                      placeholder="Ground, when its draw names only the field" value={c.ground} onChange={(e) => set({ ground: e.target.value })} />
+                  </div>
+                  {c.ground.trim() && (
+                    <div className="adm-note">A game its draw places only on a field, like Field 1, is shown at {c.ground.trim()} – Field 1, and Directions opens {c.ground.trim()}. Games update at the next sync.</div>
+                  )}
+                  <div className="adm-fl" style={{ marginTop: 12 }}>Match format</div>
+                  {!c.format ? (
+                    <div className="adm-swrow">
+                      <span>Not set yet: its games are planned in the team's own format.</span>
+                      <button type="button" className="adm-btn soft sm" onClick={() => set({ format: seasonFormat(form), formatOk: false })}>Set its format</button>
+                    </div>
+                  ) : c.formatOk ? (
+                    <div className="adm-swrow">
+                      <span>{capital(formatWords(c.format))}</span>
+                      <button type="button" className="adm-btn soft sm" aria-label={`Change how ${who} is played`} onClick={() => set({ formatOk: false })}>Change</button>
+                    </div>
+                  ) : (
+                    <FormatPicker id={i} who={who} value={c.format} onChange={(format) => set({ format })} onConfirm={() => set({ formatOk: true })} />
+                  )}
+                  <div className="adm-line">
                     <LinkField who={who} value={c.link} note={c.note} onChange={(link) => set({ link, note: null })} onRead={(text) => readLink("competitions", i, text)} />
                   </div>
                 </div>
@@ -754,7 +840,7 @@ export default function TeamWizard({ onTeamsChanged }) {
             })}
             {form.competitions.length < MAX_COMPETITIONS && (
               <button type="button" className="adm-btn soft sm" style={{ marginTop: 8 }}
-                onClick={() => setForm((f) => ({ ...f, competitions: [...f.competitions, competitionRow()] }))}>
+                onClick={() => setForm((f) => ({ ...f, competitions: [...f.competitions, competitionRow({}, seasonFormat(f))] }))}>
                 <Plus size={14} aria-hidden="true" />Add a competition
               </button>
             )}

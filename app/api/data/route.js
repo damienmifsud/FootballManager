@@ -4,6 +4,7 @@ import { resolveViewer, viewerError } from "@/lib/viewer";
 import { redactForViewer, brisbaneTodayISO } from "@/lib/visibility";
 import { preserveNarrowFields } from "@/lib/protect";
 import { withCrestsSafely, withoutCrests } from "@/lib/clubLogoStore";
+import { withCompetitionFormats, withoutCompetitionFormats } from "@/lib/competitions";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +30,11 @@ export async function GET(req) {
   const doc = await getData(v.team.slug);
   if (doc == null) return NextResponse.json(null);
   // Each game's crest from the club logo library rides along (opponentCrest,
-  // lib/clubLogoStore.js): worked out on every read, never stored.
-  return NextResponse.json(await withCrestsSafely(redactForViewer(doc, { role: v.hat.role, playerIds: v.hat.playerIds, todayISO: brisbaneTodayISO() })));
+  // lib/clubLogoStore.js), and the format each competition is played in from
+  // the club's set-up (competitionFormats, lib/competitions.js): worked out on
+  // every read, never stored.
+  const shown = redactForViewer(doc, { role: v.hat.role, playerIds: v.hat.playerIds, todayISO: brisbaneTodayISO() });
+  return NextResponse.json(await withCrestsSafely(withCompetitionFormats(shown, v.team)));
 }
 
 // WRITE: the coach hat only in account mode — parents use the narrow
@@ -55,7 +59,8 @@ export async function POST(req) {
   let body;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "bad json" }, { status: 400 }); }
   const stored = await getData(v.team.slug);
-  // The crests a read added are the library's, not the team's: never saved.
-  await setData(v.team.slug, preserveNarrowFields(stored, withoutCrests(body)));
+  // The crests and competition formats a read added are the library's and the
+  // set-up's, not the team document's: never saved.
+  await setData(v.team.slug, preserveNarrowFields(stored, withoutCompetitionFormats(withoutCrests(body))));
   return NextResponse.json({ ok: true });
 }

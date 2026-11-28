@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getData } from "@/lib/store";
 import { teamFromCookieHeader } from "@/lib/teams";
-import { rulesAsText } from "@/lib/rulesData";
 import { askTeamData, brisbaneToday } from "@/lib/askContext";
+import { withCompetitionFormats } from "@/lib/competitions";
 
 export const dynamic = "force-dynamic";
 
@@ -67,33 +67,27 @@ export async function POST(req) {
     budget -= slice.length;
     return `### Document: ${d.name}\n${slice}`;
   }).filter(Boolean).join("\n\n");
-  // The structured formats are always available, on top of whatever the coach loaded.
-  const docText = rulesAsText() + (uploaded ? "\n\n" + uploaded : "");
+  // The rules Ask knows are the documents the coach loaded, and nothing built
+  // in: a team's program (an academy, a club league, a tournament) has its own.
+  const docText = uploaded;
 
-  // Only a MiniRoos age group (U6-U9) is told it plays MiniRoos: an older team
-  // (an Academy U10, say) has its own program, and an unset age group is no
-  // reason to assume one.
   const ageGroup = String(data.team?.ageGroup || "").trim();
   const division = String(data.team?.division || "").trim();
-  const miniRoos = /^U[6-9]$/i.test(ageGroup);
   const thisTeam = [ageGroup, division].filter(Boolean).join(" ") || "a junior team";
   const system =
     `You are the friendly assistant for "${team.name}", an Olympic FC junior football team in Brisbane. ` +
-    (miniRoos
-      ? `THIS TEAM IS: ${thisTeam} — the Kangaroos pathway, which at U8/U9 plays Coles MiniRoos Club Football. `
-      : `THIS TEAM IS: ${thisTeam}. `) +
+    `THIS TEAM IS: ${thisTeam}. ` +
     `CRITICAL — AGE GROUP QUALIFICATION: the TEAM DOCUMENTS may cover several different age groups and programs whose rules DIFFER ` +
-    `(e.g. MiniRoos U6-U7 vs U8-U9 vs U10-U11 each have different team sizes, ball sizes and game durations; the FQ Junior Academy U9-U12 ` +
-    `is a different program from MiniRoos/Kangaroos; U12+, divisional and advanced leagues have their own rules of competition). ` +
-    `Before answering any rules/format/policy question: (1) determine which age group and program the question is about — default to this team's (${miniRoos ? `${ageGroup}, MiniRoos/Kangaroos` : ageGroup || "its age group"}) unless the person clearly asks about another; ` +
-    `(2) answer ONLY from the section of the documents that applies to that age group and program; ` +
-    `(3) ALWAYS state which age group/program your answer applies to (e.g. "For U8 MiniRoos…"), and if the documents show a different rule for a nearby age group, you may briefly note the difference. ` +
+    `(team sizes, ball sizes and game lengths change with age, and an academy, a club league or a tournament each has its own rules of competition). ` +
+    `Before answering any rules/format/policy question: (1) determine which age group, program or competition the question is about — default to this team's (${ageGroup || "its age group"}) unless the person clearly asks about another; ` +
+    `(2) answer ONLY from the section of the documents that applies to it; ` +
+    `(3) ALWAYS state which age group, program or competition your answer applies to (e.g. "For U10…"), and if the documents show a different rule for a nearby age group, you may briefly note the difference. ` +
     `If the documents don't cover the asked age group, say so rather than borrowing another age group's rule. ` +
     `Answer using ONLY (1) the TEAM DOCUMENTS and (2) the LIVE TEAM DATA below. If the answer isn't in either, say you don't have that information and suggest checking with the coach — never invent rules, dates or policies. ` +
     `The LIVE TEAM DATA starts with today's date: use it to work out "this week", "this Saturday", the next game or the last one. It lists every game, played and to come, with its date, kick-off, ground, result or that it was called off, and for a coming game when to arrive, the kit to wear and who is on each duty. ` +
     `For a question about a game, give its day and date, kick-off and ground, and name the opponent as the data does. ` +
-    `When you use a document, mention its name. Keep answers short, warm and clear.` +
-    (miniRoos ? " MiniRoos U8/U9 does not publish match results or points tables." : "");
+    `A coming game in a competition with a format of its own lists it (players a side, the periods and their length): that is how that game is played. ` +
+    `When you use a document, mention its name. Keep answers short, warm and clear.`;
 
   const history = Array.isArray(body.history) ? body.history.slice(-6).map((m) => ({
     role: m.role === "you" ? "user" : "assistant",
@@ -102,7 +96,7 @@ export async function POST(req) {
 
   const userContent =
     `TEAM DOCUMENTS:\n${docText || "(none provided)"}\n\n` +
-    `LIVE TEAM DATA:\n${askTeamData(data, brisbaneToday())}\n\n` +
+    `LIVE TEAM DATA:\n${askTeamData(withCompetitionFormats(data, team), brisbaneToday())}\n\n` +
     `QUESTION: ${question}`;
 
   try {

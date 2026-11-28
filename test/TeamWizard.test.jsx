@@ -63,6 +63,13 @@ const stepTitles = () => [...document.querySelectorAll(".adm-step")].map((s) => 
 const step = (title) => within(screen.getByRole("heading", { level: 4, name: title }).closest(".adm-step"));
 const sw = (title, label) => step(title).getByRole("switch", { name: label });
 
+// Every competition added is asked how it is played, and kept only once that
+// is confirmed. These tests take the format it starts with (the team's own:
+// a new team's U8 default) as it is offered.
+const confirmFormats = () => screen.queryAllByRole("button", { name: /^Confirm how .+ is played$/ }).forEach((b) => fireEvent.click(b));
+const U8_FORMAT = { playersOnField: 7, hasGK: true, periods: 2, gameLength: 40 };
+const withoutFormat = (list) => list.map(({ format, ...c }) => c);
+
 describe("TeamWizard — the team list", () => {
   it("one hairline row per team: name, age group, season and where it came from", async () => {
     await open();
@@ -288,12 +295,14 @@ describe("TeamWizard — creating a team", () => {
     // The season's fields were not disturbed by any of that.
     expect(screen.getByLabelText("Squadi competition ID").value).toBe("1439");
 
+    confirmFormats();
     fireEvent.click(screen.getByRole("button", { name: "Create team" }));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].method).toBe("POST");
     expect(calls[0].body.squadi).toEqual({ competitionId: "1439", divisionId: "", teamId: "" });
+    expect(calls[0].body.competitions.map((c) => c.format)).toEqual([U8_FORMAT, U8_FORMAT]);
     // New rows carry no id (the server gives them one); the untouched row is not sent.
-    expect(calls[0].body.competitions).toEqual([
+    expect(withoutFormat(calls[0].body.competitions)).toEqual([
       { name: "Winterfest", squadi: { competitionId: " 1750 ", divisionId: "20001", teamId: "300123" }, scores: true },
       { name: "Premier Invitational" }
     ]);
@@ -628,10 +637,11 @@ describe("TeamWizard — two season feeds and another competition together", () 
     expect(screen.queryByRole("heading", { name: "Squadi sync" })).toBeNull();
     expect(s.getByText("Season", { selector: ".adm-fl" })).toBeTruthy();
     const labels = s.getAllByRole("textbox").map((i) => i.getAttribute("aria-label"));
+    // Each competition's boxes are named for it, its ground among them.
+    const row = (n, who) => [`Competition ${n} name`, `${who} competition ID`, `${who} division ID`, `${who} team ID`, `${who} Dribl fixtures request`, `${who} ground`, `${who} website link`];
     expect(labels).toEqual([
       "Season name", "Squadi team label", "Squadi competition ID", "Squadi division ID", "Squadi team ID", "Squadi website link",
-      "Competition 1 name", "Winterfest competition ID", "Winterfest division ID", "Winterfest team ID", "Winterfest Dribl fixtures request", "Winterfest website link",
-      "Competition 2 name", "Premier Invitational competition ID", "Premier Invitational division ID", "Premier Invitational team ID", "Premier Invitational Dribl fixtures request", "Premier Invitational website link"
+      ...row(1, U8.competitions[0].name), ...row(2, U8.competitions[1].name)
     ]);
     // The second team's row goes between the season's first row and the competitions.
     fireEvent.click(s.getByRole("button", { name: "Add a second team" }));
@@ -650,6 +660,7 @@ describe("TeamWizard — two season feeds and another competition together", () 
     fireEvent.click(screen.getByRole("button", { name: "Add a competition" }));
     fill("Competition 1 name", "Winterfest");
     fill("Winterfest competition ID", "1750"); fill("Winterfest division ID", "20001"); fill("Winterfest team ID", "300123");
+    confirmFormats();
     fireEvent.click(screen.getByRole("button", { name: "Create team" }));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].method).toBe("POST");
@@ -657,7 +668,7 @@ describe("TeamWizard — two season feeds and another competition together", () 
       { label: "McKay", competitionId: "1844", divisionId: "12962", teamId: "133944" },
       { label: "McKain", competitionId: "1844", divisionId: "12960", teamId: "133943" }
     ]);
-    expect(calls[0].body.competitions).toEqual([{ name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: "300123" }, scores: true }]);
+    expect(calls[0].body.competitions).toEqual([{ name: "Winterfest", squadi: { competitionId: "1750", divisionId: "20001", teamId: "300123" }, scores: true, format: U8_FORMAT }]);
   });
 
   it("the label check stops the save before the competitions are sent either", async () => {
@@ -744,11 +755,12 @@ describe("TeamWizard — a website link beside each draw", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add a competition" }));
     fill("Competition 2 name", "Premier Invitational");
     fill("Premier Invitational competition ID", "1900");
+    confirmFormats();
     fireEvent.click(screen.getByRole("button", { name: "Create team" }));
     await waitFor(() => expect(calls).toHaveLength(1));
     // The season's draw page is known before its ids: the row is sent with the link alone.
     expect(calls[0].body.squadi).toEqual({ competitionId: "", divisionId: "", teamId: "", link: SEASON_LINK });
-    expect(calls[0].body.competitions).toEqual([
+    expect(withoutFormat(calls[0].body.competitions)).toEqual([
       { name: "", link: WINTER_LINK },
       { name: "Premier Invitational", squadi: { competitionId: "1900", divisionId: "", teamId: "" }, scores: true }
     ]);
@@ -883,8 +895,11 @@ describe("TeamWizard — a competition on Dribl", () => {
     await startCreate();
     fill("Premier Invitational Dribl fixtures request", "  " + REQUEST + "  ");
     fill("Premier Invitational team name on Dribl", " Olympic FC U9 White ");
+    confirmFormats();
     fireEvent.click(screen.getByRole("button", { name: "Create team" }));
     await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.competitions.map((c) => c.format)).toEqual([U8_FORMAT]);
+    calls[0].body.competitions = withoutFormat(calls[0].body.competitions);
     expect(calls[0].body.competitions).toEqual([{ name: "Premier Invitational", dribl: { url: REQUEST, team: "Olympic FC U9 White" }, scores: true }]);
   });
 
@@ -897,9 +912,10 @@ describe("TeamWizard — a competition on Dribl", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add a competition" }));
     fill("Competition 2 name", "Winterfest");
     fill("Winterfest competition ID", "1750");
+    confirmFormats();
     fireEvent.click(screen.getByRole("button", { name: "Create team" }));
     await waitFor(() => expect(calls).toHaveLength(1));
-    expect(calls[0].body.competitions).toEqual([
+    expect(withoutFormat(calls[0].body.competitions)).toEqual([
       { name: "", dribl: { url: REQUEST, team: "" }, scores: true },
       { name: "Winterfest", squadi: { competitionId: "1750", divisionId: "", teamId: "" }, scores: true }
     ]);
@@ -909,6 +925,7 @@ describe("TeamWizard — a competition on Dribl", () => {
     reply = (method) => (method === "POST" ? { ok: false, status: 400, json: async () => ({ error: "Premier Invitational: That is not a Dribl fixtures request. It should start with https://mc-api.dribl.com/api/fixtures?" }) } : null);
     await startCreate();
     fill("Premier Invitational Dribl fixtures request", "https://premierinvitational.dribl.com/fixtures?season=S1");
+    confirmFormats();
     fireEvent.click(screen.getByRole("button", { name: "Create team" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Premier Invitational: That is not a Dribl fixtures request. It should start with https://mc-api.dribl.com/api/fixtures?");
     expect(screen.getByLabelText("Premier Invitational Dribl fixtures request").value).toBe("https://premierinvitational.dribl.com/fixtures?season=S1");
@@ -978,5 +995,119 @@ describe("TeamWizard — the playing kit", () => {
     fireEvent.click(screen.getByRole("button", { name: `Edit ${U8.name}` }));
     expect(pressed()).toEqual([]);
     expect((await saveEdit()).strip).toBe("");
+  });
+});
+
+// Where and how a competition is played: its ground, for a draw that names
+// only the field, and its match format, asked for and confirmed when it is
+// added. The season plays the team's own format. Every name here is made up.
+describe("TeamWizard — where and how a competition is played", () => {
+  const fill = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  const comp = (who) => screen.getByLabelText(`${who} ground`).closest(".adm-comp");
+  const addFives = async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Add a team" }));
+    fill("Team name", "Riverside U10");
+    fireEvent.click(screen.getByRole("button", { name: "Add a competition" }));
+    fill("Competition 1 name", "Summer Fives");
+  };
+
+  it("a competition added is asked how it is played, starting from the team's own format, and kept only once that is confirmed", async () => {
+    await addFives();
+    const picker = comp("Summer Fives").querySelector(".adm-fmt");
+    expect(within(picker).getByRole("status").textContent).toBe("7 a side with a keeper, 2 halves of 20 minutes: 40 minutes in all.");
+    fireEvent.click(within(picker).getByRole("button", { name: "5v5" }));
+    fireEvent.click(within(picker).getByRole("button", { name: "Thirds" }));
+    fireEvent.change(within(picker).getByLabelText("Minutes each third"), { target: { value: "10" } });
+    expect(within(picker).getByRole("status").textContent).toBe("5 a side with a keeper, 3 thirds of 10 minutes: 30 minutes in all.");
+    expect(within(picker).getByRole("button", { name: "5v5" }).getAttribute("aria-pressed")).toBe("true");
+    // Saving before it is confirmed says so, and sends nothing.
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Confirm how Summer Fives is played (its match format) before saving.");
+    expect(calls).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm how Summer Fives is played" }));
+    // Confirmed, it reads back in a line, with Change.
+    expect(comp("Summer Fives").querySelector(".adm-fmt")).toBeNull();
+    expect(comp("Summer Fives").textContent).toContain("5 a side with a keeper, 3 thirds of 10 minutes");
+    expect(within(comp("Summer Fives")).getByRole("button", { name: "Change how Summer Fives is played" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.competitions).toEqual([{ name: "Summer Fives", format: { playersOnField: 5, hasGK: true, periods: 3, gameLength: 30 } }]);
+  });
+
+  it("keepers can be switched off; minutes that make no game cannot be confirmed; typing is free until they do", async () => {
+    await addFives();
+    const picker = comp("Summer Fives").querySelector(".adm-fmt");
+    fireEvent.click(within(picker).getByRole("switch", { name: "Summer Fives: keepers" }));
+    const minutes = within(picker).getByLabelText("Minutes each half");
+    fireEvent.change(minutes, { target: { value: "2" } });
+    expect(minutes.value).toBe("2");
+    expect(within(picker).getByRole("status").textContent).toBe("A game is 10 to 120 minutes in all.");
+    expect(screen.getByRole("button", { name: "Confirm how Summer Fives is played" }).disabled).toBe(true);
+    fireEvent.change(minutes, { target: { value: "25" } });
+    expect(within(picker).getByRole("status").textContent).toBe("7 a side, no keeper, 2 halves of 25 minutes: 50 minutes in all.");
+    fireEvent.click(within(picker).getByRole("button", { name: "Straight through" }));
+    expect(within(picker).getByLabelText("Minutes").value).toBe("25");
+    fireEvent.click(within(picker).getByRole("button", { name: "Quarters" }));
+    expect(within(picker).getByRole("status").textContent).toBe("7 a side, no keeper, 4 quarters of 25 minutes: 100 minutes in all.");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm how Summer Fives is played" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.competitions[0].format).toEqual({ playersOnField: 7, hasGK: false, periods: 4, gameLength: 100 });
+  });
+
+  it("4v4 is played without keepers, and a bigger side with them, until switched", async () => {
+    await addFives();
+    const picker = comp("Summer Fives").querySelector(".adm-fmt");
+    fireEvent.click(within(picker).getByRole("button", { name: "4v4" }));
+    expect(within(picker).getByRole("status").textContent).toBe("4 a side, no keeper, 2 halves of 20 minutes: 40 minutes in all.");
+    expect(within(picker).getByRole("switch", { name: "Summer Fives: keepers" }).getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(within(picker).getByRole("button", { name: "9v9" }));
+    expect(within(picker).getByRole("status").textContent).toBe("9 a side with a keeper, 2 halves of 20 minutes: 40 minutes in all.");
+  });
+
+  it("a competition saved before formats were asked shows it isn't set, and is given one from the team's format; one with a format shows it, with its ground", async () => {
+    teams = [{ ...U8, matchFormat: { gameLength: 50, periods: 2, playersOnField: 9, hasGK: true, formation: "3-4-1", subInterval: 10 }, competitions: [
+      { id: "cfives", name: "Summer Fives", ground: "Riverside Park", format: { playersOnField: 5, hasGK: false, periods: 1, gameLength: 20 } },
+      { id: "ccup", name: "Valley Cup" }
+    ] }];
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: `Edit ${U8.name}` }));
+    expect(screen.getByLabelText("Summer Fives ground").value).toBe("Riverside Park");
+    expect(comp("Summer Fives").textContent).toContain("5 a side, no keeper, 20 minutes straight through");
+    expect(comp("Valley Cup").textContent).toContain("Not set yet: its games are planned in the team's own format.");
+    // An edit that leaves it unset saves as it was.
+    fireEvent.click(within(comp("Valley Cup")).getByRole("button", { name: "Set its format" }));
+    expect(within(comp("Valley Cup").querySelector(".adm-fmt")).getByRole("status").textContent).toBe("9 a side with a keeper, 2 halves of 25 minutes: 50 minutes in all.");
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Confirm how Valley Cup is played (its match format) before saving.");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm how Valley Cup is played" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.competitions).toEqual([
+      { id: "cfives", name: "Summer Fives", ground: "Riverside Park", format: { playersOnField: 5, hasGK: false, periods: 1, gameLength: 20 } },
+      { id: "ccup", name: "Valley Cup", format: { playersOnField: 9, hasGK: true, periods: 2, gameLength: 50 } }
+    ]);
+  });
+
+  it("an existing competition with no format saves without one, untouched", async () => {
+    teams = [{ ...U8, competitions: [{ id: "ccup", name: "Valley Cup" }] }];
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: `Edit ${U8.name}` }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.competitions).toEqual([{ id: "ccup", name: "Valley Cup" }]);
+  });
+
+  it("the ground is sent trimmed, and said back as its games will show it", async () => {
+    await addFives();
+    expect(screen.getByLabelText("Summer Fives ground").getAttribute("placeholder")).toBe("Ground, when its draw names only the field");
+    fill("Summer Fives ground", "  Riverside Park ");
+    expect(within(comp("Summer Fives")).getByText(/^A game its draw places only on a field/).textContent)
+      .toBe("A game its draw places only on a field, like Field 1, is shown at Riverside Park – Field 1, and Directions opens Riverside Park. Games update at the next sync.");
+    confirmFormats();
+    fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body.competitions[0].ground).toBe("Riverside Park");
   });
 });

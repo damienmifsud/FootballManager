@@ -406,6 +406,33 @@ describe("Settings — competition squads", () => {
     expect(cpills()).toEqual(["0 in", "0 out", "2 no reply"]);
   });
 
+  it("a team with no players yet says so, rather than offering a switch that can only stay on", async () => {
+    await coachSettings(makeData({ players: [], competitionSquads: undefined }), { comps: COMPS, save: echo });
+    await screen.findByText("Competition squads");
+    expect(screen.getByText("No players on the team yet, so there's nobody to pick. Add them under Squad, then choose who's going to each competition here.")).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: everyone("Winterfest") })).toBeNull();
+    expect(savesSent()).toEqual([]);
+  });
+
+  it("once a squad is being picked, says how: switch off anyone who isn't going", async () => {
+    await coachSettings(makeData({ competitionSquads: undefined }), { comps: COMPS, save: echo });
+    await screen.findByText("Competition squads");
+    expect(within(block("Winterfest")).queryByText("Switch off anyone who isn't going.")).toBeNull();
+    fireEvent.click(sw(everyone("Winterfest")));
+    await waitFor(() => expect(meta("Winterfest")).toBe("3 of 3 players"));
+    expect(within(block("Winterfest")).getByText("Switch off anyone who isn't going.")).toBeTruthy();
+    expect(within(block(COMPS[1].name)).queryByText("Switch off anyone who isn't going.")).toBeNull();
+  });
+
+  it("a failed save is said under its own competition, as an alert, and nowhere else", async () => {
+    await coachSettings(makeData(), { comps: COMPS });
+    await screen.findByText("Competition squads");
+    fireEvent.click(sw(inSquadSw("Alex Smith", "Winterfest")));
+    const said = await within(block("Winterfest")).findByRole("alert");
+    expect(said.textContent).toBe("Couldn't save — try again.");
+    expect(within(block(COMPS[1].name)).queryByRole("alert")).toBeNull();
+  });
+
   it("puts the switch back and says so when the save fails", async () => {
     // No `save`: the route answers 500.
     await coachSettings(makeData(), { comps: COMPS });

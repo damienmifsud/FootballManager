@@ -125,6 +125,13 @@ describe("sanitizeDrawRecords", () => {
     }
   });
 
+  it("keeps a round's name, checked, only for a game whose round has no number", () => {
+    expect(sanitizeDrawRecords([game({ round: null, roundName: "  Semi   Final " })])).toEqual([game({ round: null, roundName: "Semi Final" })]);
+    expect(sanitizeDrawRecords([game({ roundName: "Semi Final" })])).toEqual([game()]);
+    for (const roundName of ["Round 4", "9", "", 7, { name: "Final" }]) expect(sanitizeDrawRecords([game({ round: null, roundName })])).toEqual([game({ round: null })]);
+    expect(sanitizeDrawRecords([game({ round: null, roundName: "x".repeat(90) })])[0].roundName).toHaveLength(40);
+  });
+
   it("is not a list of records at all unless it is a list", () => {
     for (const bad of [null, undefined, {}, "x", 7, { 0: game(), length: 1 }]) expect(sanitizeDrawRecords(bad)).toBeNull();
     expect(sanitizeDrawRecords([])).toEqual([]);
@@ -394,6 +401,14 @@ describe("normalizeDribl", () => {
     expect(round({ round: "SF", full_round: "Semi Final" })).toBeNull();
     expect(round({ round: "", full_round: "" })).toBeNull();
     expect(round({ round: "R0", full_round: "Round 0" })).toBeNull();
+  });
+
+  it("a round with no number keeps its name, as Dribl writes it in full", () => {
+    const named = (over) => normalizeDribl([item("x", over)], OURS)[0].roundName;
+    expect(named({ round: "SF", full_round: "Semi Final" })).toBe("Semi Final");
+    expect(named({ round: "GF", full_round: "" })).toBe("GF");
+    expect(named({ round: "R7", full_round: "Round 7" })).toBeUndefined();
+    expect(named({ round: "", full_round: "" })).toBeUndefined();
   });
 
   it("the ground and the field make the venue; either alone will do", () => {

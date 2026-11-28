@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import {
   FORMATION_PRESETS, round1, fmtMin, fmtRange, fmtClock,
-  defaultFormatForAgeGroup, parseFormation, fallbackFormation, makePositions,
+  baseFormat, parseFormation, fallbackFormation, makePositions,
   computeAutoSubs, computeSegments, sanitizeAssignments, diffOnOff,
   autoFillAssignments, minutesFor, rosterForFixture, seedAssignments, timerElapsed
 } from "@/lib/planner";
@@ -215,8 +215,8 @@ function PitchSVG() {
 
 export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, close }) {
   const plan0 = fixture.plan || null;
-  const initialFormat = () =>
-    plan0?.format || data.team?.matchFormat || defaultFormatForAgeGroup(data.team?.ageGroup);
+  // The game's own format, else its competition's, else the team's (lib/planner.js).
+  const initialFormat = () => plan0?.format || baseFormat(data, fixture);
 
   const [view, setView] = useState(isCoach ? "plan" : "game");
   const [format, setFormat] = useState(initialFormat);
@@ -397,7 +397,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
   const runAutoFill = () => setAssignments(autoFillAssignments(plan, segments, positions, roster));
 
   const resetPlan = () => {
-    const fmt = data.team?.matchFormat || defaultFormatForAgeGroup(data.team?.ageGroup);
+    const fmt = baseFormat(data, fixture);
     const st = computeAutoSubs(fmt.gameLength, fmt.periods, fmt.subInterval);
     const segs = computeSegments(fmt.gameLength, fmt.periods, st);
     const of = Math.max(0, fmt.playersOnField - (fmt.hasGK ? 1 : 0));
