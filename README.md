@@ -412,6 +412,20 @@ hat's player ids, so there is no second set of checks to keep in step.
   When creating a team in the wizard, the same rows are offered under Players and
   parents: **Use them as this team's staff** fills the staff rows under Team identity,
   which stay editable.
+- **Importing a season's results:** Results tab, **Import results** (coaches only). For a
+  season whose draw keeps no scores: Squadi shows every game of a MiniRoos-age season as
+  an unconfirmed 0-0, and the sync never takes a season's scores. Paste one game per
+  line, the round and the score with ours first (`R1 4-6`), or that it was rained out
+  (`R6 rained out`, also washed out, cancelled, abandoned or called off). Each line is
+  matched to the season game of its round, so a game moved for weather still finds its
+  result. It is never matched to another competition's game or a carnival's. Every line
+  is read back before anything is saved:
+  - the game a line matched and what it will do;
+  - a line naming another opponent, or saying W, L or D against its score, is left out;
+  - a game that already has a score keeps it.
+
+  A scored game is saved as played and a rained-out game as cancelled. Goal scorers are
+  not part of it.
 - **Importing training and games:** Calendar tab, **Import training**, or Results tab,
   **Import games** (coaches only; both are also in Team settings under Import & data).
   Upload a CSV or paste a list. The sheet reads it back before anything is saved: how
