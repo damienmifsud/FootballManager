@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getData, setData } from "@/lib/store";
 import { resolveViewer, viewerError } from "@/lib/viewer";
 import { OPPOSITION } from "@/lib/lineup";
+import { sanitizePlanShapes } from "@/lib/planner";
+import { THEIR_TRAITS } from "@/lib/shapes";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,8 @@ export const dynamic = "force-dynamic";
 // Body: { fixtureId, plan, gk? }  — plan: { format?, subTimes, assignments,
 //        overrides?, timer?, hintSeen?, opposition?, updatedAt }
 //        opposition: weaker | even | stronger | hardest (anything else is dropped)
+//        shapes?: { [period]: "2-3-1" }  our shape per period (else the home shape)
+//        theirShapes?: { [period]: "2-3-1" | "t:<trait>" }  what they play
 //        gk: "" | a player id from this team's roster
 export async function POST(req) {
   let body;
@@ -38,6 +42,9 @@ export async function POST(req) {
     const { opposition, ...rest } = plan;
     plan = rest;
   }
+  // Shapes per period: period keys 0-3, formation strings (theirs may be a trait).
+  if ("shapes" in plan) plan = { ...plan, shapes: sanitizePlanShapes(plan.shapes) };
+  if ("theirShapes" in plan) plan = { ...plan, theirShapes: sanitizePlanShapes(plan.theirShapes, THEIR_TRAITS.map((t) => t.id)) };
 
   const v = await resolveViewer(req, { write: true });
   if (v.error) return viewerError(v);

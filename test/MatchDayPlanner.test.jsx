@@ -400,3 +400,39 @@ describe("ratings-aware auto-fill", () => {
     expect(onOpenPlayer).toHaveBeenCalledWith("p3");
   });
 });
+
+// Slice 3 step 2: a shape per period, what they play, and the counter card.
+describe("shape card", () => {
+  it("records their shape, shows the counters with zones and the call, and Use changes this half's shape", async () => {
+    renderPlanner();
+    // Collapsed: our home shape for the 1st half, their shape not set.
+    expect(screen.getByText(/1st half · their shape not set/)).toBeTruthy();
+    fireEvent.click(screen.getByText(/1st half · their shape not set/));
+    expect(screen.getByText("Your shape, 1st half")).toBeTruthy();
+    // They play 2-3-1 (U8: 7v7, our home is 2-3-1). Their chips come after ours.
+    fireEvent.click(screen.getAllByText("2-3-1").at(-1));
+    expect(screen.getByText("Counter to their 2-3-1")).toBeTruthy();
+    // About even lists defend first: 3-2-1, with GameDay's call for it.
+    expect(screen.getByText("DEFEND")).toBeTruthy();
+    expect(screen.getByText("Drop in: centre mid between the backs")).toBeTruthy();
+    expect(screen.getByText(/Back 3v1/)).toBeTruthy();
+    fireEvent.click(screen.getAllByText("Use")[0]);
+    expect(screen.getByText("changed")).toBeTruthy();
+    // The pitch now has three backs: LB, CB, RB.
+    expect(screen.getByText("CB")).toBeTruthy();
+    await waitFor(() => {
+      const plan = onSavePlan.mock.calls.at(-1)?.[1];
+      expect(plan?.shapes).toEqual({ 0: "3-2-1" });
+      expect(plan?.theirShapes).toEqual({ 0: "2-3-1" });
+    }, { timeout: 2500 });
+  });
+
+  it("carries their shape into the next half and opens with saved shapes", () => {
+    renderPlanner({ fixture: makeFixture({ plan: { subTimes: [10, 30], assignments: [{}, {}, {}, {}], hintSeen: true, shapes: { 1: "2-2-2" }, theirShapes: { 0: "t:3fwd" } } }) });
+    expect(screen.getByText(/they play three forwards/)).toBeTruthy();
+    // Block 3 is the 2nd half: our 2-2-2, their shape carried over.
+    fireEvent.click(screen.getByText("20–30'").closest("button"));
+    expect(screen.getByText(/they played three forwards in the 1st half/)).toBeTruthy();
+    expect(screen.getAllByText("2-2-2").length).toBeGreaterThan(0);
+  });
+});

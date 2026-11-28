@@ -319,3 +319,17 @@ describe("wrapper and helpers", () => {
     expect(sanitizeOpposition(undefined)).toBe("even");
   });
 });
+
+describe("a shape per period", () => {
+  it("fills each block with its own period's spots, and the checks read those spots", () => {
+    const { segments, ctx: base } = setup(SQUAD_7, FORMAT_7);
+    const first = makePositions([2, 3, 1], true), second = makePositions([3, 2, 1], true);
+    const byBlock = base.periodOf.map((P) => (P === 0 ? first : second));
+    const ctx = buildLineupCtx({ segments, positions: first, positionsByBlock: byBlock, roster: SQUAD_7, rules: DEFAULT_RULES, format: FORMAT_7 });
+    const res = fillLineup(segments.map(() => ({})), ctx);
+    res.plan.forEach((seg, i) => expect(Object.keys(seg).sort()).toEqual(byBlock[i].map((q) => q.key).sort()));
+    // Second half: three backs, so r0c2 is a DEF spot nobody rated 0 at the back plays.
+    res.plan.slice(2).forEach((seg) => expect(ratingOf(SQUAD_7.find((p) => p.id === seg.r0c2), "DEF")).not.toBe(0));
+    expect(res.receipts.filter((r) => r.state === "warn")).toEqual([]);
+  });
+});
