@@ -3,6 +3,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 import TeamWizard from "@/components/TeamWizard";
 
+// The browser's fitting of a logo picture (lib/logoFit.js) needs a real canvas: a stand-in here.
+const { fitLogo, fileToDataUrl } = vi.hoisted(() => ({ fitLogo: vi.fn(), fileToDataUrl: vi.fn() }));
+vi.mock("@/lib/logoFit", () => ({ fitLogo, fileToDataUrl }));
+
 // The team wizard on /admin (Direction C restyle). The restyle is markup
 // only, so these pin the requests and payloads it has always sent, through
 // the new controls: numbered steps, chips, switches, hairline team rows.
@@ -21,6 +25,8 @@ const U8 = {
   parentsSee: { planBefore: true }, hasLogo: true, coachPin: "2468",
   staff: [{ role: "Head coach", name: "Dee", mobile: "0400000000", email: "dee@a.com" }, { role: "Physio", name: "Pat", mobile: "", email: "" }]
 };
+// The picture an edited team's own logo is, as the server keeps it.
+const TEAM_LOGO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 const ENV = { slug: "env-team", name: "Env Team", ageGroup: "U9", password: "env-code-1", calendarKey: "", coachEmails: [], source: "env" };
 
 let teams;
@@ -33,7 +39,12 @@ beforeEach(() => {
   global.fetch = vi.fn(async (url, opts = {}) => {
     if (!String(url).includes("/api/teams")) throw new Error("unexpected fetch " + url);
     const method = opts.method || "GET";
-    if (method === "GET") return { ok: true, json: async () => ({ teams: JSON.parse(JSON.stringify(teams)) }) };
+    if (method === "GET") {
+      // ?logo=<slug>: one team's own logo, which the list leaves out.
+      const asked = /[?&]logo=([^&]+)/.exec(String(url));
+      if (asked) return { ok: true, json: async () => ({ logo: teams.find((t) => t.slug === decodeURIComponent(asked[1]))?.hasLogo ? TEAM_LOGO : "" }) };
+      return { ok: true, json: async () => ({ teams: JSON.parse(JSON.stringify(teams)) }) };
+    }
     const body = JSON.parse(opts.body);
     calls.push({ method, body });
     if (reply) { const r = reply(method, body); if (r) return r; }
@@ -376,7 +387,9 @@ describe("TeamWizard — editing a team", () => {
     expect(step("Season").getByRole("button", { name: "2027" }).getAttribute("aria-pressed")).toBe("true");
     expect(sw("Features", "Jersey duty").getAttribute("aria-checked")).toBe("true");
     expect(sw("Features", "Goalkeeper duty").getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByText("Logo set")).toBeTruthy();
+    // The team's own logo, fetched on its own, in the picker at its size.
+    await waitFor(() => expect(screen.getByLabelText("Size in the circle").value).toBe("1"));
+    expect(document.querySelector(".lp-crest.lp-lg").getAttribute("src")).toBe(TEAM_LOGO);
     expect(screen.getByLabelText("Coach PIN").value).toBe("2468");
     // Existing rows first (the custom "Physio" title included), then the standard slots.
     expect(screen.getByLabelText("Head coach name").value).toBe("Dee");
@@ -995,6 +1008,57 @@ describe("TeamWizard — the playing kit", () => {
     fireEvent.click(screen.getByRole("button", { name: `Edit ${U8.name}` }));
     expect(pressed()).toEqual([]);
     expect((await saveEdit()).strip).toBe("");
+  });
+});
+
+describe("TeamWizard — the team's own logo", () => {
+  const FITTED = "data:image/png;base64,RklUVEVE";
+  const editU8 = async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: `Edit ${U8.name}` }));
+    await waitFor(() => expect(screen.getByLabelText("Size in the circle").value).toBe("1"));
+  };
+  const saved = async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    return calls[0].body;
+  };
+  beforeEach(() => {
+    fitLogo.mockReset().mockResolvedValue(FITTED);
+    fileToDataUrl.mockReset().mockResolvedValue("data:image/jpeg;base64,RklMRQ==");
+  });
+
+  it("resizing the team's logo sends its size, not the picture again", async () => {
+    await editU8();
+    fireEvent.change(screen.getByLabelText("Size in the circle"), { target: { value: "1.3" } });
+    const body = await saved();
+    expect(body).toMatchObject({ logoFill: 1.3, logoSite: "" });
+    expect("logo" in body).toBe(false);
+  });
+
+  it("a new picture is sent, fitted, at its size", async () => {
+    await editU8();
+    fireEvent.change(document.querySelector(".lp input[type=file]"), { target: { files: [new File(["x"], "crest.jpg", { type: "image/jpeg" })] } });
+    await waitFor(() => expect(document.querySelector(".lp-crest.lp-lg").getAttribute("src")).toBe(FITTED));
+    const body = await saved();
+    expect(body).toMatchObject({ logo: FITTED, logoFill: 1, logoSite: "" });
+  });
+
+  it("removing it sends no logo, so the team goes back to the club's crest", async () => {
+    await editU8();
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    const body = await saved();
+    expect(body).toMatchObject({ logo: "", logoFill: 1 });
+  });
+
+  it("says so when the team's logo can't be loaded, and then sends nothing about it unless it is replaced", async () => {
+    await open();
+    const realFetch = global.fetch;
+    global.fetch = vi.fn((url, opts) => (String(url).includes("?logo=") ? Promise.reject(new Error("offline")) : realFetch(url, opts)));
+    fireEvent.click(screen.getByRole("button", { name: `Edit ${U8.name}` }));
+    expect(await screen.findByText("This team has a logo of its own that couldn't be shown here. Upload or pick one to replace it.")).toBeTruthy();
+    const body = await saved();
+    expect(["logo", "logoFill", "logoSite"].filter((k) => k in body)).toEqual([]);
   });
 });
 

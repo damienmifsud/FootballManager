@@ -8,6 +8,8 @@ import { defaultFormatForAgeGroup } from "@/lib/planner";
 import { sanitizePlayers } from "@/lib/majestri";
 import { sanitizeFeatures, sanitizeTrainingSessions, sanitizeStaff, sanitizeLogo, DEFAULT_FEATURES, sanitizeParentsSee, DEFAULT_PARENTS_SEE, sanitizeSeason, sanitizeStrip } from "@/lib/teamSetup";
 import { sanitizeCompetitions, competitionsError, squadiFeeds, websiteLinksError, sanitizeSeasonName } from "@/lib/competitions";
+import { cleanFill, ourLogoFill } from "@/lib/clubs";
+import { siteUrl } from "@/lib/clubSite";
 
 export const dynamic = "force-dynamic";
 
@@ -109,9 +111,18 @@ async function clash(field, value, exceptSlug) {
 // GET: every team, flagged by source, including codes/keys (admin-only view)
 // plus the doc-held fields the wizard can edit (division, WhatsApp, features,
 // what parents can see, the season window, the kit the team wears).
-export async function GET() {
+export async function GET(req) {
   const gate = await requireTeamManager();
   if (gate.error) return NextResponse.json({ error: gate.error }, { status: gate.status });
+  // ?logo=<slug>: that team's own logo, which the list leaves out (it is the
+  // one heavy field), for the team form to show and resize.
+  const logoOf = req?.url ? new URL(req.url).searchParams.get("logo") : null;
+  if (logoOf != null) {
+    const team = (await getTeams()).find((t) => t.slug === logoOf);
+    if (!team) return NextResponse.json({ error: "No such team." }, { status: 404 });
+    const doc = await getData(team.slug).catch(() => null);
+    return NextResponse.json({ logo: sanitizeLogo(doc?.team?.logo) });
+  }
   clearTeamsCache(); // admin view should never be stale
   const teams = await getTeams();
   const enriched = await Promise.all(teams.map(async (t) => {
@@ -132,7 +143,8 @@ export async function GET() {
       strip: sanitizeStrip(doc?.team?.strip),
       staff: Array.isArray(doc?.team?.staff) ? doc.team.staff.map(({ role, name, mobile, email }) => ({ role, name, mobile, email })) : [],
       coachPin: doc?.team?.coachPin || "",
-      hasLogo: !!doc?.team?.logo, // the data URL itself is too heavy for the list
+      hasLogo: !!doc?.team?.logo, // the data URL itself is too heavy for the list (?logo=<slug> has it)
+      logoFill: ourLogoFill(doc?.team), logoSite: doc?.team?.logoSite || "",
       matchFormat: doc?.team?.matchFormat || null, // a competition being added starts from it
       hasData: !!doc
     };
@@ -201,6 +213,7 @@ export async function POST(req) {
         season: sanitizeSeason(body.season),
         coachPin: String(body.coachPin || "").trim().slice(0, 12),
         logo: sanitizeLogo(body.logo),
+        ...(sanitizeLogo(body.logo) ? { logoFill: cleanFill(body.logoFill), logoSite: siteUrl(body.logoSite)?.href || "" } : {}),
         staff: sanitizeStaff(body.staff),
         matchFormat: defaultFormatForAgeGroup(team.ageGroup),
         features: sanitizeFeatures(body.features),
@@ -262,7 +275,7 @@ export async function PATCH(req) {
   // Doc-held fields (shown throughout the dashboard) update in place too.
   let docUpdated = false;
   if (body.division != null || body.whatsapp != null || body.features != null || body.parentsSee != null || body.strip != null ||
-      body.name != null || body.logo != null || body.staff != null || body.coachPin != null || body.season !== undefined ||
+      body.name != null || body.logo != null || body.logoFill != null || body.logoSite != null || body.staff != null || body.coachPin != null || body.season !== undefined ||
       body.squadi != null) {
     const doc = await getData(slug);
     if (doc) {
@@ -275,7 +288,11 @@ export async function PATCH(req) {
       if (body.parentsSee != null) teamDoc.parentsSee = sanitizeParentsSee(body.parentsSee);
       // The kit the team wears: "Red" or "Blue"; sent empty, the team has none set.
       if (body.strip != null) { const strip = sanitizeStrip(body.strip); if (strip) teamDoc.strip = strip; else delete teamDoc.strip; }
-      if (body.logo != null) { const l = sanitizeLogo(body.logo); if (l) teamDoc.logo = l; }
+      // A new logo when one is sent; "" (removed in the form) goes back to the
+      // club's crest. Anything else that isn't a logo leaves the logo alone.
+      if (body.logo != null) { const l = sanitizeLogo(body.logo); if (l) teamDoc.logo = l; else if (body.logo === "") { delete teamDoc.logo; teamDoc.logoFill = 1; } }
+      if (body.logoFill != null && teamDoc.logo) teamDoc.logoFill = cleanFill(body.logoFill);
+      if (body.logoSite != null) teamDoc.logoSite = siteUrl(body.logoSite)?.href || "";
       if (body.staff != null) {
         // Staff is replaced wholesale, but for rows kept by name we preserve
         // (a) photos added in the dashboard and (b) the stored email when the
