@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { cannedAnswer, cannedQuestions, askFallback, headCoachFirst, miniRoosFormatFor, shiftTime } from "@/lib/askCanned";
+import { cannedAnswer, cannedQuestions, askFallback, headCoachFirst, shiftTime } from "@/lib/askCanned";
 import { fmtDate } from "@/lib/dashboardData";
 
 // Pin "now" so nextFixture() picks the same game every run. 2026-06-10 local.
@@ -84,26 +84,19 @@ describe("cannedAnswer — season focuses", () => {
 });
 
 describe("cannedAnswer — halves", () => {
-  it("answers from the MiniRoos format for the team's age group", () => {
-    expect(cannedAnswer(data(), "How long are the halves at U8?")).toEqual({
-      text: "U8 plays two 20-minute halves with at least a 5-minute break. It's 7-a-side including a goalkeeper, size 3 ball, and there's no offside.",
-      src: "MiniRoos National Playing Formats"
-    });
+  // Nothing about a program is built in (a team's rules are its documents,
+  // which the API answers from): only the format the coach set is a fact.
+  it("answers from the format the coach set in Team settings, whatever the age group", () => {
+    const set = cannedAnswer(data({ team: { ageGroup: "U10", matchFormat: { gameLength: 50, periods: 2, playersOnField: 9, hasGK: true } } }), "How long are the halves at U10?");
+    expect(set).toEqual({ text: "U10 plays two 25-minute halves. It's 9-a-side including a goalkeeper.", src: "Team settings · Match format" });
+    const u8 = cannedAnswer(data({ team: { ageGroup: "U8", matchFormat: { gameLength: 40, periods: 2, playersOnField: 7, hasGK: false } } }), "How long are the halves at U8?");
+    expect(u8.text).toBe("U8 plays two 20-minute halves. It's 7-a-side.");
   });
 
-  it("U11 gets the U10-U11 format and no offside claim; U7 gets 4-a-side", () => {
-    const u11 = cannedAnswer(data({ team: { ageGroup: "U11" } }), "How long are the halves at U11?");
-    expect(u11.text).toBe("U11 plays two 25-minute halves with at least a 5-minute break. It's 9-a-side including a goalkeeper and size 4 ball.");
-    const u7 = cannedAnswer(data({ team: { ageGroup: "U7" } }), "How long are the halves at U7?");
-    expect(u7.text).toBe("U7 plays two 20-minute halves with at least a 5-minute break. It's 4-a-side, no goalkeeper, size 3 ball, and there's no offside.");
-    expect(miniRoosFormatFor("U9").key).toBe("U8-U9");
-    expect(miniRoosFormatFor("U13")).toBeNull();
-  });
-
-  it("outside MiniRoos: only a format the coach set counts; otherwise null", () => {
+  it("with no format set, or one not played in halves, the question goes to the API", () => {
+    expect(cannedAnswer(data(), "How long are the halves at U8?")).toBeNull();
     expect(cannedAnswer(data({ team: { ageGroup: "U13" } }), "How long are the halves at U13?")).toBeNull();
-    const set = cannedAnswer(data({ team: { ageGroup: "U13", matchFormat: { gameLength: 60, periods: 2, playersOnField: 11, hasGK: true } } }), "How long are the halves at U13?");
-    expect(set).toEqual({ text: "U13 plays two 30-minute halves. It's 11-a-side including a goalkeeper.", src: "Team settings · Match format" });
+    expect(cannedAnswer(data({ team: { ageGroup: "U10", matchFormat: { gameLength: 60, periods: 3, playersOnField: 7, hasGK: true } } }), "How long are the halves at U10?")).toBeNull();
   });
 });
 
@@ -122,8 +115,8 @@ describe("cannedAnswer — wet weather and misses", () => {
 
 describe("askFallback / headCoachFirst / shiftTime", () => {
   it("names the head coach when there is one, from either team shape", () => {
-    expect(askFallback(team)).toBe("That isn't covered by the team's documents or schedule, so I won't guess. Try fixtures, training, duties or the MiniRoos rules — or message Coach Damien.");
-    expect(askFallback({})).toBe("That isn't covered by the team's documents or schedule, so I won't guess. Try fixtures, training, duties or the MiniRoos rules — or message the coach.");
+    expect(askFallback(team)).toBe(`That isn't covered by the team's documents or schedule, so I won't guess. Try fixtures, training, duties or the team's documents — or message Coach ${headCoachFirst(team)}.`);
+    expect(askFallback({})).toBe("That isn't covered by the team's documents or schedule, so I won't guess. Try fixtures, training, duties or the team's documents — or message the coach.");
     expect(headCoachFirst({ staff: [{ role: "Manager", name: "Kim" }, { role: "Head coach", name: "Byron Lee" }] })).toBe("Byron");
     expect(headCoachFirst({ staff: [{ role: "Manager", name: "Kim" }] })).toBeNull();
   });

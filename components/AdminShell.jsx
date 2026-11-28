@@ -66,6 +66,8 @@ export const ADMIN_CSS = `
 .adm-pick{width:76px;height:76px;border-radius:12px;border:1px solid var(--line);background:var(--soft);padding:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
 .adm-pick img{max-width:100%;max-height:100%;object-fit:contain;}
 .adm-pick[aria-pressed="true"]{border:2px solid var(--pitch);box-shadow:0 0 0 2px var(--red-tint);}
+.adm-fmt{margin-top:6px;padding:12px 14px;border-radius:14px;background:var(--soft);}
+.adm-fmt .adm-swrow{border-bottom:none;}
 .adm-fillrow{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:12px;padding:12px 14px;border-radius:14px;background:var(--soft);}
 .adm-crest.adm-crest-lg{width:64px;height:64px;}
 .adm-fill{flex:1;min-width:160px;display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:700;color:var(--muted);}

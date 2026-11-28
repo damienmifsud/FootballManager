@@ -27,7 +27,8 @@ import { seasonICS } from "@/lib/ics";
 // what counts toward the season. On a line of its own so the long import
 // above is not a meeting point for every change to this file.
 import { competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff, competitionSquad, inSquad, playersFor, nextFixtureFor } from "@/lib/dashboardData";
-import { fieldOf, sharedGround } from "@/lib/dashboardData";
+import { fieldOf, sharedGround, roundShort } from "@/lib/dashboardData";
+import { roundNameText, roundTag } from "@/lib/rounds";
 import {
   FORMATION_PRESETS, fallbackFormation, defaultFormatForAgeGroup, resolveFormat, parseFormation,
   makePositions, computeAutoSubs, computeSegments, sanitizeAssignments, rosterForFixture
@@ -1336,7 +1337,7 @@ export default function App() {
     const n = squadPlayers(data, isCoach).length, m = getStaff(data.team).filter((s) => s.name).length;
     return `${n} ${n === 1 ? "player" : "players"} · ${m} ${m === 1 ? "coach" : "coaches"}`;
   };
-  const rootKicker = tab === "calendar" ? monthYearLabel(calMonth) : tab === "squad" ? squadKicker() : `${data.team.division} · ${data.team.ageGroup}`;
+  const rootKicker = tab === "calendar" ? monthYearLabel(calMonth) : tab === "squad" ? squadKicker() : [data.team.division, data.team.ageGroup].map((v) => String(v || "").trim()).filter(Boolean).join(" · ");
   // Everything the Viewing-as sheet needs from here.
   const hatSheet = {
     isAdmin, wear, signOut: signOutEverywhere, toggleCoach,
@@ -1447,8 +1448,6 @@ const matchDate = (iso) => { if (!iso) return "Date TBC"; const d = new Date(iso
 // "Thu, 18 June" for birthday rows.
 const bdayDate = (iso) => { const d = new Date(iso + "T00:00:00"); return `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${monthLong(d)}`; };
 const weekdayLong = (iso) => iso ? new Date(iso + "T00:00:00").toLocaleDateString("en-AU", { weekday: "long" }) : "";
-// MiniRoos ages (U6–U9) get the "no ladders" footnote.
-const isMiniRoos = (team) => /^U[6-9]$/i.test(String(team?.ageGroup || "").trim());
 // In / out / no reply over the players active on that date.
 const replyCounts = (players, av, iso) => players.filter(p => activeOn(p, iso)).reduce((c, p) => {
   const st = av?.[p.id]?.status; if (st === "in") c.in++; else if (st === "out") c.out++; else c.nr++; return c;
@@ -1909,7 +1908,6 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
     .sort((a, b) => (a.dateISO + (a.time || "")).localeCompare(b.dateISO + (b.time || "")))[0] || null;
   // Row tap: game → Match detail, training/activity → session sheet, birthday → static here.
   const openFor = (it) => it.kind === "birthday" ? null : it.kind === "game" ? () => openMatch(it.ref) : () => setModal({ type: "session", payload: it.ref, occ: it.occ });
-  const miniRoos = isMiniRoos(data.team);
 
   return (
     <>
@@ -2006,7 +2004,6 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
           {stats.form.map((r, i) => <span key={i} className={"pip " + r}>{r}</span>)}
           <span className="fa">{stats.gf} for · {stats.ga} against</span>
         </div>
-        {miniRoos && <div className="footnote">MiniRoos doesn't publish ladders at {String(data.team.ageGroup).toUpperCase()} — these are just our own numbers.</div>}
       </div>
 
       {bdays.length > 0 && (
@@ -2265,6 +2262,8 @@ function MatchRow({ data, f, onTap }) {
   // On a two-team squad's paired round: which of the two sides this game is.
   const sideTag = sideOf(data, f);
   const hs = home ? f.us : f.them, as = home ? f.them : f.us;
+  // A finals round with no number is shown by its name's letters ("SF").
+  const named = f.round ? "" : roundNameText(f.roundName) && roundTag(f.roundName) ? roundNameText(f.roundName) : "";
   const side = (ours, away) => (
     <div className={"mr-side" + (ours ? " ours" : "") + (away ? " away" : "")}>
       <Crest src={ours ? usLogo : opp.src} drawn={!ours && opp.drawn} name={ours ? us : f.opponent} ours={ours} fill={ours ? ourLogoFill(data.team) : 1} />
@@ -2278,7 +2277,7 @@ function MatchRow({ data, f, onTap }) {
   return (
     <div className={"mrow" + (cancelled ? " canc" : "")} role="button" tabIndex={0}
       onClick={onTap} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } }}>
-      <div className="mr-round"><div className="r">{f.round || (carnival ? <Medal size={14} className="mr-medal" aria-label="Carnival game" /> : "–")}</div><div className="d">{shortDate(f.dateISO)}</div></div>
+      <div className="mr-round"><div className="r">{f.round || (named ? <abbr title={named}>{roundTag(named)}</abbr> : carnival ? <Medal size={14} className="mr-medal" aria-label="Carnival game" /> : "–")}</div><div className="d">{shortDate(f.dateISO)}</div></div>
       {side(home, false)}
       <div className="mr-centre">{centre}</div>
       {side(!home, true)}
@@ -2339,9 +2338,6 @@ function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
       )}
       {hasCompetitionGame && (
         <div className="footnote res-foot">Games in another competition are tagged with its name and don't count toward the season record.</div>
-      )}
-      {isMiniRoos(data.team) && (
-        <div className="footnote res-foot">MiniRoos doesn't publish ladders at {String(data.team.ageGroup).toUpperCase()} — results only help grade the leagues. These are just our own numbers.</div>
       )}
     </>
   );
@@ -2523,7 +2519,7 @@ function DutiesTab({ data, isCoach, viewer, me, setModal, patchLocal, showToast 
         return (
           <div key={f.id} className={"card ducard" + (past ? " past" : "")}>
             <div className="du-head">
-              <span className="du-round">{f.round ? `R${f.round}` : "—"}</span>
+              <span className="du-round">{roundShort(f) || "—"}</span>
               <OppCrest name={f.opponent} logo={f.opponentLogo} crest={f.opponentCrest} className="du-crest" discClass="du-crest ph" />
               <span className="du-opp">vs {f.opponent}{competitionOf(f) ? ` · ${competitionOf(f).name}` : ""}</span>
               {sideOf(data, f) && <span className="sidetag">{sideOf(data, f)}</span>}
@@ -2667,13 +2663,13 @@ function StatsTab({ data, stats, openMatch, openPlayer }) {
         {rounds.length === 0 ? <div className="st-empty">No completed matches yet.</div> : (
           <div className="st-bars">
             {rounds.map(f => (
-              <button key={f.id} className="st-col" onClick={() => openMatch(f)} aria-label={`Round ${f.round}, ${f.us}–${f.them}`}>
+              <button key={f.id} className="st-col" onClick={() => openMatch(f)} aria-label={`${roundLabel(f) || "Game"}, ${f.us}–${f.them}`}>
                 <div className="st-pair">
                   <span className="gf" style={{ height: barPx(f.us) }} />
                   <span className="ga" style={{ height: barPx(f.them) }} />
                 </div>
                 <span className={"st-score " + resultOf(f)}>{f.us}–{f.them}</span>
-                <span className="st-rd">R{f.round}</span>
+                <span className="st-rd">{roundShort(f) || "–"}</span>
               </button>
             ))}
           </div>
@@ -2748,14 +2744,7 @@ function KnowledgeEditor({ data, persist, isCoach }) {
   }
 
   return (<>
-    <div className="note" style={{ marginBottom: 10 }}>Upload Football QLD or club PDFs (rules, by-laws, policies). The text is extracted and used to answer questions in the Ask tab. Keep it to a few key documents.</div>
-    <div className="kdoc" style={{ opacity: .8 }}>
-      <FileText size={16} color="#1E9E57" />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 700, fontSize: 14 }}>MiniRoos playing formats <span className="guesttag" style={{ background: "#e6f6ec", color: "#1f8a4c" }}>Built-in</span></div>
-        <div className="note" style={{ fontSize: 11 }}>U6–U11 team sizes, ball/field/goal sizes, durations — always on</div>
-      </div>
-    </div>
+    <div className="note" style={{ marginBottom: 10 }}>Upload Football QLD or club PDFs (rules, by-laws, policies, a tournament's rules). The text is extracted and used to answer questions in the Ask tab. Keep it to a few key documents.</div>
     {docs.map(d => (
       <div className="kdoc" key={d.id}>
         <FileText size={16} color="var(--pitch)" />
@@ -2849,7 +2838,7 @@ function AskTab({ data, viewer, isCoach, account }) {
       <div className="card ask-intro">
         <span className="lc-ic"><Sparkles size={18} /></span>
         <div className="ask-intro-body">
-          <div className="ask-intro-title">Ask about fixtures, training, duties or the MiniRoos rules.</div>
+          <div className="ask-intro-title">Ask about fixtures, training, duties or the team's documents.</div>
           <div className="ask-intro-sub">It answers from our documents and schedule. It won't make up rules.{docsLine && <><br />{docsLine}</>}</div>
         </div>
       </div>
@@ -3232,11 +3221,14 @@ function SeasonCard({ team, patchLocal }) {
 // whole squad, so two in flight at once could land in the wrong order and
 // leave the older pick stored. One write per competition is in flight at a
 // time: a change made meanwhile waits and goes next with the newest pick. If
-// a write fails, the list goes back to what is stored and anything waiting is
-// dropped with it.
+// a write fails, the list goes back to what is stored, anything waiting is
+// dropped with it, and the reason is said under that competition.
+//
+// A team with no players has nobody to pick: the card says to add them first
+// rather than offer a switch that can only stay on.
 function CompetitionSquadsCard({ data, patchLocal }) {
   const [comps, setComps] = useState(null); // [{ id, name }] once loaded
-  const [err, setErr] = useState("");
+  const [errs, setErrs] = useState({}); // competition id -> why its last save failed
   const writes = useRef({}); // competition id -> { busy, waiting, want, stored }
   useEffect(() => {
     let cancelled = false;
@@ -3267,7 +3259,7 @@ function CompetitionSquadsCard({ data, patchLocal }) {
       } catch (e) {
         w.waiting = false;
         setSquad(comp, w.stored);
-        setErr(saveErrorText(e));
+        setErrs((all) => ({ ...all, [comp]: saveErrorText(e) }));
       }
     }
     w.busy = false;
@@ -3278,7 +3270,7 @@ function CompetitionSquadsCard({ data, patchLocal }) {
     if (!w.busy) w.stored = squadIn(comp);
     w.want = playerIds;
     w.waiting = true;
-    setErr("");
+    setErrs((all) => { const next = { ...all }; delete next[comp]; return next; });
     setSquad(comp, playerIds);
     if (!w.busy) send(comp);
   };
@@ -3286,7 +3278,12 @@ function CompetitionSquadsCard({ data, patchLocal }) {
     <div className="card">
       <div className="label" style={{ marginBottom: 4 }}>Competition squads</div>
       <div className="note">Who is going to each competition. Only those players are asked to reply and counted for its games. The season is always everyone.</div>
-      {comps.map((c) => {
+      {players.length === 0 && (
+        <div className="note sq-none" style={{ marginTop: 8, color: "var(--ink)" }}>
+          No players on the team yet, so there's nobody to pick. Add them under Squad, then choose who's going to each competition here.
+        </div>
+      )}
+      {players.length > 0 && comps.map((c) => {
         const picked = squadIn(c.id);
         const toggle = (p) => save(c.id, players.filter((x) => (x.id === p.id ? !picked.includes(x.id) : picked.includes(x.id))).map((x) => x.id));
         return (
@@ -3299,6 +3296,8 @@ function CompetitionSquadsCard({ data, patchLocal }) {
               <span style={{ flex: 1, fontSize: 13.5 }}>Everyone</span>
               <Switch on={!picked} label={`Everyone is in the ${c.name} squad`} onClick={() => save(c.id, picked ? null : players.map((p) => p.id))} />
             </div>
+            {picked && <div className="note">Switch off anyone who isn't going.</div>}
+            {errs[c.id] && <div className="note" role="alert" style={{ color: "var(--red)" }}>{errs[c.id]}</div>}
             {picked && players.map((p) => (
               <div className="swrow" key={p.id}>
                 <span style={{ flex: 1, fontSize: 13.5 }}>{p.number ? `${p.number}. ` : ""}{playerFullName(p)}</span>
@@ -3308,7 +3307,6 @@ function CompetitionSquadsCard({ data, patchLocal }) {
           </div>
         );
       })}
-      {err && <div className="note" style={{ color: "var(--red)", marginTop: 8 }}>{err}</div>}
     </div>
   );
 }
@@ -3381,7 +3379,7 @@ function FormatNumber({ value, min, max, onCommit }) {
 // last change; the echoed (sanitised) format is what lands in local state.
 const PERIOD_LABELS = { 1: "Straight through", 2: "2 halves", 3: "3 thirds", 4: "4 quarters" };
 // Team-size chips for the default match format: [players on the pitch, keeper by
-// default]. 4v4 is MiniRoos U6-U7 (no keeper); 5v5 is the small-sided variant
+// default]. 4v4 is U6-U7 (no keeper); 5v5 is the small-sided variant
 // some hubs and carnivals run (keeper on by default, switch it off below);
 // 6v6 with a keeper is the men's over-35s format; 7v7 U8-U9; 9v9 U10-U11;
 // 11v11 for U12 and up. The keeper switch and the planner's per-game

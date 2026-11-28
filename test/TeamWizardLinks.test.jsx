@@ -125,7 +125,18 @@ const addCompetition = (name) => {
   const n = step().getAllByLabelText(/^Competition \d+ name$/).length;
   if (name) fireEvent.change(field(`Competition ${n} name`), { target: { value: name } });
 };
-const create = async () => { fireEvent.click(screen.getByRole("button", { name: "Create team" })); await waitFor(() => expect(saves).toHaveLength(1)); return saves[0].body; };
+// Every competition added is asked how it is played and kept once that is
+// confirmed: these tests take the format it starts with, check each new
+// competition carried it, and compare the rest of what was sent.
+const create = async () => {
+  screen.queryAllByRole("button", { name: /^Confirm how .+ is played$/ }).forEach((b) => fireEvent.click(b));
+  fireEvent.click(screen.getByRole("button", { name: "Create team" }));
+  await waitFor(() => expect(saves).toHaveLength(1));
+  const body = saves[0].body;
+  if (!Array.isArray(body.competitions)) return body;
+  for (const c of body.competitions) expect(c.format).toEqual({ playersOnField: 7, hasGK: true, periods: 2, gameLength: 40 });
+  return { ...body, competitions: body.competitions.map(({ format, ...c }) => c) };
+};
 
 describe("the season's link", () => {
   it("pasting the team's Squadi fixtures link looks it up, fills in the three ids and reads back what it found; the link is saved with them", async () => {

@@ -8,8 +8,8 @@ description: Design system for the Olympic FC team hub (footballmgr.au) — toke
 Key facts: the app is `damienmifsud/FootballManager` (Next.js). The UI lives in
 `components/Dashboard.jsx`; its `const CSS` block is the stylesheet and its `:root`
 holds the tokens. Data helpers are in `lib/dashboardData.js`, roles in
-`lib/directory.js` (worn hat via `lib/viewer.js`), MiniRoos facts in
-`lib/rulesData.js`, crests in `lib/clubs.js` + `public/crests/`. No Tailwind; lift
+`lib/directory.js` (worn hat via `lib/viewer.js`), crests in `lib/clubs.js` +
+`public/crests/`, round names in `lib/rounds.js`. No Tailwind; lift
 values into classes in the CSS block. Icons are `lucide-react`.
 
 > Current build target: `design/handoff-2026-09-direction-c/` (Direction C, Sep 2026).

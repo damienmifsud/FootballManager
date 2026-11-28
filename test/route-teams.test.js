@@ -359,6 +359,26 @@ describe("strip — the kit the team wears", () => {
   });
 });
 
+describe("a competition's ground and match format", () => {
+  it("PATCH keeps each competition's ground and confirmed format; GET gives the team's own format for a new one to start from", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b", calendarKey: "key-b" }]);
+    getData.mockImplementation(async (slug) => (slug === "wiz-b" ? { team: { name: "Wiz B", matchFormat: { gameLength: 50, periods: 2, playersOnField: 9, hasGK: true, formation: "3-4-1", subInterval: 10 } }, players: [] } : null));
+    const { PATCH, GET } = await asAdmin();
+    const res = await PATCH(fakeRequest({ body: { slug: "wiz-b", competitions: [
+      { name: "Summer Fives", ground: " Riverside   Park ", format: { playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 }, majestri: { url: "https://riverside.majestri.com.au/comp-summary?compID=99", team: "Valley Vipers" } },
+      { name: "Winter Cup", ground: 42, format: { playersOnField: 50, periods: 2, gameLength: 40 } }
+    ] } }));
+    expect(res.status).toBe(200);
+    const [fives, winter] = setStoredTeams.mock.calls[0][0][0].competitions;
+    expect([fives.name, fives.ground, fives.format]).toEqual(["Summer Fives", "Riverside Park", { playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 }]);
+    expect(winter).not.toHaveProperty("ground");
+    expect(winter).not.toHaveProperty("format");
+    const bySlug = Object.fromEntries((await (await GET()).json()).teams.map((t) => [t.slug, t]));
+    expect(bySlug["wiz-b"].matchFormat).toMatchObject({ playersOnField: 9, gameLength: 50 });
+    expect(bySlug["env-a"].matchFormat).toBeNull();
+  });
+});
+
 describe("staff emails — coach-level login from the staff list", () => {
   const stored = () => getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b", calendarKey: "key-b" }]);
 

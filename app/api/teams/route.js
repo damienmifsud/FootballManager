@@ -145,6 +145,7 @@ export async function GET(req) {
       coachPin: doc?.team?.coachPin || "",
       hasLogo: !!doc?.team?.logo, // the data URL itself is too heavy for the list (?logo=<slug> has it)
       logoFill: ourLogoFill(doc?.team), logoSite: doc?.team?.logoSite || "",
+      matchFormat: doc?.team?.matchFormat || null, // a competition being added starts from it
       hasData: !!doc
     };
   }));
