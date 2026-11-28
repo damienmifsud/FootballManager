@@ -61,6 +61,11 @@ export const ADMIN_CSS = `
 .adm-crest{width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;}
 .adm-crest.ph{display:inline-flex;align-items:center;justify-content:center;background:var(--soft);font-size:11px;font-weight:800;color:var(--muted);}
 .adm-crest.drawn{object-fit:contain;background:#fff;padding:4px;box-shadow:0 0 0 1px var(--line);}
+.adm-club{width:100%;padding:4px 0 6px;}
+.adm-picks{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
+.adm-pick{width:76px;height:76px;border-radius:12px;border:1px solid var(--line);background:var(--soft);padding:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.adm-pick img{max-width:100%;max-height:100%;object-fit:contain;}
+.adm-pick[aria-pressed="true"]{border:2px solid var(--pitch);box-shadow:0 0 0 2px var(--red-tint);}
 .adm-empty{font-size:13px;color:var(--muted);padding:10px 0 2px;}
 /* controls */
 .adm-inp{width:100%;border:1px solid var(--line);border-radius:var(--r-input);padding:11px 12px;font-size:15px;font-family:inherit;

@@ -867,6 +867,28 @@ second one:
   changed. **Hide** keeps a found logo from being shown. It hides a club's logo for all
   its teams, or a team's own logo for that team. **Show** undoes it. A choice made here
   is never changed by what a draw says later.
+- **A club's logo from its own website.** For a team still without a logo (or with one
+  hidden), **Add club logo** adds the club. Its name is guessed from the team's ("Valley
+  Wanderers FC NPL U11 Gold" is "Valley Wanderers FC") and can be changed. Before anything
+  is saved, the admin sees every opposition team the name covers. Then paste the club's
+  website: the server reads that one page and offers what looks like its logo: what the
+  page itself calls its logo, images named or captioned logo, crest or badge, the icon
+  the site gives phones, and the picture it shares. Pick one and save. A link straight to
+  a logo image is offered as it is, without the server asking the site for it.
+- **Held for the club.** An added club's logo shows for every team whose name has every
+  word of the club's name (letter case and punctuation aside), its future teams too, as
+  the built-in crests are matched. Every word counts, "FC" included, so "Seaside FC" is
+  not "Seaside Rovers". A name made only of words every club has ("FC", "Football Club")
+  is refused. A built-in crest still comes first. An added club comes before anything
+  found on Squadi or Dribl, and before a hide, since it is the admin's own choice.
+  **Remove** takes it out again.
+- **Reading a club's site, carefully.** Only a public https site is read. Its name is
+  looked up first and refused if it points into a private network, every redirect is
+  checked the same way, and there is a time and size limit. The request says what it is
+  (`club-logo-finder`). A site that puts up a page checking its visitor is a person
+  ("One moment, please…") is never got round: the admin is told, and can try again or
+  paste the logo's own link. As with Squadi's logos, the link is kept, not a copy, and
+  families' phones load the logo from the club's site without saying which page it's on.
 - **The Dribl read-back** (pasting a Dribl link in the team form) says how many of the
   teams we play come with a logo the site can show, the host any others are on, the field
   names a game had when Dribl gives no logos, and what Dribl's club list holds. A

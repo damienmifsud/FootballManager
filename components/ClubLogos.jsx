@@ -10,20 +10,98 @@
 // turns servers away. Neither changes a game: they only tell the library what
 // the draws show. Hide keeps a found logo from being shown, whatever the
 // draws say later; Show undoes that.
-import { useState, useEffect, useCallback } from "react";
+//
+// For a club with no logo, the admin can add the club: its name and a logo
+// picked from its own website, which the server reads for the images that may
+// be the logo. The logo is held for the club, not a team: every opposition
+// team whose name has all the club's words is shown it, as the built-in
+// crests are matched, and the admin sees which teams that is before saving.
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { ChevronRight } from "lucide-react";
 import { fetchDribl, fetchDriblClubs, driblClubsUrl } from "@/lib/dribl";
 import Crest from "@/components/Crest";
 import { crestFor } from "@/lib/clubs";
+import { clubWords, namedCovers, guessClubName } from "@/lib/clubLogos";
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const KIND = { club: "Club logo", team: "The team's own logo", game: "Logo on its games" };
+const PICK = { logo: "a logo", "site icon": "the site's icon", "share image": "the picture the site shares", image: "the image" };
+const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
+const andList = (names) => names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+
+// Adding a club for a team with no logo: the club's name (first guessed from
+// the team's), the teams that name covers, the club's website read for its
+// logo, and the logo picked from what was found.
+function AddClub({ team, opponents, busy, post, onDone, onCancel }) {
+  const [name, setName] = useState(() => guessClubName(team.name));
+  const [link, setLink] = useState("");
+  const [found, setFound] = useState(null); // { site, candidates }
+  const [picked, setPicked] = useState("");
+  const [broken, setBroken] = useState(() => new Set());
+  const [err, setErr] = useState("");
+  const [reading, setReading] = useState(false);
+  const words = useMemo(() => clubWords(name), [name]);
+  const covers = useMemo(() => opponents.filter((o) => o.shown !== "built-in" && namedCovers(words, o.name)).map((o) => o.name), [opponents, words]);
+  const read = async () => {
+    setErr(""); setFound(null); setPicked(""); setBroken(new Set()); setReading(true);
+    try {
+      const r = await fetch("/api/club-logos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "site", url: link }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "The site couldn't be read.");
+      setFound(j);
+      if (j.candidates?.length === 1) setPicked(j.candidates[0].url);
+    } catch (e) { setErr(String(e.message || e)); }
+    setReading(false);
+  };
+  const save = async () => {
+    setErr("");
+    try {
+      await post({ action: "club", name, logo: picked, site: found?.site || "" });
+      onDone(`${name.trim()} added: its logo now shows for ${plural(covers.length, "team")}.`);
+    } catch (e) { setErr(String(e.message || e)); }
+  };
+  const shown = (found?.candidates || []).filter((c) => !broken.has(c.url));
+  return (
+    <div className="adm-club">
+      <label className="adm-fl" htmlFor={`club-${team.ref}`}>Club</label>
+      <input id={`club-${team.ref}`} className="adm-inp" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
+      <div className="adm-note" role="status">{covers.length
+        ? `Covers ${plural(covers.length, "team")}: ${andList(covers.slice(0, 6))}${covers.length > 6 ? ` and ${covers.length - 6} more` : ""}. Every team whose name has the words ${andList(words.map((w) => `"${w}"`))} gets this logo, the ones still to come too.`
+        : "No opposition team's name has all of these words. Shorten the club's name to the words its teams share."}</div>
+      <label className="adm-fl" htmlFor={`site-${team.ref}`} style={{ marginTop: 12 }}>Club website or logo link</label>
+      <div className="adm-form" style={{ marginTop: 0 }}>
+        <input id={`site-${team.ref}`} className="adm-inp" style={{ flex: 1, minWidth: 0 }} inputMode="url" autoComplete="off" autoCapitalize="none" spellCheck={false}
+          placeholder="https://…" value={link} onChange={(e) => setLink(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && link.trim()) read(); }} />
+        <button type="button" className="adm-btn soft" disabled={!link.trim() || reading || !!busy} onClick={read}>{reading ? "Reading…" : "Find logos"}</button>
+      </div>
+      {found && (shown.length ? (
+        <>
+          <div className="adm-note">Pick the club's logo{found.site ? ` from ${hostOf(found.site)}` : ""}:</div>
+          <div className="adm-picks" role="group" aria-label="Logos found on the club's site">
+            {shown.map((c, i) => (
+              <button type="button" key={c.url} className="adm-pick" aria-pressed={picked === c.url} aria-label={`Logo ${i + 1} of ${shown.length}: ${PICK[c.kind] || "an image"}`} onClick={() => setPicked(c.url)}>
+                <img src={c.url} alt="" referrerPolicy="no-referrer" loading="lazy" onError={() => setBroken((b) => new Set(b).add(c.url))} />
+              </button>
+            ))}
+          </div>
+        </>
+      ) : <div className="adm-msg warn">None of the images on that page would load. Paste a link to the logo image itself.</div>)}
+      {err && <div className="adm-msg err" role="alert">{err}</div>}
+      <div className="adm-form">
+        <button type="button" className="adm-btn" disabled={!picked || !covers.length || !!busy} onClick={save}>Use this logo for {name.trim() || "the club"}</button>
+        <button type="button" className="adm-btn soft" onClick={onCancel}>Cancel</button>
+      </div>
+      <div className="adm-note">The logo is shown from the club's own site, as Squadi's are: no copy of it is kept here.</div>
+    </div>
+  );
+}
 
 export default function ClubLogos() {
   const [rep, setRep] = useState(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const [said, setSaid] = useState("");
+  const [adding, setAdding] = useState(""); // the ref of the team a club is being added for
 
   const load = useCallback(async () => {
     try {
@@ -80,6 +158,11 @@ export default function ClubLogos() {
   if (!rep && !err) return <div className="adm-card quiet">Loading the logo library…</div>;
   const c = rep?.counts || {};
   const of = (shown) => (rep?.opponents || []).filter((o) => o.shown === shown);
+  const removeClub = async (club) => {
+    setErr(""); setSaid(""); setBusy("Saving…");
+    try { await post({ action: "unclub", key: club.key }); setSaid(`${club.name} taken out: its teams are back to what the draws show.`); } catch (e) { setErr(String(e.message || e)); }
+    setBusy("");
+  };
   const row = (o, action) => (
     <div className="adm-row" key={o.ref}>
       <Crest src={o.shown === "found" ? o.logo : null} drawn={o.shown === "found"} name={o.name} className="adm-crest" discClass="adm-crest ph" />
@@ -90,6 +173,13 @@ export default function ClubLogos() {
         </div>
       </div>
       {action && <button type="button" className="adm-btn soft sm" disabled={!!busy} onClick={() => choose(o, action)}>{action === "hide" ? "Hide" : "Show"}</button>}
+      {(o.shown === "missing" || o.shown === "hidden") && adding !== o.ref && (
+        <button type="button" className="adm-btn soft sm" disabled={!!busy} onClick={() => { setAdding(o.ref); setSaid(""); }}>Add club logo</button>
+      )}
+      {adding === o.ref && (
+        <AddClub team={o} opponents={rep?.opponents || []} busy={busy} post={post}
+          onDone={(msg) => { setAdding(""); setSaid(msg); }} onCancel={() => setAdding("")} />
+      )}
     </div>
   );
 
@@ -100,10 +190,10 @@ export default function ClubLogos() {
         <section className="adm-card" aria-labelledby="adm-logos">
           <h2 className="adm-label" id="adm-logos">Opposition logos</h2>
           <div className="adm-body">
-            <b>{plural(c.opponents || 0, "opposition team")}</b>: {c.builtIn || 0} with a built-in crest, {c.found || 0} with a logo found on Squadi or Dribl, {c.missing || 0} still without one{c.hidden ? `, ${c.hidden} hidden` : ""}.
+            <b>{plural(c.opponents || 0, "opposition team")}</b>: {c.builtIn || 0} with a built-in crest, {c.added ? `${c.added} with a club logo you added, ` : ""}{c.found || 0} with a logo found on Squadi or Dribl, {c.missing || 0} still without one{c.hidden ? `, ${c.hidden} hidden` : ""}.
           </div>
           <div className="adm-note">
-            {plural(c.newClubs || 0, "club")} found that the built-in crests do not cover, with {plural(c.newLogos || 0, "logo")} between them. {plural(c.duplicatesAvoided || 0, "team name")} matched to a club already known instead of becoming a new club. Two teams are only the same club when Squadi or Dribl says so, never because their names look alike.
+            {plural(c.newClubs || 0, "club")} found that the built-in crests do not cover, with {plural(c.newLogos || 0, "logo")} between them. {plural(c.duplicatesAvoided || 0, "team name")} matched to a club already known instead of becoming a new club. Found on Squadi or Dribl, two teams are only the same club when Squadi or Dribl says so, never because their names look alike. A club you add covers the teams whose names have its words.
           </div>
           <div className="adm-form">
             <button type="button" className="adm-btn" disabled={!!busy} onClick={findMissing}>{busy || "Find missing logos"}</button>
@@ -117,7 +207,23 @@ export default function ClubLogos() {
       {rep && of("missing").length > 0 && (
         <section className="adm-card" aria-labelledby="adm-logos-missing">
           <h2 className="adm-label" id="adm-logos-missing">Still without a logo</h2>
+          <div className="adm-note">Add the club's logo from its own website: it's held for the club, so all of its teams get it.</div>
           <div className="adm-rows">{of("missing").map((o) => row(o))}</div>
+        </section>
+      )}
+      {rep && (rep.named || []).length > 0 && (
+        <section className="adm-card" aria-labelledby="adm-logos-added">
+          <h2 className="adm-label" id="adm-logos-added">Club logos you added</h2>
+          <div className="adm-rows">{rep.named.map((club) => (
+            <div className="adm-row" key={club.key}>
+              <Crest src={club.logo} drawn name={club.name} className="adm-crest" discClass="adm-crest ph" />
+              <div className="adm-row-main">
+                {club.name}
+                <div className="adm-row-sub">{club.site ? `From ${hostOf(club.site)}, ` : ""}{club.teams ? `shown for ${plural(club.teams, "team")}` : "no opposition team's name has its words yet"}</div>
+              </div>
+              <button type="button" className="adm-btn soft sm" disabled={!!busy} onClick={() => removeClub(club)}>Remove</button>
+            </div>
+          ))}</div>
         </section>
       )}
       {rep && of("found").length > 0 && (

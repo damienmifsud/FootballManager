@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { sourceLogo, oppCrestFor, crestFor } from "@/lib/clubs";
 import {
-  squadiLogoKind, providerOf, teamRefOf, cleanLibrary, learnFromGames, learnDriblClubs,
-  crestFromLibrary, logoSummary, setManual, isRef, sameName
+  squadiLogoKind, providerOf, teamRefOf, cleanLibrary, learnFromGames, learnDriblClubs, crestFromLibrary, logoSummary, setManual, isRef, sameName, clubWords, namedKey, namedCovers, guessClubName, namedClubFor, setNamedClub, dropNamedClub, NAMED_MAX
 } from "@/lib/clubLogos";
 
 // lib/clubLogos: the club logo library's extension, for opposition clubs the
@@ -222,7 +221,7 @@ describe("logoSummary — the admin's card and the report", () => {
     let lib = learnFromGames({}, games, "squadi").lib;
     lib = learnFromGames(lib, games.filter((g) => providerOf(g) === "dribl"), "dribl").lib;
     const { counts, opponents } = logoSummary(lib, games);
-    expect(counts).toEqual({ opponents: 6, builtIn: 2, found: 3, missing: 1, hidden: 0, newClubs: 1, newLogos: 2, duplicatesAvoided: 2 });
+    expect(counts).toEqual({ opponents: 6, builtIn: 2, added: 0, found: 3, missing: 1, hidden: 0, newClubs: 1, newLogos: 2, duplicatesAvoided: 2 });
     expect(opponents.map((o) => [o.name, o.shown, o.kind || ""])).toEqual([
       ["Hilltop SC U10", "found", "team"], ["Lions FC U10 Blue", "built-in", ""], ["Lions FC U10 White", "built-in", ""],
       ["Riverside FC U10 Blue", "found", "club"], ["Riverside FC U10 Gold", "found", "club"], ["Valley Wanderers U10", "missing", ""]
@@ -240,7 +239,7 @@ describe("cleanLibrary and setManual", () => {
     expect(crestFromLibrary(lib, sq(1, "A", 1, slashCompLogo))).toBeNull();
   });
   it("drops anything not in the library's shape, so a bad document never breaks a read", () => {
-    expect(cleanLibrary(null)).toEqual({ clubs: {}, teams: {}, manual: {} });
+    expect(cleanLibrary(null)).toEqual({ clubs: {}, teams: {}, manual: {}, named: {} });
     expect(cleanLibrary({
       clubs: { "squadi:org:41": { names: ["A", "A", 5], logo: "http://x" }, "nope": {}, "squadi:team:1": { names: [] } },
       teams: { "squadi:team:1": { name: "A", club: "dribl:team:2", logo: "https://cdn.dribl.com/a.png" }, "squadi:org:9": { name: "B" } },
@@ -248,7 +247,8 @@ describe("cleanLibrary and setManual", () => {
     })).toEqual({
       clubs: { "squadi:org:41": { names: ["A"], from: "", seen: "" } },
       teams: { "squadi:team:1": { name: "A", logo: "https://cdn.dribl.com/a.png", from: "", seen: "" } },
-      manual: { "squadi:org:41": { hidden: true } }
+      manual: { "squadi:org:41": { hidden: true } },
+      named: {}
     });
   });
   it("records and clears the admin's choice, for a well-formed reference only", () => {
@@ -256,5 +256,97 @@ describe("cleanLibrary and setManual", () => {
     expect(setManual({ manual: { "squadi:org:41": { hidden: true } } }, "squadi:org:41", { hidden: false }).manual).toEqual({});
     expect(setManual({}, "not a ref", { hidden: true }).manual).toEqual({});
     expect([isRef("squadi:team:12"), isRef("dribl:club:Ab_1-2"), isRef("squadi:name:riverside fc"), isRef("dribl:club:has space"), isRef("other:team:1")]).toEqual([true, true, true, false, false]);
+  });
+});
+
+describe("clubs the admin adds from their own websites — held for the club", () => {
+  const SITE_LOGO = "https://valleywanderers.example/img/crest.png";
+  const add = (lib, name, logo = SITE_LOGO, site = "https://valleywanderers.example/") => setNamedClub(lib, { name, logo, site, today: "2026-11-28" });
+
+  it("knows a club by every word of its name, letter case and punctuation aside, and never by generic words alone", () => {
+    expect(clubWords("Valley Wanderers FC")).toEqual(["valley", "wanderers", "fc"]);
+    expect(clubWords("Valley-Wanderers F.C.")).toEqual(["valley", "wanderers", "f", "c"]);
+    expect(namedKey("Valley Wanderers FC")).toBe("valley-wanderers-fc");
+    for (const generic of ["FC", "Football Club", "United FC", "the club", "", "  "]) expect(namedKey(generic)).toBe("");
+    expect(namedCovers(["valley", "wanderers", "fc"], "Valley Wanderers FC Academy U12")).toBe(true);
+    expect(namedCovers(["seaside", "fc"], "Seaside Rovers U10")).toBe(false); // every word counts, FC too
+    expect(namedCovers(["valley", "wanderers"], "Valley United U10")).toBe(false);
+    expect(namedCovers(["valley", "wanderers"], "Valleywanderers U10")).toBe(false); // whole words only
+    expect(namedCovers([], "Valley Wanderers")).toBe(false);
+  });
+
+  it("guesses the club from a team's name: the words before its age group or division", () => {
+    expect(guessClubName("Valley Wanderers FC NPL U11 Gold")).toBe("Valley Wanderers FC");
+    expect(guessClubName("VWFC Div1 U12 Gold")).toBe("VWFC");
+    expect(guessClubName("Seaside FC U9 Reds")).toBe("Seaside FC");
+    expect(guessClubName("Ridge FC Under 12 Div 3")).toBe("Ridge FC");
+    expect(guessClubName("Coastal Strikers 1 U12")).toBe("Coastal Strikers");
+    expect(guessClubName("U10 Rovers")).toBe("U10 Rovers"); // never down to nothing
+    expect(guessClubName("Riverside")).toBe("Riverside");
+  });
+
+  it("shows an added club's logo for every team whose name has all its words, before anything found and over a hidden one", () => {
+    let lib = cleanLibrary({ teams: { "squadi:team:5": { name: "Valley Wanderers FC U11", logo: orgLogo(41), club: "squadi:org:41" } }, clubs: { "squadi:org:41": { names: ["Valley Wanderers FC U11"], logo: orgLogo(41) } }, manual: { "squadi:team:6": { hidden: true } } });
+    lib = add(lib, "Valley Wanderers").lib;
+    expect(crestFromLibrary(lib, sq(1, "Valley Wanderers FC Academy U12", 4, compLogo))).toBe(SITE_LOGO);
+    expect(crestFromLibrary(lib, sq(2, "Valley Wanderers FC U11", 5, orgLogo(41)))).toBe(SITE_LOGO);
+    expect(crestFromLibrary(lib, sq(3, "Valley Wanderers U12 Girls", 6))).toBe(SITE_LOGO);
+    expect(crestFromLibrary(lib, dr(4, "Valley Wanderers FC U10"))).toBe(SITE_LOGO);
+    expect(crestFromLibrary(lib, sq(5, "Valley United U10", 7))).toBeNull();
+    // The hidden team (squadi:team:6) shows the club's added logo: that was chosen.
+    // A built-in crest still comes first, whatever was added.
+    lib = add(lib, "Oxley United").lib;
+    expect(crestFromLibrary(lib, sq(6, "Oxley United U9 Eagles", 8))).toBeUndefined();
+  });
+
+  it("gives a team the added club with the most of its words", () => {
+    let lib = add(cleanLibrary({}), "Seaside", "https://seaside.example/all.png").lib;
+    lib = add(lib, "Seaside Reds", "https://seaside.example/reds.png").lib;
+    expect(namedClubFor(lib, "Seaside Reds U10").key).toBe("seaside-reds");
+    expect(namedClubFor(lib, "Seaside Blues U10").key).toBe("seaside");
+    expect(namedClubFor(lib, "Ridge FC")).toBeNull();
+    expect(namedClubFor({}, "Seaside")).toBeNull();
+  });
+
+  it("counts the teams each added club covers, and shows them as added rather than missing or found", () => {
+    const lib = add(cleanLibrary({ clubs: { "squadi:org:41": { names: ["Valley Wanderers FC U11"], logo: orgLogo(41) } }, teams: { "squadi:team:5": { name: "Valley Wanderers FC U11", club: "squadi:org:41" } } }), "Valley Wanderers FC").lib;
+    // "Valley Wanderers FC" covers its two FC teams, not a team named without FC.
+    const { opponents, counts, named } = logoSummary(lib, [
+      sq(1, "Valley Wanderers FC Academy U12", 4, compLogo), sq(2, "Valley Wanderers FC U11", 5, orgLogo(41)), sq(3, "Seaside FC U10", 9), sq(4, "Oxley United U9 Eagles", 8)
+    ]);
+    expect(opponents.map((o) => [o.name, o.shown, o.named || ""])).toEqual([
+      ["Oxley United U9 Eagles", "built-in", ""], ["Seaside FC U10", "missing", ""],
+      ["Valley Wanderers FC Academy U12", "added", "valley-wanderers-fc"], ["Valley Wanderers FC U11", "added", "valley-wanderers-fc"]
+    ]);
+    expect(counts).toMatchObject({ opponents: 4, builtIn: 1, added: 2, found: 0, missing: 1 });
+    expect(named).toEqual([{ key: "valley-wanderers-fc", name: "Valley Wanderers FC", logo: SITE_LOGO, site: "https://valleywanderers.example/", teams: 2 }]);
+  });
+
+  it("keeps a club only with a name and an https logo; the same words are the same club; one can be taken out", () => {
+    expect(setNamedClub({}, { name: "  ", logo: SITE_LOGO }).error).toBe("Give the club's name.");
+    expect(setNamedClub({}, { name: "FC", logo: SITE_LOGO }).error).toBe("Give the club's name.");
+    for (const logo of ["", "http://valleywanderers.example/a.png", "https://u:p@valleywanderers.example/a.png", "https://valleywanderers.example:81/a.png", "data:image/png;base64,AA", "https://x.example/" + "a".repeat(400)]) {
+      expect(setNamedClub({}, { name: "Valley Wanderers", logo }).error).toBe("Pick a logo first.");
+    }
+    let r = setNamedClub({}, { name: "Valley Wanderers FC", logo: SITE_LOGO, site: "http://not-https.example/", today: "2026-11-28" });
+    expect(r.key).toBe("valley-wanderers-fc");
+    expect(r.lib.named["valley-wanderers-fc"]).toEqual({ name: "Valley Wanderers FC", logo: SITE_LOGO, site: "", at: "2026-11-28" });
+    r = setNamedClub(r.lib, { name: "valley wanderers fc", logo: "https://valleywanderers.example/new.png" });
+    expect(Object.keys(r.lib.named)).toEqual(["valley-wanderers-fc"]);
+    expect(r.lib.named["valley-wanderers-fc"].logo).toBe("https://valleywanderers.example/new.png");
+    expect(dropNamedClub(r.lib, "valley-wanderers-fc").named).toEqual({});
+    let many = cleanLibrary({});
+    for (let i = 0; i < NAMED_MAX; i++) many.named[`club${i}`] = { name: `Club${i}`, logo: SITE_LOGO, site: "", at: "" };
+    expect(setNamedClub(many, { name: "One More", logo: SITE_LOGO }).error).toMatch(/as many added clubs as it can/);
+  });
+
+  it("drops an added club a stored document holds out of shape", () => {
+    const lib = cleanLibrary({ named: {
+      "valley-wanderers-fc": { name: "Valley Wanderers FC", logo: SITE_LOGO, site: "https://valleywanderers.example/", at: "2026-11-28" },
+      "wrong-key": { name: "Seaside FC", logo: SITE_LOGO },
+      "ridge": { name: "Ridge FC", logo: "http://ridge.example/a.png" },
+      "coastal": "Coastal FC"
+    } });
+    expect(lib.named).toEqual({ "valley-wanderers-fc": { name: "Valley Wanderers FC", logo: SITE_LOGO, site: "https://valleywanderers.example/", at: "2026-11-28" } });
   });
 });

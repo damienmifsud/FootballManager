@@ -115,3 +115,116 @@ describe("ClubLogos", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("forbidden");
   });
 });
+
+describe("ClubLogos — adding a club's logo from its own website", () => {
+  const SITE_LOGO = "https://seaside.example/img/crest.png";
+  const ICON = "https://seaside.example/apple-180.png";
+  // Two teams of the club still without a logo, and one of another club.
+  const missing = [
+    { ref: "squadi:team:500009", name: "Seaside FC U10", provider: "squadi", shown: "missing" },
+    { ref: "squadi:team:500010", name: "Seaside FC Academy U11", provider: "squadi", shown: "missing" },
+    { ref: "squadi:team:500011", name: "Seaside Rovers U10", provider: "squadi", shown: "missing" }
+  ];
+  // A team the built-in crests cover is never counted, whatever its name.
+  const builtIn = { ref: "squadi:team:500012", name: "Seaside FC Oxley United Juniors", provider: "squadi", shown: "built-in" };
+  const withMissing = (over = {}) => report({ opponents: [...report().opponents.filter((o) => o.shown !== "missing"), builtIn, ...missing], ...over });
+  const added = withMissing({
+    counts: { ...report().counts, added: 2, missing: 1 },
+    opponents: [...report().opponents.filter((o) => o.shown !== "missing"), { ...missing[0], shown: "added", named: "seaside-fc", logo: SITE_LOGO }, { ...missing[1], shown: "added", named: "seaside-fc", logo: SITE_LOGO }, missing[2]],
+    named: [{ key: "seaside-fc", name: "Seaside FC", logo: SITE_LOGO, site: "https://seaside.example/", teams: 2 }]
+  });
+
+  beforeEach(() => {
+    fetch.mockImplementation(async (url, init = {}) => {
+      if (init.method === "POST") {
+        const body = JSON.parse(init.body);
+        posts.push(body);
+        if (body.action === "site") {
+          return body.url === "nowhere.example"
+            ? { ok: false, status: 422, json: async () => ({ error: "That site couldn't be found. Check the link." }) }
+            : { ok: true, status: 200, json: async () => ({ ok: true, site: "https://seaside.example/", candidates: [{ url: SITE_LOGO, kind: "logo" }, { url: ICON, kind: "site icon" }] }) };
+        }
+        if (body.action === "club") return { ok: true, status: 200, json: async () => ({ ok: true, key: "seaside-fc", ...added }) };
+        if (body.action === "unclub") return { ok: true, status: 200, json: async () => ({ ok: true, ...withMissing({ named: [] }) }) };
+      }
+      return { ok: true, status: 200, json: async () => withMissing() };
+    });
+  });
+
+  const openAdd = async (teamName) => {
+    render(<ClubLogos />);
+    const missingCard = await waitFor(() => card("Still without a logo"));
+    const row = within(missingCard).getByText(teamName).closest(".adm-row");
+    fireEvent.click(within(row).getByRole("button", { name: "Add club logo" }));
+    return row;
+  };
+
+  it("guesses the club from the team's name and says which teams it covers before anything is saved", async () => {
+    const row = await openAdd("Seaside FC Academy U11");
+    expect(within(row).getByLabelText("Club").value).toBe("Seaside FC");
+    expect(within(row).getByRole("status").textContent).toBe('Covers 2 teams: Seaside FC U10 and Seaside FC Academy U11. Every team whose name has the words "seaside" and "fc" gets this logo, the ones still to come too.');
+    fireEvent.change(within(row).getByLabelText("Club"), { target: { value: "Seaside Rovers" } });
+    expect(within(row).getByRole("status").textContent).toMatch(/^Covers 1 team: Seaside Rovers U10\./);
+    fireEvent.change(within(row).getByLabelText("Club"), { target: { value: "FC" } });
+    expect(within(row).getByRole("status").textContent).toBe("No opposition team's name has all of these words. Shorten the club's name to the words its teams share.");
+    fireEvent.change(within(row).getByLabelText("Club"), { target: { value: "Coastal" } });
+    expect(within(row).getByRole("status").textContent).toBe("No opposition team's name has all of these words. Shorten the club's name to the words its teams share.");
+    expect(posts).toEqual([]);
+  });
+
+  it("reads the club's website, offers what it found, and saves the one picked for the club", async () => {
+    const row = await openAdd("Seaside FC U10");
+    const save = () => within(row).getByRole("button", { name: "Use this logo for Seaside FC" });
+    expect(save().disabled).toBe(true);
+    fireEvent.change(within(row).getByLabelText("Club website or logo link"), { target: { value: "seaside.example" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Find logos" }));
+    const picks = await within(row).findByRole("group", { name: "Logos found on the club's site" });
+    const buttons = within(picks).getAllByRole("button");
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Logo 1 of 2: a logo", "Logo 2 of 2: the site's icon"]);
+    expect([...picks.querySelectorAll("img")].map((i) => [i.getAttribute("src"), i.getAttribute("referrerpolicy")])).toEqual([[SITE_LOGO, "no-referrer"], [ICON, "no-referrer"]]);
+    expect(posts).toEqual([{ action: "site", url: "seaside.example" }]);
+    fireEvent.click(buttons[0]);
+    expect(buttons[0].getAttribute("aria-pressed")).toBe("true");
+    expect(save().disabled).toBe(false);
+    // A name no team has can't be saved, logo or not.
+    fireEvent.change(within(row).getByLabelText("Club"), { target: { value: "Coastal" } });
+    expect(within(row).getByRole("button", { name: "Use this logo for Coastal" }).disabled).toBe(true);
+    fireEvent.change(within(row).getByLabelText("Club"), { target: { value: "Seaside FC" } });
+    fireEvent.click(save());
+    await waitFor(() => expect(posts.at(-1)).toEqual({ action: "club", name: "Seaside FC", logo: SITE_LOGO, site: "https://seaside.example/" }));
+    // The club is listed as added, its teams have left the missing list, and the editor has closed.
+    const addedCard = await waitFor(() => card("Club logos you added"));
+    expect(within(addedCard).getByText("Seaside FC")).toBeTruthy();
+    expect(addedCard.querySelector(".adm-row-sub").textContent).toBe("From seaside.example, shown for 2 teams");
+    expect(within(card("Still without a logo")).queryByText("Seaside FC U10")).toBeNull();
+    expect(screen.getByText("Seaside FC added: its logo now shows for 2 teams.")).toBeTruthy();
+    expect(card("Opposition logos").textContent).toContain("2 with a club logo you added");
+  });
+
+  it("drops an image that won't load, and says what went wrong with a link", async () => {
+    const row = await openAdd("Seaside FC U10");
+    fireEvent.change(within(row).getByLabelText("Club website or logo link"), { target: { value: "nowhere.example" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Find logos" }));
+    expect((await within(row).findByRole("alert")).textContent).toBe("That site couldn't be found. Check the link.");
+    fireEvent.change(within(row).getByLabelText("Club website or logo link"), { target: { value: "seaside.example" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Find logos" }));
+    const picks = await within(row).findByRole("group", { name: "Logos found on the club's site" });
+    fireEvent.error(picks.querySelectorAll("img")[1]);
+    expect(within(picks).getAllByRole("button")).toHaveLength(1);
+    fireEvent.error(picks.querySelector("img"));
+    expect(await within(row).findByText("None of the images on that page would load. Paste a link to the logo image itself.")).toBeTruthy();
+  });
+
+  it("takes an added club out again", async () => {
+    fetch.mockImplementation(async (url, init = {}) => {
+      if (init.method === "POST") { posts.push(JSON.parse(init.body)); return { ok: true, status: 200, json: async () => withMissing({ named: [] }) }; }
+      return { ok: true, status: 200, json: async () => added };
+    });
+    render(<ClubLogos />);
+    const addedCard = await waitFor(() => card("Club logos you added"));
+    fireEvent.click(within(addedCard).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(posts).toEqual([{ action: "unclub", key: "seaside-fc" }]));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Club logos you added" })).toBeNull());
+    expect(screen.getByText("Seaside FC taken out: its teams are back to what the draws show.")).toBeTruthy();
+  });
+});
