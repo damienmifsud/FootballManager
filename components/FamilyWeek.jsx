@@ -12,7 +12,7 @@
 // already sees and this family's own replies. A reply is one POST to
 // /api/rsvp naming its team; the route answers it as the family there and
 // refuses anything else, whatever this page offers.
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
 import { ClipboardList, Star, Medal, Check, X, MapPin, Navigation } from "lucide-react";
 import { initials, mapsUrl, fieldOf, sharedGround } from "@/lib/dashboardData";
 import { shortTeamNames } from "@/lib/people";
@@ -132,9 +132,12 @@ export default function FamilyWeek() {
   const close = () => { if (!busy) setOpen(null); };
 
   // The reply sheet is a modal dialog: focus moves into it when it opens and
-  // goes back to the button it came from when it closes.
+  // goes back to the button it came from when it closes. A layout effect, so
+  // focus moves in the same step as the sheet comes and goes: with a plain
+  // effect there was a moment, after the sheet was gone and before focus came
+  // back, when it was on the page itself.
   const sheetOpen = !!open;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!sheetOpen) return undefined;
     sheetRef.current?.focus();
     return () => { const from = fromRef.current; if (from && from.isConnected) from.focus(); };

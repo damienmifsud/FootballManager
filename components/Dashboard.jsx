@@ -20,6 +20,7 @@ import {
 import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport, mergeImportedPlayers, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { parseScheduleImport, onlyGroups, mergeSchedule, scheduleTemplate, stampImport, importBatches, removeImport } from "@/lib/scheduleImport";
+import { planResults, applyResults } from "@/lib/resultsImport";
 import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths } from "@/lib/teamSetup";
 import { seasonICS } from "@/lib/ics";
 // Competitions (a team's draws beyond its season): labels, list order and
@@ -480,6 +481,12 @@ const CSS = `
 .prow .rr-btn{padding:8px 12px;min-height:34px;}
 .pr-foot{display:flex;gap:16px;padding:8px 0 6px;}
 .pr-foot .ghostlink{padding:0;min-height:32px;display:inline-flex;align-items:center;}
+.ri-list{margin:0 0 14px;border-top:1px solid var(--line);}
+.ri-row{padding:9px 0;border-bottom:1px solid var(--line);}
+.ri-main{font-size:13px;font-weight:700;color:var(--ink);overflow-wrap:anywhere;}
+.ri-note{font-size:12px;font-weight:700;margin-top:2px;color:var(--muted);}
+.ri-row.score .ri-note{color:var(--win);}
+.ri-row.skip .ri-note{color:var(--red);}
 .crow{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);}
 .crow:last-child{border-bottom:none;}
 .crow .avatar.head{background:var(--pitch);color:#fff;}
@@ -2317,6 +2324,7 @@ function ResultsTab({ data, stats, isCoach, setModal, openMatch, onOpen }) {
         {isCoach && (
           <div className="pr-foot">
             <button className="ghostlink" onClick={() => setModal({ type: "scheduleImport", payload: { mode: "games" } })}>Import games</button>
+            <button className="ghostlink" onClick={() => setModal({ type: "resultsImport" })}>Import results</button>
           </div>
         )}
       </div>
@@ -3490,6 +3498,7 @@ function Modal({ modal, setModal, data, persist, patchLocal, isCoach, setIsCoach
         {modal.type === "import" && <ImportSheet {...{ data, persist, close }} />}
         {modal.type === "playersImport" && <PlayersImportSheet {...{ data, persist, close }} />}
         {modal.type === "scheduleImport" && <ScheduleImportSheet {...{ data, persist, patchLocal, payload: modal.payload, showToast, close }} />}
+        {modal.type === "resultsImport" && <ResultsImportSheet {...{ data, persist, showToast, close }} />}
         {modal.type === "reset" && <ResetSheet {...{ data, persist, close }} />}
       </div>
     </div>
@@ -4679,6 +4688,49 @@ function PlayersImportSheet({ data, persist, close }) {
       </div>
     )}
     <button className="btn" onClick={save} disabled={!nAdd && !nUpd && !staffChanging}>{action}</button>
+  </>);
+}
+
+// A one-off import of the season's results (lib/resultsImport.js), for a
+// draw that keeps none: one game per line, the round and the score, ours
+// first, or that it was rained out. Every line is read back against the
+// season game of its round before anything is saved, and only a game with no
+// score yet takes one: a score already entered is never changed.
+function ResultsImportSheet({ data, persist, showToast, close }) {
+  const [txt, setTxt] = useState("");
+  const [saving, setSaving] = useState(false);
+  const plan = useMemo(() => planResults(data, txt), [data, txt]);
+  const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const scores = plan.filter((p) => p.action === "score").length;
+  const offs = plan.filter((p) => p.action === "off").length;
+  const saves = [scores && count(scores, "score", "scores"), offs && count(offs, "rained-out game", "rained-out games")].filter(Boolean).join(" and ");
+  const save = async () => {
+    if (!saves || saving) return;
+    setSaving(true);
+    const ok = await persist(applyResults(data, plan));
+    setSaving(false);
+    if (ok) { showToast?.(`Saved ${saves}`); close(); }
+  };
+  const where = (g) => [roundLabel(g) || `Round ${g.round}`, g.dateISO && fmtDate(g.dateISO), `${g.homeAway === "A" ? "at" : "vs"} ${g.opponent}`].filter(Boolean).join(" · ");
+  return (<>
+    <SheetHead title="Import results" close={close} />
+    <div className="note" style={{ marginBottom: 12 }}>
+      For a season whose draw keeps no scores. Paste one game per line: the round and the score, <b>ours first</b>, or that it was rained out. For example <b>R1 4-6</b> or <b>R6 rained out</b>. The opponent's name can stay on the line: it is checked against the game. Only a game with no score yet takes one.
+    </div>
+    <div className="field">
+      <textarea className="inp" rows={7} aria-label="Results list" value={txt} onChange={e => setTxt(e.target.value)} placeholder={"R1 4-6\nR2 1-5\nR6 rained out"} />
+    </div>
+    {plan.length > 0 && (
+      <div className="ri-list" role="list" aria-label="What each line will do">
+        {plan.map((p, i) => (
+          <div key={i} role="listitem" className={"ri-row " + p.action}>
+            <div className="ri-main">{p.game ? where(p.game) : p.line.text}</div>
+            <div className="ri-note">{p.note}</div>
+          </div>
+        ))}
+      </div>
+    )}
+    <button className="btn" onClick={save} disabled={!saves || saving}>{saving ? "Saving…" : saves ? `Save ${saves}` : "Nothing to save"}</button>
   </>);
 }
 

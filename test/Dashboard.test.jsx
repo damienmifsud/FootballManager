@@ -4482,8 +4482,10 @@ describe("Bulk import of training and games", () => {
     expect(screen.queryByText("Import training")).toBeNull();
     nav("Results");
     expect(screen.queryByText("Import games")).toBeNull();
+    expect(screen.queryByText("Import results")).toBeNull();
     await enterCoachMode();
     expect(screen.getByText("Import games")).toBeTruthy();
+    expect(screen.getByText("Import results")).toBeTruthy();
     nav("Calendar");
     expect(await screen.findByText("Import training")).toBeTruthy();
     await openSettings();
@@ -5060,5 +5062,43 @@ describe("Two-team squad — paired rounds (S1) and missing numbers (S0)", () =>
     fireEvent.click(await screen.findByText("Edit"));
     await waitFor(() => expect(document.querySelectorAll(".sheet .gnm").length).toBe(2));
     expect([...document.querySelectorAll(".sheet .gnm")].map((n) => n.textContent)).toEqual(["Sam Smith", "8. Alex Smith"]);
+  });
+});
+
+// A one-off import of a season's results (lib/resultsImport.js), for a draw
+// that keeps none. Every name here is made up.
+describe("Import results", () => {
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); render(<App />); return waitForLoaded(); };
+  const nav = (label) => fireEvent.click(within(screen.getByRole("navigation")).getByText(label));
+  const sheetTitle = () => document.querySelector(".sheet h2")?.textContent;
+  const saved = () => JSON.parse(storage.set.mock.calls.at(-1)[1]);
+  const g = (round, opponent, over = {}) => ({ id: "g" + round, squadiId: 900000 + round, round, dateISO: daysFromNow(-60 + round), time: "09:00", opponent, homeAway: round % 2 ? "H" : "A", venue: "Park", status: "played", us: null, them: null, availability: {}, ...over });
+  const season = [g(1, "Hilltop United U10 Boys"), g(2, "Lakeside Rovers U10 Boys"), g(3, "Valley Wanderers U10 Boys", { us: 2, them: 2 }), g(4, "Ridge FC U10 Boys")];
+  const open = async () => {
+    await enterCoachMode();
+    nav("Results");
+    fireEvent.click(await screen.findByText("Import results"));
+    await waitFor(() => expect(sheetTitle()).toBe("Import results"));
+  };
+
+  it("reads each line back against its round's game, saves the scores and rained-out games, and leaves a score already entered alone", async () => {
+    await load(makeData({ fixtures: season }));
+    await open();
+    fireEvent.change(screen.getByLabelText("Results list"), { target: { value: "R1 Hilltop United 4-6\nR2 rained out\nR3 5-1\nR4 Ridge W 3-2" } });
+    const rows = within(screen.getByRole("list", { name: "What each line will do" })).getAllByRole("listitem");
+    expect(rows.map((r) => r.querySelector(".ri-note").textContent)).toEqual(["Lost 4–6", "Rained out", "Already has a score (2–2): left as it is", "Won 3–2"]);
+    expect(rows[0].querySelector(".ri-main").textContent).toMatch(/^Round 1 · .* · vs Hilltop United U10 Boys$/);
+    fireEvent.click(screen.getByRole("button", { name: "Save 2 scores and 1 rained-out game" }));
+    await waitFor(() => expect(document.querySelector(".sheet")).toBeNull());
+    const by = Object.fromEntries(saved().fixtures.map((f) => [f.id, [f.status, f.us, f.them]]));
+    expect(by).toEqual({ g1: ["played", 4, 6], g2: ["cancelled", null, null], g3: ["played", 2, 2], g4: ["played", 3, 2] });
+  });
+
+  it("saves nothing while no line can be used", async () => {
+    await load(makeData({ fixtures: season }));
+    await open();
+    fireEvent.change(screen.getByLabelText("Results list"), { target: { value: "R9 3-1\nR1 Lakeside 2-0" } });
+    expect(screen.getByRole("button", { name: "Nothing to save" }).disabled).toBe(true);
+    expect([...document.querySelectorAll(".ri-row.skip .ri-note")].map((e) => e.textContent)).toEqual(["No season game in round 9", "Round 1 is against Hilltop United U10 Boys"]);
   });
 });
