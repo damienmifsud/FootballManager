@@ -34,8 +34,9 @@ import {
 } from "@/lib/planner";
 import { shapeCall } from "@/lib/shapes";
 import { downscaleImage } from "@/lib/clientImage";
-import { oppCrestFor, OUR_CREST } from "@/lib/clubs";
+import { oppCrestFor, OUR_CREST, ourLogoFill, cleanFill } from "@/lib/clubs";
 import Crest, { OppCrest } from "@/components/Crest";
+import LogoPicker from "@/components/LogoPicker";
 import { hatLabel, kidNames, isPlayerHat, joinNames as joinKidNames } from "@/lib/hats";
 import { cannedQuestions, cannedAnswer, askFallback } from "@/lib/askCanned";
 import { signOut } from "next-auth/react";
@@ -347,6 +348,8 @@ const CSS = `
 .mu-side{display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center;min-width:0;}
 .mu-crest{width:48px;height:48px;border-radius:50%;object-fit:cover;flex-shrink:0;}
 .mu-crest.ours{box-shadow:var(--crest-ring);}
+.framed{position:relative;display:inline-block;overflow:hidden;}
+.framed>img{display:block;width:100%;height:100%;object-fit:cover;}
 .mu-disc{width:48px;height:48px;border-radius:50%;background:var(--soft);display:inline-flex;align-items:center;justify-content:center;
   font-size:14px;font-weight:800;color:var(--muted);flex-shrink:0;}
 .mu-name{font-size:12px;font-weight:600;line-height:1.25;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
@@ -1918,8 +1921,7 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
           </div>
           <div className="matchup">
             <div className="mu-side">
-              <img className="mu-crest ours" src={data.team.logo || OUR_CREST} alt=""
-                onError={(e) => { const el = e.currentTarget; if (el.getAttribute("src") !== OUR_CREST) el.src = OUR_CREST; else el.style.visibility = "hidden"; }} />
+              <Crest src={data.team.logo || OUR_CREST} ours fill={ourLogoFill(data.team)} name={data.team.name} className="mu-crest" discClass="mu-disc" />
               <span className="mu-name ours">{data.team.name}</span>
             </div>
             <div className="mu-centre">
@@ -2265,7 +2267,7 @@ function MatchRow({ data, f, onTap }) {
   const hs = home ? f.us : f.them, as = home ? f.them : f.us;
   const side = (ours, away) => (
     <div className={"mr-side" + (ours ? " ours" : "") + (away ? " away" : "")}>
-      <Crest src={ours ? usLogo : opp.src} drawn={!ours && opp.drawn} name={ours ? us : f.opponent} ours={ours} />
+      <Crest src={ours ? usLogo : opp.src} drawn={!ours && opp.drawn} name={ours ? us : f.opponent} ours={ours} fill={ours ? ourLogoFill(data.team) : 1} />
       <span className="mr-name">{ours ? us : f.opponent}</span>
     </div>
   );
@@ -2940,7 +2942,7 @@ function StaffEditor({ t, setT, isCoach }) {
 // team.* fields owned by the narrow /api/team-settings route. They never sit in
 // the Team-details draft, so "Save team details" can't rewrite them with a
 // stale copy and a card's patch can't be mistaken for an edit to the draft.
-const NARROW_TEAM_KEYS = ["parentsSee", "matchFormat", "rules", "strip"];
+const NARROW_TEAM_KEYS = ["parentsSee", "matchFormat", "rules", "strip", "logo", "logoFill", "logoSite"];
 const teamDetails = (team) => {
   const d = { ...(team || {}) };
   NARROW_TEAM_KEYS.forEach((k) => delete d[k]);
@@ -2948,8 +2950,8 @@ const teamDetails = (team) => {
 };
 
 function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal, account }) {
-  // Draft of the Team-details fields only (name, age group, division, logo,
-  // staff, WhatsApp, PIN). data.team also changes when a settings card writes
+  // Draft of the Team-details fields only (name, age group, division, staff,
+  // WhatsApp, PIN). data.team also changes when a settings card writes
   // parentsSee/matchFormat/rules through its narrow route, so the draft only
   // resyncs the detail keys whose value actually changed — an unsaved edit in
   // the Team name box survives flipping a switch or tapping a format chip.
@@ -2981,26 +2983,10 @@ function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal,
           <div className="field"><label>Age group</label><input className="inp" disabled={!isCoach} value={t.ageGroup} onChange={e => setT({ ...t, ageGroup: e.target.value })} /></div>
           <div className="field"><label>Division</label><input className="inp" disabled={!isCoach} value={t.division} onChange={e => setT({ ...t, division: e.target.value })} /></div>
         </div>
-        {isCoach && (
-          <div className="field" style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-            <label>Club logo</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              {t.logo
-                ? <img src={t.logo} alt="logo" style={{ width: 48, height: 48, objectFit: "contain", background: "var(--pitch)", borderRadius: 10, padding: 4 }} />
-                : <div className="savatar" style={{ borderRadius: 10 }}>FC</div>}
-              <label className="chip" style={{ cursor: "pointer" }}>
-                <Plus size={13} />{t.logo ? "Change logo" : "Upload logo"}
-                <input type="file" accept="image/*" style={{ display: "none" }}
-                  onChange={async e => { const f = e.target.files?.[0]; if (f) { try { setT({ ...t, logo: await downscaleImage(f, 256, "image/png") }); } catch {} } }} />
-              </label>
-              {t.logo && <button className="chip" onClick={() => setT({ ...t, logo: "" })}>Remove</button>}
-            </div>
-            <div className="note" style={{ marginTop: 4 }}>Shows in the header. A transparent PNG works best on the red background.</div>
-          </div>
-        )}
       </div>
 
       {isCoach && <>
+        <ClubLogoCard team={data.team} patchLocal={patchLocal} sites={!!account} />
         <SeasonCard team={data.team} patchLocal={patchLocal} />
         <KitCard team={data.team} patchLocal={patchLocal} />
         <ParentsSeeCard team={data.team} patchLocal={patchLocal} />
@@ -3124,6 +3110,43 @@ function KitCard({ team, patchLocal }) {
       <div className="note" style={{ marginTop: 10 }}>{k
         ? `Games are in the ${k.colour} ${k.name} unless you switch one on its Edit sheet, for a colour clash.`
         : "Pick the kit this team wears. You can still switch any one game to the other kit on its Edit sheet."}</div>
+    </div>
+  );
+}
+
+// The team's own logo (LogoPicker): uploaded, or picked from the club's
+// website, and sized to fill its circle. A draft until Save logo, which
+// writes the logo, its size and the website it came from through
+// /api/team-settings; Undo changes goes back to what is saved.
+function ClubLogoCard({ team, patchLocal, sites }) {
+  const saved = { logo: team?.logo || "", fill: ourLogoFill(team), site: team?.logoSite || "" };
+  const [draft, setDraft] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [said, setSaid] = useState("");
+  const changed = draft.logo !== saved.logo || cleanFill(draft.fill) !== saved.fill || (draft.site || "") !== saved.site;
+  const save = async () => {
+    setErr(""); setSaid(""); setBusy(true);
+    try {
+      const res = await fetchJson("/api/team-settings", { logo: draft.logo, logoFill: cleanFill(draft.fill), logoSite: draft.site || "" });
+      if (res?.team) teamPatch(patchLocal, res.team);
+      setDraft({ logo: res?.team?.logo ?? draft.logo, fill: cleanFill(res?.team?.logoFill ?? draft.fill), site: res?.team?.logoSite ?? draft.site });
+      setSaid(draft.logo ? "Saved. Everyone sees the new logo next time they open the team." : "Saved. The team shows the club's crest again.");
+    } catch (e) {
+      setErr(e?.status === 400 || e?.status === 403 ? e.message : SAVE_ERROR);
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="card">
+      <div className="label" style={{ marginBottom: 12 }}>Club logo</div>
+      <LogoPicker value={draft} onChange={(v) => { setDraft(v); setSaid(""); setErr(""); }} ui="dash" name={team?.name} sites={sites} disabled={busy} />
+      {err && <div className="note" role="alert" style={{ color: "var(--red)", marginTop: 8 }}>{err}</div>}
+      {said && <div className="note" role="status" style={{ marginTop: 8 }}>{said}</div>}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+        <button className="btn" disabled={!changed || busy} onClick={save}>{busy ? "Saving…" : "Save logo"}</button>
+        {changed && !busy && <button className="chip" onClick={() => { setDraft(saved); setErr(""); }}>Undo changes</button>}
+      </div>
     </div>
   );
 }
@@ -3963,7 +3986,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
   const openCarnival = () => setModal({ type: "session", payload: carnival, occ: carnival.dateISO });
   const side = (ours) => (
     <div className="mu-side">
-      <Crest src={ours ? usLogo : opp.src} drawn={!ours && opp.drawn} name={ours ? us : f.opponent} ours={ours} className="mu-crest" discClass="mu-disc" />
+      <Crest src={ours ? usLogo : opp.src} drawn={!ours && opp.drawn} name={ours ? us : f.opponent} ours={ours} fill={ours ? ourLogoFill(data.team) : 1} className="mu-crest" discClass="mu-disc" />
       <span className={"mu-name" + (ours ? " ours" : "")}>{ours ? us : f.opponent}</span>
     </div>
   );

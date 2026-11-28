@@ -923,6 +923,30 @@ second one:
   names a game had when Dribl gives no logos, and what Dribl's club list holds. A
   screenshot of it settles what Dribl actually sends.
 
+### The team's own logo
+
+A team shows the club's crest until it has a logo of its own. The coach sets one in
+**Team settings → Club logo**, and an admin in Club admin → the team → **Team identity**:
+
+- **Upload a picture**, or **find it on the club's website**: paste the website, tap
+  **Find logos**, and pick the club's logo from what the page offers, read the same careful
+  way as an opposition club's site (above). The site is read by the server, which also
+  fetches the picture picked: only a picture (PNG, JPEG, GIF, WebP, AVIF, ICO or SVG, told
+  by its first bytes rather than by what the site calls it) of at most 2 MB is taken.
+- **Fitted for the circle.** The browser cuts away any see-through margin round the picture
+  and keeps it as a square 256 px PNG, so the logo starts out as big as it fits.
+  **Size in the circle** enlarges it further, up to 160%, seen as it will look beside the
+  team's name on a game, ring and all. The header shows the logo whole.
+- **Kept with the team.** Unlike an opposition club's logo, the team's own is a copy: it
+  shows on every page, so it never depends on the club's site staying as it is, and
+  families' phones never ask the club's site for it. **Save logo** saves the logo, its size
+  and the website it came from (for finding it again) on their own, through
+  `/api/team-settings`; **Undo changes** goes back to what is saved, and **Remove** goes
+  back to the club's crest.
+- **Who can.** Reading a website needs someone signed in: the team's coaches, club admins
+  and the super admin (`/api/logo-site`), not while viewing as someone else, and each
+  sign-in gets 30 reads in ten minutes. In team-code mode only an upload is offered.
+
 Messages that leave the site (the WhatsApp reminder, a shared game, the calendar feed)
 and the Ask tab's answers are plain text, so they name the opposition without a crest.
 

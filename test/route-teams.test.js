@@ -1061,3 +1061,58 @@ describe("the season's own name", () => {
     expect(stored().seasonName).toBe("Academy League");
   });
 });
+
+describe("the team's own logo: its size in the circle and the website it came from", () => {
+  const LOGO = "data:image/png;base64,TE9HTw==";
+  const stored = [{ slug: "wiz-l", name: "Wiz L", password: "code-l" }];
+
+  it("lists each team's logo size and website, but never the picture, which ?logo=<slug> sends on its own", async () => {
+    getStoredTeams.mockResolvedValue(stored);
+    getData.mockImplementation(async (slug) => (slug === "wiz-l" ? { team: { name: "Wiz L", logo: LOGO, logoFill: 1.3, logoSite: "https://valleywanderers.example/" } } : null));
+    const { GET } = await asAdmin();
+    const listed = (await (await GET(fakeRequest({ url: "http://localhost/api/teams" }))).json()).teams.find((t) => t.slug === "wiz-l");
+    expect(listed).toMatchObject({ hasLogo: true, logoFill: 1.3, logoSite: "https://valleywanderers.example/" });
+    expect(JSON.stringify(listed)).not.toContain(LOGO);
+    let res = await GET(fakeRequest({ url: "http://localhost/api/teams?logo=wiz-l" }));
+    expect(await res.json()).toEqual({ logo: LOGO });
+    res = await GET(fakeRequest({ url: "http://localhost/api/teams?logo=env-a" }));
+    expect(await res.json()).toEqual({ logo: "" });
+    res = await GET(fakeRequest({ url: "http://localhost/api/teams?logo=nobody" }));
+    expect(res.status).toBe(404);
+  });
+
+  it("only an admin gets a team's logo", async () => {
+    const { GET } = await loadRoute();
+    auth.mockResolvedValue({ user: { email: "coach@a.com" } });
+    expect((await GET(fakeRequest({ url: "http://localhost/api/teams?logo=env-a" }))).status).toBe(403);
+    expect(getData).not.toHaveBeenCalled();
+  });
+
+  it("a new team keeps its logo's size and website, and none without a logo", async () => {
+    const { POST } = await asAdmin();
+    await POST(fakeRequest({ body: { name: "Wiz M", password: "brave-boot-20", logo: LOGO, logoFill: 1.22, logoSite: "valleywanderers.example" } }));
+    expect(setData.mock.calls[0][1].team).toMatchObject({ logo: LOGO, logoFill: 1.2, logoSite: "https://valleywanderers.example/" });
+    setData.mockClear();
+    await POST(fakeRequest({ body: { name: "Wiz N", password: "brave-boot-21", logoFill: 1.4, logoSite: "valleywanderers.example" } }));
+    expect(setData.mock.calls[0][1].team.logo).toBe("");
+    expect("logoFill" in setData.mock.calls[0][1].team).toBe(false);
+  });
+
+  it("an edit resizes the logo there is, changes its website, or takes the logo away", async () => {
+    getStoredTeams.mockResolvedValue(stored);
+    const doc = () => ({ team: { name: "Wiz L", logo: LOGO, logoFill: 1.3, logoSite: "https://old.example/" }, players: [] });
+    getData.mockImplementation(async () => doc());
+    const { PATCH } = await asAdmin();
+    await PATCH(fakeRequest({ body: { slug: "wiz-l", logoFill: 1.5, logoSite: "https://valleywanderers.example/club" } }));
+    expect(setData.mock.calls[0][1].team).toMatchObject({ logo: LOGO, logoFill: 1.5, logoSite: "https://valleywanderers.example/club" });
+    setData.mockClear();
+    await PATCH(fakeRequest({ body: { slug: "wiz-l", logo: "", logoFill: 1.5, logoSite: "" } }));
+    const team = setData.mock.calls[0][1].team;
+    expect("logo" in team).toBe(false);
+    expect([team.logoFill, team.logoSite]).toEqual([1, ""]);
+    setData.mockClear();
+    // Anything else that isn't a logo leaves the one there alone.
+    await PATCH(fakeRequest({ body: { slug: "wiz-l", logo: "https://valleywanderers.example/crest.png" } }));
+    expect(setData.mock.calls[0][1].team).toMatchObject({ logo: LOGO, logoFill: 1.3 });
+  });
+});

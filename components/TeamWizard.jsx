@@ -12,13 +12,13 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, RefreshCw, X, Check, ExternalLink } from "lucide-react";
 import { parsePlayerImport, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES, seasonLabel, KITS } from "@/lib/teamSetup";
-import { downscaleImage } from "@/lib/clientImage";
 import { MAX_COMPETITIONS, websiteLink, SEASON_NAME_MAX } from "@/lib/competitions";
 import { parseFeedLink, feedProvider } from "@/lib/feedLinks";
 import { parseMajestriLink, majestriCompUrl } from "@/lib/majestriDraw";
 import { readDriblLink } from "@/lib/driblLink";
 import { driblStatus } from "@/lib/dribl";
 import { AdminSwitch } from "@/components/AdminShell";
+import LogoPicker from "@/components/LogoPicker";
 
 const AGE_GROUPS = ["U6", "U7", "U8", "U9", "U10", "U11", "U12+"];
 const WORDS_A = ["red", "gold", "swift", "lucky", "mighty", "brave", "flying", "rapid"];
@@ -57,7 +57,11 @@ const BLANK = {
   training: [], // { weekday, time, endTime, location }
   features: { ...DEFAULT_FEATURES },
   parentsSee: { ...DEFAULT_PARENTS_SEE },
-  logo: "", hasLogo: false, coachPin: "",
+  // The team's logo (LogoPicker): `logo` is the one shown in the form, and
+  // `logoState` says what it is: "none" (no logo of its own), "loading" (an
+  // edited team's own, on its way), "ready" (that one, loaded), "unknown" (it
+  // has one that couldn't be loaded) or "changed" (a new one, or removed).
+  logo: "", logoFill: 1, logoSite: "", logoState: "none", coachPin: "",
   staff: STAFF_ROLES.map((role) => ({ role, name: "", mobile: "", email: "", custom: false }))
 };
 
@@ -304,7 +308,7 @@ export default function TeamWizard({ onTeamsChanged }) {
       importText: "", training: [],
       features: { ...DEFAULT_FEATURES, ...(t.features || {}) },
       parentsSee: { ...DEFAULT_PARENTS_SEE, ...(t.parentsSee || {}) },
-      logo: "", hasLogo: !!t.hasLogo, coachPin: t.coachPin || "",
+      logo: "", logoFill: t.logoFill || 1, logoSite: t.logoSite || "", logoState: t.hasLogo ? "loading" : "none", coachPin: t.coachPin || "",
       staff: staffForEdit(t.staff)
     });
   };
@@ -349,15 +353,26 @@ export default function TeamWizard({ onTeamsChanged }) {
     ...f,
     staff: mergeImportedStaff(f.staff, imported.staff).staff.map((s) => ({ ...staffRow(s), custom: s.custom ?? !STAFF_ROLES.includes(s.role) }))
   }));
-  const onLogoFile = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const logo = await downscaleImage(file, 256, "image/png"); // same treatment as the dashboard's Settings
-      setForm((f) => ({ ...f, logo, hasLogo: true }));
-    } catch { setErr("Couldn't read that image — try a PNG or JPG."); }
-    e.target.value = "";
-  };
+  // An edited team's own logo is fetched on its own: the list says only
+  // whether there is one (the picture is too heavy to send for every team).
+  useEffect(() => {
+    if (!editSlug || form?.logoState !== "loading") return;
+    let live = true;
+    (async () => {
+      let logo = "";
+      try {
+        const r = await fetch(`/api/teams?logo=${encodeURIComponent(editSlug)}`, { cache: "no-store" });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && typeof j.logo === "string") logo = j.logo;
+      } catch {}
+      if (live) setForm((f) => (f && f.logoState === "loading" ? { ...f, logo, logoState: logo ? "ready" : "unknown" } : f));
+    })();
+    return () => { live = false; };
+  }, [editSlug, form?.logoState]);
+  const onLogo = (v) => setForm((f) => ({
+    ...f, logo: v.logo, logoFill: v.fill, logoSite: v.site,
+    logoState: v.logo !== f.logo || f.logoState === "changed" ? "changed" : f.logoState
+  }));
 
   const onCsvFile = (e) => {
     const file = e.target.files?.[0];
@@ -470,7 +485,10 @@ export default function TeamWizard({ onTeamsChanged }) {
       strip: form.strip, // always sent: "" leaves a team that has none without one
       staff: form.staff.filter((s) => s.name.trim()).map(({ role, name, mobile, email }) => ({ role, name, mobile, email })),
       coachPin: form.coachPin,
-      ...(form.logo ? { logo: form.logo } : {}), // only when a new file was chosen
+      // The logo only when a new one was chosen (or it was removed); its size
+      // and website whenever the form knows the logo they go with.
+      ...(form.logoState === "changed" ? { logo: form.logo, logoFill: form.logoFill, logoSite: form.logoSite }
+        : form.logoState === "ready" ? { logoFill: form.logoFill, logoSite: form.logoSite } : {}),
       ...(!editSlug && imported.players.length ? { players: imported.players } : {}),
       ...(!editSlug && form.training.length ? { training: form.training.map((t) => ({ ...t, weekday: Number(t.weekday) })) } : {}),
       ...(editSlug ? { slug: editSlug } : {})
@@ -922,18 +940,14 @@ export default function TeamWizard({ onTeamsChanged }) {
           </Step>
 
           <Step n={++stepNo} title="Team identity" optional lead="Logo, staff and the coach PIN.">
-            <div className="adm-line" style={{ marginTop: 0 }}>
-              {form.logo
-                ? <img src={form.logo} alt="" className="adm-logo" />
-                : form.hasLogo
-                ? <span className="adm-pill ok lg"><Check size={12} aria-hidden="true" />Logo set</span>
-                : null}
-              <label className="adm-btn soft sm">
-                {form.logo || form.hasLogo ? "Replace logo" : "Upload logo"}
-                <input type="file" accept="image/*" className="adm-file" onChange={onLogoFile} />
-              </label>
-              <span className="adm-note">Shown on the header, login and calendar.</span>
-            </div>
+            <label className="adm-fl" style={{ marginTop: 0 }}>Club logo</label>
+            {form.logoState === "loading"
+              ? <div className="adm-note" role="status">Loading the team's logo…</div>
+              : <>
+                {form.logoState === "unknown" && <div className="adm-note">This team has a logo of its own that couldn't be shown here. Upload or pick one to replace it.</div>}
+                <LogoPicker ui="admin" name={form.name} value={{ logo: form.logo, fill: form.logoFill, site: form.logoSite }} onChange={onLogo} disabled={busy} />
+                <div className="adm-note">Shown in the team's header and beside its name on every game. Coaches can change it in Team settings.</div>
+              </>}
             <div className="adm-note" style={{ marginTop: 10 }}>
               Staff with an email get coach-level login, with their title shown in the app. Mobile is optional. Add
               anyone else on the bench with their own title.
