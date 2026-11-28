@@ -84,6 +84,43 @@ Render Cron Job. Same env vars as Vercel. Upstash Redis works identically from R
 
 ---
 
+## A development site (try a change before it goes live)
+
+The real site deploys from `main`. A development site is a second copy of the app with
+its own database: a change goes there first and is tried out, and only then reaches the
+real site. Set with `APP_ENV=development`, it shows a strip across the top of every page
+("Development site, for testing…") and **sends no emails**, whatever email settings it
+has (`lib/siteEnv.js`), so settings copied over from the real site can't message anyone.
+
+Setting it up, once:
+
+1. **A `dev` branch** on GitHub, made from `main`.
+2. **A second Upstash database** (the free plan is plenty). Note its REST URL and token.
+3. **A second Render web service** from the same repository, on the `dev` branch: build
+   `npm install && npm run build`, start `npm start`. The free plan does for testing (it
+   sleeps when idle and takes a minute to wake).
+4. **Its settings:**
+   - `APP_ENV` = `development`
+   - `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`: the new database's, never the
+     real site's
+   - `AUTH_SECRET`, `CALENDAR_KEY`, `CRON_SECRET`: new values (Render's Generate button)
+   - `AUTH_URL`: the development site's own address
+   - `ADMIN_EMAILS`: as on the real site
+   - Sign-in by email link: copy `AUTH_RESEND_KEY` and `AUTH_EMAIL_FROM` as they are.
+     Google or Microsoft sign-in: copy their ids and secrets, and add the development
+     address's callback to the same app (`…/api/auth/callback/google` in Google Cloud,
+     `…/api/auth/callback/microsoft-entra-id` in Microsoft Entra).
+   - `ANTHROPIC_API_KEY`, for Ask, if wanted
+   - Leave out `RESEND_API_KEY` and `NOTIFY_EMAILS`. Set up no sync job, and leave the
+     Dribl workflow's `SITE_URL` on the real site.
+5. **Its data:** it starts empty. Sign in and set a team up from Club admin, as on the
+   real site.
+
+Then every change goes to `dev` first, and the development site updates by itself. When
+it's right there, a pull request from `dev` to `main` puts it on the real site.
+
+---
+
 ## The live shared calendar
 
 Subscribe URL (note the key):
