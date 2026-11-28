@@ -369,7 +369,8 @@ describe("the match day planner's header line", () => {
 
 // The club logo library (lib/clubLogos.js): for a club with no artwork here,
 // the logo Squadi or Dribl gives it, which the server puts on each game it
-// sends (opponentCrest). Built-in artwork always comes first.
+// sends (opponentCrest). Built-in artwork comes before a logo found; only a
+// logo the admin chose for the club comes before the built-in crest (below).
 describe("a club with no artwork, and the logo the club logo library found for it", () => {
   const FOUND = "https://cdn.dribl.com/clubs/zebras.png";
   const SQUADI_CLUB = "https://storage.googleapis.com/download/storage/v1/b/squadi-prod.appspot.com/o/organisation%2Flogo_org_41_1700000001.jpg?generation=1700000002&alt=media";
@@ -433,5 +434,31 @@ describe("the match day planner's header line, with a found logo", () => {
     render(<MatchDayPlanner data={data} fixture={fx} isCoach onSavePlan={vi.fn()} close={vi.fn()} />);
     const img = document.querySelector(".mdp img.md-crest.drawn");
     expect([img.getAttribute("src"), img.getAttribute("referrerpolicy")]).toEqual(["https://cdn.dribl.com/clubs/zebras.png", "no-referrer"]);
+  });
+});
+
+// A logo the admin chose for a club from its website (lib/clubLogos.js named
+// clubs) is the library's choice for the game, so it comes before the built-in
+// crest; enlarged in its circle when the admin chose so ("#fill=1.3" on its
+// address, which never goes with the request for the image).
+describe("a logo the admin chose for a club", () => {
+  const CHOSEN = "https://oxley.example/crest-new.png";
+  const FOUND = "https://cdn.dribl.com/clubs/zebras.png";
+
+  it("comes before the built-in crest, enlarged to fill its circle as chosen; a logo at its own size is left as it is", async () => {
+    await load(makeData({ fixtures: [oxley({ opponentCrest: CHOSEN + "#fill=1.3" }), zebras({ opponentCrest: FOUND })] }));
+    const img = weekRow("vs Oxley United U9 Eagles").querySelector("img.mcrest");
+    expect([img.getAttribute("src"), img.className, img.getAttribute("referrerpolicy")]).toEqual([CHOSEN + "#fill=1.3", "mcrest drawn", "no-referrer"]);
+    expect([img.style.transform, img.style.clipPath]).toEqual(["scale(1.3)", "circle(38.46% at 50% 50%)"]);
+    const plain = weekRow("vs Zebras FC").querySelector("img.mcrest.drawn");
+    expect([plain.getAttribute("src"), plain.style.transform, plain.style.clipPath]).toEqual([FOUND, "", ""]);
+  });
+
+  it("and in the match day planner's header line", () => {
+    const data = { team: { name: "Test FC", ageGroup: "U9" }, players: kids, fixtures: [] };
+    const fx = { id: "f1", round: 5, dateISO: "2026-09-01", time: "09:00", opponent: "Oxley United U9 Eagles", homeAway: "H", venue: "Perry Park", status: "upcoming", availability: {}, opponentCrest: CHOSEN + "#fill=1.5" };
+    render(<MatchDayPlanner data={data} fixture={fx} isCoach onSavePlan={vi.fn()} close={vi.fn()} />);
+    const img = document.querySelector(".mdp img.md-crest.drawn");
+    expect([img.getAttribute("src"), img.style.transform, img.style.clipPath]).toEqual([CHOSEN + "#fill=1.5", "scale(1.5)", "circle(33.33% at 50% 50%)"]);
   });
 });

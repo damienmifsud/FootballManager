@@ -119,7 +119,7 @@ export const AUTH_CSS = `
 .auth-ev-ic.opp{background:none;border-radius:0;}
 .auth-opp{width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;}
 .auth-opp.ph{display:inline-flex;align-items:center;justify-content:center;background:var(--soft);font-size:11px;font-weight:800;color:var(--muted);}
-.auth-opp.drawn{object-fit:contain;background:#fff;padding:4px;}
+.auth-opp.drawn{object-fit:contain;background:#fff;padding:2px;}
 .auth-ev-body{flex:1;min-width:0;}
 .auth-ev-title{font-size:14px;font-weight:800;overflow-wrap:anywhere;}
 .auth-ev-meta{font-size:12px;color:var(--muted);margin-top:1px;overflow-wrap:anywhere;}

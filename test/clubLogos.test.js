@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { sourceLogo, oppCrestFor, crestFor } from "@/lib/clubs";
+import { sourceLogo, oppCrestFor, crestFor, cleanFill, withFill, crestFill } from "@/lib/clubs";
 import {
-  squadiLogoKind, providerOf, teamRefOf, cleanLibrary, learnFromGames, learnDriblClubs,
-  crestFromLibrary, logoSummary, setManual, isRef, sameName
+  squadiLogoKind, providerOf, teamRefOf, cleanLibrary, learnFromGames, learnDriblClubs, crestFromLibrary, logoSummary, setManual, isRef, sameName, clubWords, namedKey, namedCovers, guessClubName, namedClubFor, setNamedClub, dropNamedClub, NAMED_MAX
 } from "@/lib/clubLogos";
 
 // lib/clubLogos: the club logo library's extension, for opposition clubs the
@@ -45,8 +44,20 @@ describe("sourceLogo — which logos from a draw may be shown", () => {
 });
 
 describe("oppCrestFor — the crest beside a game's opponent", () => {
-  it("keeps the built-in crest for a club it has artwork for, whatever the draw says", () => {
-    expect(oppCrestFor("Lions FC U10 Blue", orgLogo(41), "https://cdn.dribl.com/other.png")).toEqual({ src: crestFor("Lions FC U10 Blue"), drawn: false });
+  it("keeps the built-in crest for a club it has artwork for, whatever the game's own logo says or when the server sends none", () => {
+    const built = { src: crestFor("Oxley United U9 Eagles"), drawn: false };
+    expect(oppCrestFor("Oxley United U9 Eagles", orgLogo(41))).toEqual(built);
+    expect(oppCrestFor("Oxley United U9 Eagles", orgLogo(41), null)).toEqual(built);
+    expect(oppCrestFor("Oxley United U9 Eagles", orgLogo(41), "javascript:alert(1)")).toEqual(built);
+  });
+  it("but a logo the server sends for it stands over the built-in crest: the admin chose it from the club's website", () => {
+    const chosen = "https://oxley.example/new-crest.png#fill=1.2";
+    expect(oppCrestFor("Oxley United U9 Eagles", orgLogo(41), chosen)).toEqual({ src: chosen, drawn: true });
+    // The size on the end is not part of the link: a logo as long as may be kept still shows with it.
+    const longest = `https://oxley.example/${"a".repeat(400 - 26)}.png`;
+    expect(longest).toHaveLength(400);
+    expect(oppCrestFor("Oxley United U9 Eagles", null, longest + "#fill=1.25")).toEqual({ src: longest + "#fill=1.25", drawn: true });
+    expect(oppCrestFor("Riverside FC U10", null, longest + "x#fill=1.25")).toEqual({ src: null, drawn: false });
   });
   it("otherwise takes the library's choice when the server sent one, a logo or none", () => {
     expect(oppCrestFor("Riverside FC U10", orgLogo(41), DRIBL_LOGO)).toEqual({ src: DRIBL_LOGO, drawn: true });
@@ -57,6 +68,29 @@ describe("oppCrestFor — the crest beside a game's opponent", () => {
     expect(oppCrestFor("Riverside FC U10", orgLogo(41))).toEqual({ src: orgLogo(41), drawn: true });
     expect(oppCrestFor("Riverside FC U10", compLogo)).toEqual({ src: null, drawn: false });
     expect(oppCrestFor("Riverside FC U10", "")).toEqual({ src: null, drawn: false });
+  });
+});
+
+// How much a logo the admin chose is enlarged in its circle, so one with a
+// margin of its own fills the circle as a built-in crest does.
+describe("the size of a chosen logo in its circle", () => {
+  it("is kept to steps of 5%, from the logo's own size up to 160%", () => {
+    expect([1, 1.02, 1.03, 1.25, 1.333, 1.6, 2, "1.4", "x", 0.8, -1, null, undefined, NaN, Infinity].map(cleanFill))
+      .toEqual([1, 1, 1.05, 1.25, 1.35, 1.6, 1.6, 1.4, 1, 1, 1, 1, 1, 1, 1]);
+  });
+  it("rides on the logo's address after #fill=, which never goes with the request for the image, and only when enlarged", () => {
+    const logo = "https://seaside.example/crest.png";
+    expect([withFill(logo, 1.3), withFill(logo, 1), withFill(logo, 7), withFill(logo, "x"), withFill("", 1.3), withFill(undefined, 1.3)])
+      .toEqual([logo + "#fill=1.3", logo, logo + "#fill=1.6", logo, "", ""]);
+  });
+  it("is drawn enlarged and cut back to the same circle, so it never spills past its place", () => {
+    const logo = "https://seaside.example/crest.png";
+    expect(crestFill(logo + "#fill=1.25")).toEqual({ transform: "scale(1.25)", clipPath: "circle(40.00% at 50% 50%)" });
+    expect(crestFill(logo + "#fill=1.6")).toEqual({ transform: "scale(1.6)", clipPath: "circle(31.25% at 50% 50%)" });
+    expect(crestFill(logo + "#fill=9")).toEqual({ transform: "scale(1.6)", clipPath: "circle(31.25% at 50% 50%)" });
+    for (const src of [logo, logo + "#fill=1", logo + "?fill=1.3", logo + "#fill=1.3&x", logo + "#fill=1.333", logo + "#fill=", "", null, undefined]) {
+      expect(crestFill(src)).toEqual({});
+    }
   });
 });
 
@@ -222,7 +256,7 @@ describe("logoSummary — the admin's card and the report", () => {
     let lib = learnFromGames({}, games, "squadi").lib;
     lib = learnFromGames(lib, games.filter((g) => providerOf(g) === "dribl"), "dribl").lib;
     const { counts, opponents } = logoSummary(lib, games);
-    expect(counts).toEqual({ opponents: 6, builtIn: 2, found: 3, missing: 1, hidden: 0, newClubs: 1, newLogos: 2, duplicatesAvoided: 2 });
+    expect(counts).toEqual({ opponents: 6, builtIn: 2, added: 0, found: 3, missing: 1, hidden: 0, newClubs: 1, newLogos: 2, duplicatesAvoided: 2 });
     expect(opponents.map((o) => [o.name, o.shown, o.kind || ""])).toEqual([
       ["Hilltop SC U10", "found", "team"], ["Lions FC U10 Blue", "built-in", ""], ["Lions FC U10 White", "built-in", ""],
       ["Riverside FC U10 Blue", "found", "club"], ["Riverside FC U10 Gold", "found", "club"], ["Valley Wanderers U10", "missing", ""]
@@ -240,7 +274,7 @@ describe("cleanLibrary and setManual", () => {
     expect(crestFromLibrary(lib, sq(1, "A", 1, slashCompLogo))).toBeNull();
   });
   it("drops anything not in the library's shape, so a bad document never breaks a read", () => {
-    expect(cleanLibrary(null)).toEqual({ clubs: {}, teams: {}, manual: {} });
+    expect(cleanLibrary(null)).toEqual({ clubs: {}, teams: {}, manual: {}, named: {} });
     expect(cleanLibrary({
       clubs: { "squadi:org:41": { names: ["A", "A", 5], logo: "http://x" }, "nope": {}, "squadi:team:1": { names: [] } },
       teams: { "squadi:team:1": { name: "A", club: "dribl:team:2", logo: "https://cdn.dribl.com/a.png" }, "squadi:org:9": { name: "B" } },
@@ -248,7 +282,8 @@ describe("cleanLibrary and setManual", () => {
     })).toEqual({
       clubs: { "squadi:org:41": { names: ["A"], from: "", seen: "" } },
       teams: { "squadi:team:1": { name: "A", logo: "https://cdn.dribl.com/a.png", from: "", seen: "" } },
-      manual: { "squadi:org:41": { hidden: true } }
+      manual: { "squadi:org:41": { hidden: true } },
+      named: {}
     });
   });
   it("records and clears the admin's choice, for a well-formed reference only", () => {
@@ -256,5 +291,99 @@ describe("cleanLibrary and setManual", () => {
     expect(setManual({ manual: { "squadi:org:41": { hidden: true } } }, "squadi:org:41", { hidden: false }).manual).toEqual({});
     expect(setManual({}, "not a ref", { hidden: true }).manual).toEqual({});
     expect([isRef("squadi:team:12"), isRef("dribl:club:Ab_1-2"), isRef("squadi:name:riverside fc"), isRef("dribl:club:has space"), isRef("other:team:1")]).toEqual([true, true, true, false, false]);
+  });
+});
+
+describe("clubs the admin adds from their own websites — held for the club", () => {
+  const SITE_LOGO = "https://valleywanderers.example/img/crest.png";
+  const add = (lib, name, logo = SITE_LOGO, site = "https://valleywanderers.example/") => setNamedClub(lib, { name, logo, site, today: "2026-11-28" });
+
+  it("knows a club by every word of its name, letter case and punctuation aside, and never by generic words alone", () => {
+    expect(clubWords("Valley Wanderers FC")).toEqual(["valley", "wanderers", "fc"]);
+    expect(clubWords("Valley-Wanderers F.C.")).toEqual(["valley", "wanderers", "f", "c"]);
+    expect(namedKey("Valley Wanderers FC")).toBe("valley-wanderers-fc");
+    for (const generic of ["FC", "Football Club", "United FC", "the club", "", "  "]) expect(namedKey(generic)).toBe("");
+    expect(namedCovers(["valley", "wanderers", "fc"], "Valley Wanderers FC Academy U12")).toBe(true);
+    expect(namedCovers(["seaside", "fc"], "Seaside Rovers U10")).toBe(false); // every word counts, FC too
+    expect(namedCovers(["valley", "wanderers"], "Valley United U10")).toBe(false);
+    expect(namedCovers(["valley", "wanderers"], "Valleywanderers U10")).toBe(false); // whole words only
+    expect(namedCovers([], "Valley Wanderers")).toBe(false);
+  });
+
+  it("guesses the club from a team's name: the words before its age group or division", () => {
+    expect(guessClubName("Valley Wanderers FC NPL U11 Gold")).toBe("Valley Wanderers FC");
+    expect(guessClubName("VWFC Div1 U12 Gold")).toBe("VWFC");
+    expect(guessClubName("Seaside FC U9 Reds")).toBe("Seaside FC");
+    expect(guessClubName("Ridge FC Under 12 Div 3")).toBe("Ridge FC");
+    expect(guessClubName("Coastal Strikers 1 U12")).toBe("Coastal Strikers");
+    expect(guessClubName("U10 Rovers")).toBe("U10 Rovers"); // never down to nothing
+    expect(guessClubName("Riverside")).toBe("Riverside");
+  });
+
+  it("shows an added club's logo for every team whose name has all its words, before anything found and over a hidden one", () => {
+    let lib = cleanLibrary({ teams: { "squadi:team:5": { name: "Valley Wanderers FC U11", logo: orgLogo(41), club: "squadi:org:41" } }, clubs: { "squadi:org:41": { names: ["Valley Wanderers FC U11"], logo: orgLogo(41) } }, manual: { "squadi:team:6": { hidden: true } } });
+    lib = add(lib, "Valley Wanderers").lib;
+    expect(crestFromLibrary(lib, sq(1, "Valley Wanderers FC Academy U12", 4, compLogo))).toBe(SITE_LOGO);
+    expect(crestFromLibrary(lib, sq(2, "Valley Wanderers FC U11", 5, orgLogo(41)))).toBe(SITE_LOGO);
+    expect(crestFromLibrary(lib, sq(3, "Valley Wanderers U12 Girls", 6))).toBe(SITE_LOGO);
+    expect(crestFromLibrary(lib, dr(4, "Valley Wanderers FC U10"))).toBe(SITE_LOGO);
+    expect(crestFromLibrary(lib, sq(5, "Valley United U10", 7))).toBeNull();
+    // The hidden team (squadi:team:6) shows the club's added logo: that was chosen.
+    // A club with a built-in crest keeps it until the admin links the club to
+    // its website: then the logo chosen there comes first, enlarged as chosen.
+    expect(crestFromLibrary(lib, sq(6, "Oxley United U9 Eagles", 8))).toBeUndefined();
+    lib = setNamedClub(lib, { name: "Oxley United", logo: "https://oxley.example/crest.png", fill: 1.3 }).lib;
+    expect(crestFromLibrary(lib, sq(6, "Oxley United U9 Eagles", 8))).toBe("https://oxley.example/crest.png#fill=1.3");
+  });
+
+  it("gives a team the added club with the most of its words", () => {
+    let lib = add(cleanLibrary({}), "Seaside", "https://seaside.example/all.png").lib;
+    lib = add(lib, "Seaside Reds", "https://seaside.example/reds.png").lib;
+    expect(namedClubFor(lib, "Seaside Reds U10").key).toBe("seaside-reds");
+    expect(namedClubFor(lib, "Seaside Blues U10").key).toBe("seaside");
+    expect(namedClubFor(lib, "Ridge FC")).toBeNull();
+    expect(namedClubFor({}, "Seaside")).toBeNull();
+  });
+
+  it("counts the teams each added club covers, and shows them as added rather than missing or found", () => {
+    const lib = add(cleanLibrary({ clubs: { "squadi:org:41": { names: ["Valley Wanderers FC U11"], logo: orgLogo(41) } }, teams: { "squadi:team:5": { name: "Valley Wanderers FC U11", club: "squadi:org:41" } } }), "Valley Wanderers FC").lib;
+    // "Valley Wanderers FC" covers its two FC teams, not a team named without FC.
+    const { opponents, counts, named } = logoSummary(lib, [
+      sq(1, "Valley Wanderers FC Academy U12", 4, compLogo), sq(2, "Valley Wanderers FC U11", 5, orgLogo(41)), sq(3, "Seaside FC U10", 9), sq(4, "Oxley United U9 Eagles", 8)
+    ]);
+    expect(opponents.map((o) => [o.name, o.shown, o.named || ""])).toEqual([
+      ["Oxley United U9 Eagles", "built-in", ""], ["Seaside FC U10", "missing", ""],
+      ["Valley Wanderers FC Academy U12", "added", "valley-wanderers-fc"], ["Valley Wanderers FC U11", "added", "valley-wanderers-fc"]
+    ]);
+    expect(counts).toMatchObject({ opponents: 4, builtIn: 1, added: 2, found: 0, missing: 1 });
+    expect(named).toEqual([{ key: "valley-wanderers-fc", name: "Valley Wanderers FC", logo: SITE_LOGO, site: "https://valleywanderers.example/", fill: 1, teams: 2 }]);
+  });
+
+  it("keeps a club only with a name and an https logo; the same words are the same club; one can be taken out", () => {
+    expect(setNamedClub({}, { name: "  ", logo: SITE_LOGO }).error).toBe("Give the club's name.");
+    expect(setNamedClub({}, { name: "FC", logo: SITE_LOGO }).error).toBe("Give the club's name.");
+    for (const logo of ["", "http://valleywanderers.example/a.png", "https://u:p@valleywanderers.example/a.png", "https://valleywanderers.example:81/a.png", "data:image/png;base64,AA", "https://x.example/" + "a".repeat(400)]) {
+      expect(setNamedClub({}, { name: "Valley Wanderers", logo }).error).toBe("Pick a logo first.");
+    }
+    let r = setNamedClub({}, { name: "Valley Wanderers FC", logo: SITE_LOGO, site: "http://not-https.example/", today: "2026-11-28" });
+    expect(r.key).toBe("valley-wanderers-fc");
+    expect(r.lib.named["valley-wanderers-fc"]).toEqual({ name: "Valley Wanderers FC", logo: SITE_LOGO, site: "", at: "2026-11-28" });
+    r = setNamedClub(r.lib, { name: "valley wanderers fc", logo: "https://valleywanderers.example/new.png" });
+    expect(Object.keys(r.lib.named)).toEqual(["valley-wanderers-fc"]);
+    expect(r.lib.named["valley-wanderers-fc"].logo).toBe("https://valleywanderers.example/new.png");
+    expect(dropNamedClub(r.lib, "valley-wanderers-fc").named).toEqual({});
+    let many = cleanLibrary({});
+    for (let i = 0; i < NAMED_MAX; i++) many.named[`club${i}`] = { name: `Club${i}`, logo: SITE_LOGO, site: "", at: "" };
+    expect(setNamedClub(many, { name: "One More", logo: SITE_LOGO }).error).toMatch(/as many added clubs as it can/);
+  });
+
+  it("drops an added club a stored document holds out of shape", () => {
+    const lib = cleanLibrary({ named: {
+      "valley-wanderers-fc": { name: "Valley Wanderers FC", logo: SITE_LOGO, site: "https://valleywanderers.example/", at: "2026-11-28" },
+      "wrong-key": { name: "Seaside FC", logo: SITE_LOGO },
+      "ridge": { name: "Ridge FC", logo: "http://ridge.example/a.png" },
+      "coastal": "Coastal FC"
+    } });
+    expect(lib.named).toEqual({ "valley-wanderers-fc": { name: "Valley Wanderers FC", logo: SITE_LOGO, site: "https://valleywanderers.example/", at: "2026-11-28" } });
   });
 });

@@ -6,7 +6,8 @@ import { getTeams } from "@/lib/teams";
 import { squadiSources, driblSources } from "@/lib/competitions";
 import { fetchSquadi } from "@/lib/squadiSync";
 import { sanitizeDrawRecords, sanitizeDriblClubs } from "@/lib/dribl";
-import { cleanLibrary, logoSummary, setManual, isRef } from "@/lib/clubLogos";
+import { cleanLibrary, logoSummary, setManual, isRef, setNamedClub, dropNamedClub } from "@/lib/clubLogos";
+import { readClubSite } from "@/lib/clubSite";
 import { learnLogos, changeLibrary, logoAllowed, extraLogoHosts } from "@/lib/clubLogoStore";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +16,11 @@ const AUTH_ON = !!process.env.AUTH_SECRET;
 
 // The club logo library, for the super admin's Logos section at /admin:
 // every opposition team the club's teams have met or will meet, what is shown
-// for each (built-in crest, a logo found on Squadi or Dribl, hidden, or the
-// initials), and the means to look again and to hide a logo that is wrong.
+// for each (built-in crest, a club the admin added, a logo found on Squadi or
+// Dribl, hidden, or the initials), and the means to look again, to add a club
+// with the logo from its own website, and to hide a logo that is wrong.
 //
-// GET  → { counts, opponents, dribl: [{ team, comp, name, url, teamName }], hosts }
+// GET  → { counts, opponents, named, dribl: [{ team, comp, name, url, teamName }], hosts }
 //        `dribl` is every team's Dribl draws, for the admin's own browser to
 //        read (Dribl turns servers away); `hosts` the extra logo hosts the
 //        site allows (LOGO_HOSTS).
@@ -28,6 +30,17 @@ const AUTH_ON = !!process.env.AUTH_SECRET;
 // POST { action: "hide" | "show", ref, club?, kind? }
 //                                          the admin's own choice for a team or
 //                                          club, which nothing found ever overrides
+// POST { action: "site", url }             the club's website read for the
+//                                          images that may be its logo:
+//                                          { site, candidates }; nothing is saved
+// POST { action: "club", name, logo, site, fill?, replaces? }
+//                                          a club linked to its website (or
+//                                          changed), held for the club: every
+//                                          team whose name has all its words is
+//                                          shown the logo, enlarged by `fill`;
+//                                          `replaces` is the club's old key when
+//                                          its name was changed
+// POST { action: "unclub", key }           an added club taken out again
 async function requireSuperAdmin(req) {
   if (!AUTH_ON) return { error: "The logo library needs account login (set AUTH_SECRET).", status: 400 };
   const session = await auth();
@@ -45,9 +58,9 @@ async function everyGame() {
 
 async function report() {
   const [{ teams, games }, raw] = await Promise.all([everyGame(), getClubLogos()]);
-  const { opponents, counts } = logoSummary(cleanLibrary(raw), games, { allowed: (u) => logoAllowed(u) });
+  const { opponents, counts, named } = logoSummary(cleanLibrary(raw), games, { allowed: (u) => logoAllowed(u) });
   const dribl = teams.flatMap((t) => driblSources(t).map((s) => ({ team: t.slug, teamName: t.name, comp: s.comp.id, name: s.comp.name, url: s.dribl.url, ourTeam: s.dribl.team || "" })));
-  return { counts, opponents, dribl, hosts: extraLogoHosts() };
+  return { counts, opponents, named, dribl, hosts: extraLogoHosts() };
 }
 
 export async function GET(req) {
@@ -98,6 +111,39 @@ export async function POST(req) {
       if (action === "show" && body.club) next = setManual(next, body.club, { hidden: false });
       return { lib: next, changed: true };
     });
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 503 });
+    return NextResponse.json({ ok: true, ...(await report()) });
+  }
+
+  if (action === "site") {
+    // Read only: the page is looked at for logos and nothing is kept.
+    try {
+      const { site, candidates } = await readClubSite(body.url);
+      return NextResponse.json({ ok: true, site, candidates });
+    } catch (e) {
+      return NextResponse.json({ error: e?.siteError ? e.message : "The site couldn't be read." }, { status: 422 });
+    }
+  }
+
+  if (action === "club") {
+    // Checked before the library is locked, so a bad request never waits on it.
+    const today = new Date().toISOString().slice(0, 10);
+    const club = { name: body.name, logo: body.logo, site: body.site, fill: body.fill, today };
+    const tried = setNamedClub({}, club);
+    if (tried.error) return NextResponse.json({ error: tried.error }, { status: 400 });
+    const replaces = typeof body.replaces === "string" && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(body.replaces) && body.replaces.length <= 200 ? body.replaces : "";
+    const r = await changeLibrary((lib) => {
+      const out = setNamedClub(lib, club);
+      if (out.error) return { lib, changed: false };
+      return { lib: replaces && replaces !== out.key ? dropNamedClub(out.lib, replaces) : out.lib, changed: true };
+    });
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 503 });
+    return NextResponse.json({ ok: true, key: tried.key, ...(await report()) });
+  }
+
+  if (action === "unclub") {
+    if (typeof body.key !== "string" || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(body.key) || body.key.length > 200) return NextResponse.json({ error: "bad request" }, { status: 400 });
+    const r = await changeLibrary((lib) => ({ lib: dropNamedClub(lib, body.key), changed: true }));
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 503 });
     return NextResponse.json({ ok: true, ...(await report()) });
   }

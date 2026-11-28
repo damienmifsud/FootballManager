@@ -9,17 +9,19 @@
 // to a screen reader: an empty alt on the image, and the initials hidden.
 // Our own crest (`ours`) falls back to the bundled file if the team's uploaded
 // logo fails to load; any other registry crest that fails just leaves its
-// space. A draw's logo (`drawn`) is fitted inside the circle on white, since it
-// was not made for the circular crop, is asked for without saying which page
-// it is on, and gives way to the initials if it does not load.
+// space. A drawn logo (`drawn`: found for the club, or chosen by the admin)
+// is fitted inside the circle on white with only a little margin, since it was
+// not made for the circular crop, and enlarged further when the admin chose so
+// (lib/clubs.js crestFill). It is asked for without saying which page it is
+// on, and gives way to the initials if it does not load.
 import { useState } from "react";
-import { OUR_CREST, oppCrestFor } from "@/lib/clubs";
+import { OUR_CREST, oppCrestFor, crestFill } from "@/lib/clubs";
 import { initials } from "@/lib/dashboardData";
 
 export default function Crest({ src, name, ours, drawn, className = "mcrest", discClass = "mcrest ph" }) {
   const [failed, setFailed] = useState("");
   if (!src || failed === src) return <span className={discClass} aria-hidden="true">{initials(name)}</span>;
-  if (drawn) return <img className={className + " drawn"} src={src} alt="" referrerPolicy="no-referrer" loading="lazy" onError={() => setFailed(src)} />;
+  if (drawn) return <img className={className + " drawn"} src={src} alt="" referrerPolicy="no-referrer" loading="lazy" style={crestFill(src)} onError={() => setFailed(src)} />;
   const onError = ours
     ? (e) => { const el = e.currentTarget; if (el.getAttribute("src") !== OUR_CREST) el.src = OUR_CREST; else el.style.visibility = "hidden"; }
     : (e) => { e.currentTarget.style.visibility = "hidden"; };

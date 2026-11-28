@@ -829,8 +829,8 @@ A game with no ground yet says "Venue to be confirmed". A reply on a paired roun
 covers both games, so its sheet gives each side's kick-off and field, with the ground
 named once when the two share it. Training says where it is too.
 
-The built-in crests come first. They are the site's own files, found by the opponent's
-name: the set is in `public/crests` (512 px PNGs, padded so a round crop clips nothing)
+The built-in crests come first, unless the admin has chosen a logo for the club from its
+own website (below). They are the site's own files, found by the opponent's name: the set is in `public/crests` (512 px PNGs, padded so a round crop clips nothing)
 and `lib/clubs.js` maps a team name to its file by the words in it ("Oxley United U9
 Eagles" is Oxley United). To add one, put its PNG in `public/crests` and add a line for
 it to `lib/clubs.js`. A club with neither a built-in crest nor a logo found for it (below)
@@ -844,8 +844,9 @@ Dribl gives the team, kept in a club logo library (`lib/clubLogos.js`, one docum
 the whole club, stored beside the teams). It is an extension of the built-in set, not a
 second one:
 
-- **A built-in crest always wins.** A team the set knows keeps its crest whatever a draw
-  says, and the library never changes the set.
+- **A built-in crest wins over anything found.** A team the set knows keeps its crest
+  whatever a draw says, and the library never changes the set. Only a logo the admin
+  chose for the club (below) comes before it, since a club can change its crest.
 - **Where the logos come from.** Squadi gives each team a logo on every game. For a
   league team it is the club's: Squadi files it under the club's organisation number,
   and every team of that club carries the same one. For some tournaments (Winterfest
@@ -876,12 +877,47 @@ second one:
   every read, so a logo found today shows on every past and future game against that
   team, on every team page. The logo is never saved into a team's games.
 - **Club admin → Logos** (super admin) lists every opposition team with what is shown for
-  it: the counts, the teams still without a logo, the logos found and where from, and the
-  built-in crests. **Find missing logos** reads every team's Squadi draws again on the
+  it: the counts, the teams still without a logo, the logos you chose, the logos found and
+  where from, and the built-in crests, one row per club. **Find missing logos** reads every team's Squadi draws again on the
   server, and every Dribl draw with its club list in the admin's own browser. No game is
   changed. **Hide** keeps a found logo from being shown. It hides a club's logo for all
   its teams, or a team's own logo for that team. **Show** undoes it. A choice made here
   is never changed by what a draw says later.
+- **Any club's logo from its own website.** Every club can be linked to its website and
+  given a logo picked from it: **Add club logo** for a team still without one (or with
+  one hidden), **Change logo** for a logo found or a built-in crest, and **Change** for a
+  club already chosen, when its logo changes. The club's name is guessed from the team's
+  ("Valley Wanderers FC NPL U11 Gold" is "Valley Wanderers FC"), or for a built-in crest
+  from the words its teams all start with, and can be changed. Before anything is saved,
+  the admin sees every opposition team the name covers. Then paste the club's website:
+  the server reads that one page and offers what looks like its logo: what the page
+  itself calls its logo, images named or captioned logo, crest or badge, the icon the site
+  gives phones, and the picture it shares. The logo in use stays on offer beside them.
+  Pick one and save. A link straight to a logo image is offered as it is, without the
+  server asking the site for it.
+- **Held for the club.** A chosen logo shows for every team whose name has every word of
+  the club's name (letter case and punctuation aside), its future teams too, as the
+  built-in crests are matched. Every word counts, "FC" included, so "Seaside FC" is not
+  "Seaside Rovers". A name made only of words every club has ("FC", "Football Club") is
+  refused. A chosen logo comes before the built-in crest, anything found on Squadi or
+  Dribl, and a hide, since it is the admin's own choice. Where two chosen clubs both fit a
+  team, the one with more of its words is shown, and the read-back counts it that way.
+  Renaming a club while changing it replaces the old one. **Remove** takes it out again,
+  and its teams go back to the built-in crest or what the draws show.
+- **Filling the circle.** A logo that isn't a built-in crest is fitted inside its circle on
+  white with only a thin margin. One with space of its own around it can be enlarged, up
+  to 160% in steps of 5%, with **Size in the circle**, seen at full and list size as it
+  changes. The size rides on the logo's link (`#fill=1.3`), which a browser never sends
+  with the request for the image, and the enlarged logo is cut back to its circle so it
+  never spills past its place. A logo found on Squadi or Dribl can be enlarged too:
+  **Change logo** offers it as the logo in use, and saving makes it the club's choice.
+- **Reading a club's site, carefully.** Only a public https site is read. Its name is
+  looked up first and refused if it points into a private network, every redirect is
+  checked the same way, and there is a time and size limit. The request says what it is
+  (`club-logo-finder`). A site that puts up a page checking its visitor is a person
+  ("One moment, please…") is never got round: the admin is told, and can try again or
+  paste the logo's own link. As with Squadi's logos, the link is kept, not a copy, and
+  families' phones load the logo from the club's site without saying which page it's on.
 - **The Dribl read-back** (pasting a Dribl link in the team form) says how many of the
   teams we play come with a logo the site can show, the host any others are on, the field
   names a game had when Dribl gives no logos, and what Dribl's club list holds. A

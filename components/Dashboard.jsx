@@ -891,9 +891,9 @@ const CSS = `
 .mcrest.ph{display:inline-flex;align-items:center;justify-content:center;background:var(--soft);font-size:11px;font-weight:800;color:var(--muted);}
 .mr-side.ours .mcrest{box-shadow:var(--crest-ring);}
 .mcrest.drawn,.hopp.drawn,.mu-crest.drawn,.du-crest.drawn,.cal-crest.drawn,.cv-crest.drawn{object-fit:contain;background:#fff;}
-.mcrest.drawn,.hopp.drawn{padding:4px;}
-.mu-crest.drawn{padding:6px;}
-.du-crest.drawn,.cal-crest.drawn,.cv-crest.drawn{padding:3px;}
+.mcrest.drawn,.hopp.drawn{padding:2px;}
+.mu-crest.drawn{padding:3px;}
+.du-crest.drawn,.cal-crest.drawn,.cv-crest.drawn{padding:1px;}
 .mr-name{font-size:12px;line-height:1.25;font-weight:600;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 .mr-side.ours .mr-name{font-weight:800;color:var(--ink);}
 .mr-centre{width:56px;text-align:center;flex-shrink:0;}

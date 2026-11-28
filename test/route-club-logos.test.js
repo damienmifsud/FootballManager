@@ -5,15 +5,16 @@ import { fakeRequest } from "./helpers/fakeRequest";
 // the session and Squadi are stand-ins; the library (lib/clubLogos,
 // lib/clubLogoStore), the registry and Dribl's checks are real. Every name,
 // number and address here is made up.
-const { auth, isAdminEmail, viewingAs, getData, getClubLogos, setClubLogos, takeLock, dropLock, getTeams, fetchSquadi } = vi.hoisted(() => ({
+const { auth, isAdminEmail, viewingAs, getData, getClubLogos, setClubLogos, takeLock, dropLock, getTeams, fetchSquadi, readClubSite } = vi.hoisted(() => ({
   auth: vi.fn(), isAdminEmail: vi.fn(), viewingAs: vi.fn(), getData: vi.fn(), getClubLogos: vi.fn(), setClubLogos: vi.fn(),
-  takeLock: vi.fn(), dropLock: vi.fn(), getTeams: vi.fn(), fetchSquadi: vi.fn()
+  takeLock: vi.fn(), dropLock: vi.fn(), getTeams: vi.fn(), fetchSquadi: vi.fn(), readClubSite: vi.fn()
 }));
 vi.mock("@/auth", () => ({ auth }));
 vi.mock("@/lib/directory", () => ({ isAdminEmail, viewingAs }));
 vi.mock("@/lib/store", () => ({ getData, getClubLogos, setClubLogos, takeLock, dropLock }));
 vi.mock("@/lib/teams", () => ({ getTeams }));
 vi.mock("@/lib/squadiSync", () => ({ fetchSquadi }));
+vi.mock("@/lib/clubSite", () => ({ readClubSite }));
 
 const BUCKET = "https://storage.googleapis.com/download/storage/v1/b/squadi-prod.appspot.com/o/";
 const orgLogo = (org) => `${BUCKET}organisation%2Flogo_org_${org}_1700000001.jpg?generation=1700000002&alt=media`;
@@ -69,7 +70,8 @@ describe("GET /api/club-logos", () => {
     const res = await get(r);
     expect(res.status).toBe(200);
     const j = await res.json();
-    expect(j.counts).toEqual({ opponents: 4, builtIn: 1, found: 2, missing: 1, hidden: 0, newClubs: 1, newLogos: 1, duplicatesAvoided: 1 });
+    expect(j.counts).toEqual({ opponents: 4, builtIn: 1, added: 0, found: 2, missing: 1, hidden: 0, newClubs: 1, newLogos: 1, duplicatesAvoided: 1 });
+    expect(j.named).toEqual([]);
     expect(j.opponents.map((o) => [o.name, o.shown])).toEqual([["Lions FC U10 Blue", "built-in"], ["Riverside FC U10 Blue", "found"], ["Riverside FC U9", "found"], ["Seaside FC U10", "missing"]]);
     expect(j.dribl).toEqual([{ team: "u10", teamName: "Under 10s", comp: "cinv", name: "Invitational", url: DRIBL_REQUEST, ourTeam: "Us FC" }]);
   });
@@ -127,6 +129,95 @@ describe("POST /api/club-logos", () => {
     viewingAs.mockReturnValue(null);
     isAdminEmail.mockReturnValue(false);
     expect((await post(r, { action: "refresh" })).status).toBe(403);
+    expect(setClubLogos).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/club-logos — a club added from its own website", () => {
+  const SITE_LOGO = "https://seaside.example/img/crest.png";
+  it("reads the club's site for its logos and keeps nothing", async () => {
+    readClubSite.mockResolvedValue({ site: "https://seaside.example/", candidates: [{ url: SITE_LOGO, kind: "logo" }] });
+    const res = await post(await route(), { action: "site", url: "seaside.example" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, site: "https://seaside.example/", candidates: [{ url: SITE_LOGO, kind: "logo" }] });
+    expect(readClubSite).toHaveBeenCalledWith("seaside.example");
+    expect(setClubLogos).not.toHaveBeenCalled();
+    expect(takeLock).not.toHaveBeenCalled();
+  });
+
+  it("passes on what the reader says went wrong, and nothing else", async () => {
+    readClubSite.mockRejectedValueOnce(Object.assign(new Error("That site couldn't be found. Check the link."), { siteError: "notFound" }));
+    let res = await post(await route(), { action: "site", url: "nowhere.example" });
+    expect([res.status, (await res.json()).error]).toEqual([422, "That site couldn't be found. Check the link."]);
+    readClubSite.mockRejectedValueOnce(new Error("connect ECONNREFUSED 10.0.0.5:443"));
+    res = await post(await route(), { action: "site", url: "seaside.example" });
+    expect((await res.json()).error).toBe("The site couldn't be read.");
+  });
+
+  it("adds the club, held for the club: every team whose name has its words is shown the logo", async () => {
+    const r = await route();
+    const res = await post(r, { action: "club", name: "Seaside FC", logo: SITE_LOGO, site: "https://seaside.example/" });
+    const j = await res.json();
+    expect([res.status, j.key]).toEqual([200, "seaside-fc"]);
+    expect(stored.named).toEqual({ "seaside-fc": { name: "Seaside FC", logo: SITE_LOGO, site: "https://seaside.example/", at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) } });
+    expect(j.named).toEqual([{ key: "seaside-fc", name: "Seaside FC", logo: SITE_LOGO, site: "https://seaside.example/", fill: 1, teams: 1 }]);
+    expect(j.opponents.find((o) => o.name === "Seaside FC U10")).toMatchObject({ shown: "added", logo: SITE_LOGO });
+    expect(takeLock).toHaveBeenCalledWith("_club", "logos", 20);
+  });
+
+  it("keeps the size the admin chose for the logo, within bounds, and shows the logo at that size", async () => {
+    const r = await route();
+    const j = await (await post(r, { action: "club", name: "Seaside FC", logo: SITE_LOGO, site: "https://seaside.example/", fill: 1.3 })).json();
+    expect(stored.named["seaside-fc"].fill).toBe(1.3);
+    expect(j.named[0].fill).toBe(1.3);
+    expect(j.opponents.find((o) => o.name === "Seaside FC U10").logo).toBe(SITE_LOGO + "#fill=1.3");
+    for (const [sent, kept] of [[9, 1.6], [1.04, 1.05], [0.5, undefined], ["big", undefined], [1, undefined]]) {
+      await post(r, { action: "club", name: "Seaside FC", logo: SITE_LOGO, fill: sent });
+      expect(stored.named["seaside-fc"].fill).toBe(kept);
+    }
+  });
+
+  it("changing a club's name replaces it; the same name, or a key that is not a club's, replaces nothing", async () => {
+    const r = await route();
+    const OTHER = "https://riverside.example/logo.png";
+    await post(r, { action: "club", name: "Seaside FC", logo: SITE_LOGO });
+    await post(r, { action: "club", name: "Riverside FC", logo: OTHER });
+    await post(r, { action: "club", name: "Seaside", logo: SITE_LOGO, replaces: "seaside-fc" });
+    expect(Object.keys(stored.named).sort()).toEqual(["riverside-fc", "seaside"]);
+    await post(r, { action: "club", name: "Seaside", logo: SITE_LOGO, fill: 1.2, replaces: "seaside" });
+    expect(Object.keys(stored.named).sort()).toEqual(["riverside-fc", "seaside"]);
+    expect(stored.named.seaside.fill).toBe(1.2);
+    for (const replaces of ["../riverside-fc", "Riverside-FC", "riverside fc", 42, { key: "riverside-fc" }, "a-".repeat(100) + "a"]) {
+      expect((await post(r, { action: "club", name: "Seaside", logo: SITE_LOGO, replaces })).status).toBe(200);
+    }
+    expect(Object.keys(stored.named).sort()).toEqual(["riverside-fc", "seaside"]);
+    // A bad club is refused before anything is replaced.
+    expect((await post(r, { action: "club", name: "FC", logo: SITE_LOGO, replaces: "riverside-fc" })).status).toBe(400);
+    expect(Object.keys(stored.named).sort()).toEqual(["riverside-fc", "seaside"]);
+  });
+
+  it("refuses a club with no name or no https logo before touching the library, and takes an added club out", async () => {
+    const r = await route();
+    for (const body of [{ name: "", logo: SITE_LOGO }, { name: "Seaside FC", logo: "http://seaside.example/a.png" }, { name: "Seaside FC" }]) {
+      expect((await post(r, { action: "club", ...body })).status).toBe(400);
+    }
+    expect(takeLock).not.toHaveBeenCalled();
+    await post(r, { action: "club", name: "Seaside FC", logo: SITE_LOGO });
+    const res = await post(r, { action: "unclub", key: "seaside-fc" });
+    expect(res.status).toBe(200);
+    expect(stored.named).toEqual({});
+    expect((await post(r, { action: "unclub", key: "../nope" })).status).toBe(400);
+  });
+
+  it("is the super admin's alone, and never in a view-as session", async () => {
+    const r = await route();
+    viewingAs.mockReturnValue("parent@example.com");
+    expect((await post(r, { action: "site", url: "seaside.example" })).status).toBe(403);
+    expect((await post(r, { action: "club", name: "Seaside FC", logo: SITE_LOGO })).status).toBe(403);
+    viewingAs.mockReturnValue(null);
+    isAdminEmail.mockReturnValue(false);
+    expect((await post(r, { action: "site", url: "seaside.example" })).status).toBe(403);
+    expect(readClubSite).not.toHaveBeenCalled();
     expect(setClubLogos).not.toHaveBeenCalled();
   });
 });
