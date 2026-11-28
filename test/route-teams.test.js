@@ -319,6 +319,46 @@ describe("parentsSee — what parents see of match day", () => {
   });
 });
 
+describe("strip — the kit the team wears", () => {
+  it("POST seeds the kit into the starter doc, and none when it isn't one of the club's two", async () => {
+    const { POST } = await asAdmin();
+    expect((await POST(fakeRequest({ body: { name: "Wiz K", password: "swift-kick-71", strip: "Blue" } }))).status).toBe(200);
+    expect(setData.mock.calls[0][1].team.strip).toBe("Blue");
+    setData.mockClear();
+    getData.mockResolvedValue(null);
+    expect((await POST(fakeRequest({ body: { name: "Wiz L", password: "quick-pass-72", strip: "Green" } }))).status).toBe(200);
+    expect(setData.mock.calls[0][1].team).not.toHaveProperty("strip");
+  });
+
+  it("PATCH sets or clears only the kit on the doc, and a PATCH without it leaves the kit alone", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b", calendarKey: "key-b" }]);
+    getData.mockResolvedValue({ team: { name: "Wiz B", division: "K1", strip: "Red" }, players: [{ id: "p1" }], fixtures: [{ id: "f1", strip: "Blue" }] });
+    const { PATCH } = await asAdmin();
+    let res = await PATCH(fakeRequest({ body: { slug: "wiz-b", strip: "Blue" } }));
+    expect((await res.json()).docUpdated).toBe(true);
+    let doc = setData.mock.calls[0][1];
+    expect(doc.team).toEqual({ name: "Wiz B", division: "K1", strip: "Blue" });
+    expect(doc.fixtures).toEqual([{ id: "f1", strip: "Blue" }]);
+    setData.mockClear();
+    res = await PATCH(fakeRequest({ body: { slug: "wiz-b", strip: "" } }));
+    doc = setData.mock.calls[0][1];
+    expect(doc.team).not.toHaveProperty("strip");
+    setData.mockClear();
+    res = await PATCH(fakeRequest({ body: { slug: "wiz-b", password: "code-b2" } }));
+    expect((await res.json()).docUpdated).toBe(false);
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("GET reports each team's kit, \"\" when none is set", async () => {
+    getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b", calendarKey: "key-b" }]);
+    getData.mockImplementation(async (slug) => (slug === "wiz-b" ? { team: { name: "Wiz B", strip: "Blue" }, players: [] } : null));
+    const { GET } = await asAdmin();
+    const bySlug = Object.fromEntries((await (await GET()).json()).teams.map((t) => [t.slug, t]));
+    expect(bySlug["wiz-b"].strip).toBe("Blue");
+    expect(bySlug["env-a"].strip).toBe("");
+  });
+});
+
 describe("staff emails — coach-level login from the staff list", () => {
   const stored = () => getStoredTeams.mockResolvedValue([{ slug: "wiz-b", name: "Wiz B", password: "code-b", calendarKey: "key-b" }]);
 

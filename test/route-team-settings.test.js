@@ -421,3 +421,37 @@ describe("POST /api/team-settings — season", () => {
     expect(setData).not.toHaveBeenCalled();
   });
 });
+
+describe("POST /api/team-settings — strip (the kit the team wears)", () => {
+  it("saves the home or away kit, keeps every other team key and echoes only what was saved", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { strip: "Blue" } }));
+    expect(res.status).toBe(200);
+    const [, saved] = setData.mock.calls[0];
+    const original = DATA();
+    expect(saved.team).toEqual({ ...original.team, strip: "Blue" });
+    expectRestUntouched(saved, original);
+    expect(await res.json()).toEqual({ ok: true, team: { strip: "Blue" } });
+  });
+
+  it("takes only the club's two kits: anything else leaves the team with none set", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    for (const strip of ["Green", "red", "", null, 7, { colour: "Red" }]) {
+      setData.mockClear();
+      const res = await POST(fakeRequest({ body: { strip } }));
+      expect(res.status).toBe(200);
+      expect(setData.mock.calls[0][1].team.strip).toBe("");
+    }
+  });
+
+  it("is a coach's to set, never a parent's", async () => {
+    auth.mockResolvedValue({ user: { email: "mum@a.com" } });
+    membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", teamName: "A", role: "parent", playerId: "p1", playerName: "Sam" }] });
+    teamBySlug.mockResolvedValue({ slug: "a", name: "A" });
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await POST(fakeRequest({ body: { strip: "Blue" } }))).status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
+  });
+});

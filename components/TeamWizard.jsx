@@ -11,7 +11,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, RefreshCw, X, Check, ExternalLink } from "lucide-react";
 import { parsePlayerImport, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
-import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES, seasonLabel } from "@/lib/teamSetup";
+import { DEFAULT_FEATURES, FEATURE_LABELS, DEFAULT_PARENTS_SEE, PARENTS_SEE_LABELS, STAFF_ROLES, seasonLabel, KITS } from "@/lib/teamSetup";
 import { downscaleImage } from "@/lib/clientImage";
 import { MAX_COMPETITIONS, websiteLink, SEASON_NAME_MAX } from "@/lib/competitions";
 import { parseFeedLink, feedProvider } from "@/lib/feedLinks";
@@ -48,6 +48,7 @@ const rowFilled = (r) => !!(String(r.competitionId).trim() || String(r.divisionI
 const SIDE_LABEL_MAX = 12;
 const BLANK = {
   name: "", ageGroup: "U8", password: "", coachEmails: "",
+  strip: "Red", // the kit the team wears: a new team wears the home kit until changed
   division: "", whatsapp: "", season: { ...BLANK_SEASON },
   squadi: [squadiRow()], // the season: one row, or two for a two-team squad
   seasonName: "", // what the club calls the season ("FQ Season"); blank is "Season"
@@ -295,7 +296,7 @@ export default function TeamWizard({ onTeamsChanged }) {
   const openEdit = (t) => {
     setCreated(null); setEditSlug(t.slug);
     setForm({
-      name: t.name, ageGroup: t.ageGroup || "U8", password: t.password,
+      name: t.name, ageGroup: t.ageGroup || "U8", password: t.password, strip: t.strip || "",
       coachEmails: (t.coachEmails || []).join(", "),
       division: t.division || "", whatsapp: t.whatsapp || "", season: seasonForEdit(t.season),
       squadi: seasonFeedsForEdit(t.squadi), seasonName: t.seasonName || "",
@@ -466,6 +467,7 @@ export default function TeamWizard({ onTeamsChanged }) {
       // On an edit the list is always sent, so removing a row removes it.
       ...(editSlug || competitions.length ? { competitions } : {}),
       division: form.division, whatsapp: form.whatsapp, season, features: form.features, parentsSee: form.parentsSee,
+      strip: form.strip, // always sent: "" leaves a team that has none without one
       staff: form.staff.filter((s) => s.name.trim()).map(({ role, name, mobile, email }) => ({ role, name, mobile, email })),
       coachPin: form.coachPin,
       ...(form.logo ? { logo: form.logo } : {}), // only when a new file was chosen
@@ -603,6 +605,18 @@ export default function TeamWizard({ onTeamsChanged }) {
               ))}
             </div>
             <div className="adm-note">Sets the default match format, for example U8 and U9 play 7-a-side, 2 × 20 minutes.</div>
+          </Step>
+
+          <Step n={++stepNo} title="Playing kit">
+            <div className="adm-chips" role="group" aria-label="Playing kit">
+              {KITS.map((k) => (
+                <button key={k.strip} type="button" aria-pressed={form.strip === k.strip} className={"adm-chip" + (form.strip === k.strip ? " on" : "")}
+                  onClick={() => setForm((f) => ({ ...f, strip: k.strip }))}>
+                  {k.side} kit ({k.colour})
+                </button>
+              ))}
+            </div>
+            <div className="adm-note">The kit this team wears. A coach can switch any one game to the other kit on its Edit sheet, for a colour clash.</div>
           </Step>
 
           <Step n={++stepNo} title="Team code" lead="What everyone types to log in.">

@@ -29,7 +29,7 @@ describe("cannedQuestions", () => {
 describe("cannedAnswer — next game", () => {
   it("home game with a strip: round, date, kick-off, venue, home side and kit, arrive 30 minutes early", () => {
     expect(cannedAnswer(data(), "When and where is our next game?")).toEqual({
-      text: `Round 7 vs Oxley United FC U8 Eagles — ${fmtDate("2026-06-13")}, kick-off 08:00 at J F O'Grady Memorial Park. We're the home side, so Red kit. Aim to be there by 07:30 for warm-up.`,
+      text: `Round 7 vs Oxley United FC U8 Eagles — ${fmtDate("2026-06-13")}, kick-off 08:00 at J F O'Grady Memorial Park. We're the home side. Wear the red home kit. Aim to be there by 07:30 for warm-up.`,
       src: "Team schedule"
     });
   });
