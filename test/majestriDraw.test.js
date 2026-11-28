@@ -140,7 +140,8 @@ describe("majestriRecords — our games, as the sync applies them", () => {
   it("are our games only, home or away, with the opponent, the round, local time, the field and, once played, our score", () => {
     const r = majestriRecords(page, { team: "Riverside Rockets", compId: "9001" });
     expect(r).toEqual([
-      { squadiId: "majestri:9001:rnd9f9f9f9:0", round: null, dateISO: "2031-07-03", time: "17:10", opponent: "Valley Vipers", opponentLogo: "", ourLogo: "", homeAway: "H", venue: "Field 6" },
+      // A round with no number keeps its name, so the game is the semi-final, not a dash.
+      { squadiId: "majestri:9001:rnd9f9f9f9:0", round: null, roundName: "Semi Finals", dateISO: "2031-07-03", time: "17:10", opponent: "Valley Vipers", opponentLogo: "", ourLogo: "", homeAway: "H", venue: "Field 6" },
       { squadiId: "majestri:9001:rnd0a1b2c3:0", round: 1, dateISO: "2031-06-05", time: "16:30", opponent: "Hilltop Hawks", opponentLogo: "", ourLogo: "", homeAway: "H", venue: "Field 5", score: { us: 5, them: 2 } },
       { squadiId: "majestri:9001:rnd4d5e6f7:0", round: 2, dateISO: "2031-06-12", time: "12:15", opponent: "Valley Vipers", opponentLogo: "", ourLogo: "", homeAway: "A", venue: "Field 7" },
       { squadiId: "majestri:9001:rnd1c1c1c1:0", round: 10, dateISO: "2031-06-19", time: "16:30", opponent: "Lakeside Lions & Co", opponentLogo: "", ourLogo: "", homeAway: "H", venue: "Field 5" },

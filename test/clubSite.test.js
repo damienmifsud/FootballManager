@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { siteUrl, isPublicAddress, logoCandidates, readClubSite, SITE_ERRORS, SITE_MAX_BYTES, MAX_CANDIDATES } from "@/lib/clubSite";
+import { siteUrl, isPublicAddress, logoCandidates, readClubSite, readLogoImage, imageKind, SITE_ERRORS, SITE_MAX_BYTES, MAX_CANDIDATES } from "@/lib/clubSite";
 
 // lib/clubSite: a club's own website read for the images that may be its
 // logo. The network is a stand-in; every site and name here is made up.
@@ -204,5 +204,138 @@ describe("readClubSite", () => {
     });
     expect((await readClubSite(PAGE, net)).candidates.map((c) => c.url)).toEqual(["https://valleywanderers.example/early-logo.png"]);
     await expect(readClubSite("https://late.example/", net)).rejects.toThrow(SITE_ERRORS.noLogo);
+  });
+});
+
+// The first bytes of each kind of picture, as a file of it starts.
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82]);
+const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70]);
+const GIF = new TextEncoder().encode("GIF89a\x01\x00");
+const WEBP = new Uint8Array([0x52, 0x49, 0x46, 0x46, 40, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38]);
+const AVIF = new Uint8Array([0, 0, 0, 28, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66, 0, 0, 0, 0]);
+const ICO = new Uint8Array([0, 0, 1, 0, 1, 0, 32, 32, 0, 0]);
+const SVG = new TextEncoder().encode('<?xml version="1.0"?>\n<!-- crest -->\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle r="5"/></svg>');
+
+describe("imageKind", () => {
+  it("knows a picture by its first bytes", () => {
+    expect([PNG, JPEG, GIF, WEBP, AVIF, ICO, SVG].map(imageKind)).toEqual(["png", "jpeg", "gif", "webp", "avif", "ico", "svg"]);
+    expect(imageKind(new TextEncoder().encode("\uFEFF<svg viewBox='0 0 1 1'></svg>"))).toBe("svg");
+  });
+
+  it("knows nothing else for one, whatever its name says", () => {
+    const text = (t) => new TextEncoder().encode(t);
+    expect(imageKind(text("<!doctype html><html><body><svg></svg></body></html>"))).toBe("");
+    expect(imageKind(text("%PDF-1.7"))).toBe("");
+    expect(imageKind(text("RIFF\u0000\u0000\u0000\u0000WAVEfmt "))).toBe("");
+    expect(imageKind(text("<svgx>"))).toBe("");
+    expect(imageKind(new Uint8Array(0))).toBe("");
+    expect(imageKind(null)).toBe("");
+  });
+});
+
+describe("readLogoImage", () => {
+  const LOGO = "https://valleywanderers.example/img/crest.png";
+  const picture = (body, type = "image/png", extra = {}) => ({ body, headers: { "content-type": type, ...extra } });
+
+  it("fetches the picture, saying what it is, and names its kind from its bytes", async () => {
+    const net = network({ addrs: { "valleywanderers.example": PUBLIC }, pages: { [LOGO]: picture(PNG) } });
+    const out = await readLogoImage(LOGO, net);
+    expect(out.type).toBe("image/png");
+    expect([...out.bytes]).toEqual([...PNG]);
+    const [, init] = net.fetchImpl.mock.calls[0];
+    expect(init.redirect).toBe("manual");
+    expect(init.headers["user-agent"]).toContain("club-logo-finder");
+    expect(init.headers.accept).toMatch(/^image\//);
+  });
+
+  it("goes by the bytes, not by what the site calls them", async () => {
+    const net = network({
+      addrs: { "valleywanderers.example": PUBLIC },
+      pages: {
+        "https://valleywanderers.example/a": picture(JPEG, "image/png"),
+        "https://valleywanderers.example/b": picture(SVG, "application/octet-stream"),
+        "https://valleywanderers.example/c": { body: WEBP, headers: {} }
+      }
+    });
+    expect((await readLogoImage("https://valleywanderers.example/a", net)).type).toBe("image/jpeg");
+    expect((await readLogoImage("https://valleywanderers.example/b", net)).type).toBe("image/svg+xml");
+    expect((await readLogoImage("https://valleywanderers.example/c", net)).type).toBe("image/webp");
+  });
+
+  it("refuses a page, a document or bytes that are no picture, though they say they are", async () => {
+    const net = network({
+      addrs: { "valleywanderers.example": PUBLIC },
+      pages: {
+        "https://valleywanderers.example/page": { body: '<html><img src="crest.png"></html>' },
+        "https://valleywanderers.example/doc.png": picture(new TextEncoder().encode("%PDF-1.7")),
+        "https://valleywanderers.example/text": picture(new TextEncoder().encode("hello"), "text/plain")
+      }
+    });
+    await expect(readLogoImage("https://valleywanderers.example/page", net)).rejects.toThrow(SITE_ERRORS.notImage);
+    await expect(readLogoImage("https://valleywanderers.example/doc.png", net)).rejects.toThrow(SITE_ERRORS.notImage);
+    await expect(readLogoImage("https://valleywanderers.example/text", net)).rejects.toThrow(SITE_ERRORS.notImage);
+  });
+
+  it("reads none of what the site says is something other than a picture", async () => {
+    const endless = new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(65536).fill(60)); } });
+    const net = network({ addrs: { "valleywanderers.example": PUBLIC }, pages: { [LOGO]: { body: endless, headers: { "content-type": "text/html; charset=utf-8" } } } });
+    await expect(readLogoImage(LOGO, { ...net, maxBytes: 4096 })).rejects.toThrow(SITE_ERRORS.notImage);
+  });
+
+  it("refuses a picture bigger than a logo, by what the site says or by what it sends", async () => {
+    const big = new Uint8Array(5000); big.set(PNG);
+    const net = network({
+      addrs: { "valleywanderers.example": PUBLIC },
+      pages: {
+        "https://valleywanderers.example/said": picture(PNG, "image/png", { "content-length": "999999999" }),
+        "https://valleywanderers.example/sent": picture(big)
+      }
+    });
+    await expect(readLogoImage("https://valleywanderers.example/said", net)).rejects.toThrow(SITE_ERRORS.tooBig);
+    await expect(readLogoImage("https://valleywanderers.example/sent", { ...net, maxBytes: 4096 })).rejects.toThrow(SITE_ERRORS.tooBig);
+    expect((await readLogoImage("https://valleywanderers.example/sent", { ...net, maxBytes: 5000 })).bytes.length).toBe(5000);
+  });
+
+  it("stops reading a picture that never ends", async () => {
+    let sent = 0;
+    const endless = new ReadableStream({ start(c) { c.enqueue(PNG); }, pull(c) { sent += 65536; c.enqueue(new Uint8Array(65536)); } });
+    const net = network({ addrs: { "valleywanderers.example": PUBLIC }, pages: { [LOGO]: picture(endless) } });
+    await expect(readLogoImage(LOGO, { ...net, maxBytes: 200000 })).rejects.toThrow(SITE_ERRORS.tooBig);
+    expect(sent).toBeLessThan(200000 + 4 * 65536);
+  });
+
+  it("checks every name it is sent to, as reading a page does, and gives up after a few redirects", async () => {
+    let net = network({
+      addrs: { "valleywanderers.example": PUBLIC, "cdn.valleywanderers.example": PUBLIC, "inside.example": ["10.1.2.3"] },
+      pages: {
+        [LOGO]: { status: 302, headers: { location: "https://cdn.valleywanderers.example/crest.png" } },
+        "https://cdn.valleywanderers.example/crest.png": picture(PNG),
+        "https://valleywanderers.example/in": { status: 302, headers: { location: "https://inside.example/crest.png" } },
+        "https://valleywanderers.example/port": { status: 301, headers: { location: "https://valleywanderers.example:8443/crest.png" } }
+      }
+    });
+    expect((await readLogoImage(LOGO, net)).type).toBe("image/png");
+    expect(net.lookup.mock.calls.map((c) => c[0])).toEqual(["valleywanderers.example", "cdn.valleywanderers.example"]);
+    await expect(readLogoImage("https://valleywanderers.example/in", net)).rejects.toThrow(SITE_ERRORS.notPublic);
+    await expect(readLogoImage("https://valleywanderers.example/port", net)).rejects.toThrow(SITE_ERRORS.notPublic);
+    await expect(readLogoImage("https://inside.example/crest.png", net)).rejects.toThrow(SITE_ERRORS.notPublic);
+    expect(net.fetchImpl.mock.calls.map((c) => c[0])).not.toContain("https://inside.example/crest.png");
+    const loop = {};
+    for (let i = 0; i < 9; i++) loop[`https://valleywanderers.example/${i}`] = { status: 302, headers: { location: `/${i + 1}` } };
+    net = network({ addrs: { "valleywanderers.example": PUBLIC }, pages: loop });
+    await expect(readLogoImage("https://valleywanderers.example/0", net)).rejects.toThrow(SITE_ERRORS.noAnswer);
+    expect(net.fetchImpl).toHaveBeenCalledTimes(5);
+  });
+
+  it("asks for nothing it wouldn't read, and says so in words the person can act on", async () => {
+    const net = network({ addrs: { "gone.example": PUBLIC }, pages: { "https://gone.example/crest.png": { status: 404 }, "https://slow.example/crest.png": "hang" } });
+    for (const bad of ["not a link", "ftp://valleywanderers.example/crest.png", "https://user:pw@valleywanderers.example/crest.png", "https://127.0.0.1/crest.png", "https://localhost/crest.png", "data:image/png;base64,iVBORw0KGgo="]) {
+      await expect(readLogoImage(bad, net)).rejects.toThrow(SITE_ERRORS.badLink);
+    }
+    expect(net.fetchImpl).not.toHaveBeenCalled();
+    await expect(readLogoImage("https://nowhere.example/crest.png", net)).rejects.toThrow(SITE_ERRORS.notFound);
+    await expect(readLogoImage("https://gone.example/crest.png", net)).rejects.toThrow("(It answered 404.)");
+    const slow = network({ addrs: { "slow.example": PUBLIC }, pages: { "https://slow.example/crest.png": "hang" } });
+    await expect(readLogoImage("https://slow.example/crest.png", { ...slow, timeoutMs: 30 })).rejects.toThrow(SITE_ERRORS.noAnswer);
   });
 });

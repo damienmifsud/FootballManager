@@ -81,6 +81,15 @@ describe("account mode (AUTH_SECRET set)", () => {
       expect(getData).toHaveBeenCalledWith("a");
     });
 
+    it("sends each competition's format from the club's set-up with the document, to a parent too", async () => {
+      signedIn();
+      const FIVES = { playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 };
+      teamBySlug.mockReturnValue({ slug: "a", competitions: [{ id: "cfives", name: "Summer Fives", format: FIVES }, { id: "cwinter", name: "Winter Cup" }] });
+      getData.mockResolvedValue({ team: { name: "A" }, fixtures: [{ id: "f1", comp: "cfives" }] });
+      const { GET } = await loadRoute({ authOn: true });
+      expect(await (await GET(fakeRequest())).json()).toEqual({ team: { name: "A" }, fixtures: [{ id: "f1", comp: "cfives" }], competitionFormats: { cfives: FIVES } });
+    });
+
     it("resolves the team from the validated team_slug cookie", async () => {
       auth.mockResolvedValue({ user: { email: "mum@x.com" } });
       membershipsForEmail.mockResolvedValue({ memberships: [{ teamSlug: "a", role: "parent", playerId: "p1" }, { teamSlug: "b", role: "parent", playerId: "p2" }] });
@@ -217,6 +226,16 @@ describe("account mode (AUTH_SECRET set)", () => {
       setData.mockClear();
       getData.mockResolvedValue(doc);
       expect((await POST(fakeRequest({ body: { ...doc, competitionSquads: { cwinter: ["p2"] } } }))).status).toBe(200);
+      expect(setData.mock.calls[0][1]).toEqual(doc);
+    });
+
+    it("never saves the competition formats a read added: they are the club's set-up, not the team's document", async () => {
+      signedIn({ email: "coach@a.com", role: "coach" });
+      setData.mockResolvedValue();
+      const doc = { team: { name: "A" }, fixtures: [{ id: "f1", round: 1 }] };
+      getData.mockResolvedValue(doc);
+      const { POST } = await loadRoute({ authOn: true });
+      expect((await POST(fakeRequest({ body: { ...doc, competitionFormats: { cfives: { playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 } } } }))).status).toBe(200);
       expect(setData.mock.calls[0][1]).toEqual(doc);
     });
 

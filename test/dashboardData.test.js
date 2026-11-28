@@ -7,7 +7,7 @@ import {
   carnivalOf, isCarnivalGame, carnivalFixtures, carnivalGameRows,
   twinOf, sideOf, teamSides, sideName, inSideOrder,
   competitionOf, countsForSeason, roundLabel, hasSeveralDraws, byKickOff,
-  competitionSquad, squadOf, inSquad, playersFor, nextFixtureFor
+  competitionSquad, squadOf, inSquad, playersFor, nextFixtureFor, roundShort
 } from "@/lib/dashboardData";
 
 // Pin "now" for the helpers that read the clock (countdown, isPastGame,
@@ -580,6 +580,11 @@ describe("competitions — games outside the season", () => {
     expect(roundLabel(season())).toBe("Round 5");
     expect(roundLabel(winter())).toBe("Winterfest · Round 1");
     expect(roundLabel(winter({ round: null }))).toBe("Winterfest");
+    // A round with no number is named as its draw names it.
+    expect(roundLabel(winter({ round: null, roundName: "Semi Finals" }))).toBe("Winterfest · Semi Finals");
+    expect(roundLabel(season({ round: null, roundName: "Grand Final" }))).toBe("Grand Final");
+    expect(roundLabel(winter({ round: 3, roundName: "Semi Finals" }))).toBe("Winterfest · Round 3");
+    expect(roundLabel(winter({ round: null, roundName: "Round 9" }))).toBe("Winterfest");
     expect(roundLabel(season({ round: null }))).toBe("");
     expect(roundLabel(season({ round: 0 }))).toBe("");
     expect(roundLabel(null)).toBe("");
@@ -776,5 +781,15 @@ describe("inSideOrder — the two games of a round in wizard order", () => {
     const list = [g("r2", 2), g("r1", 1), g("r1b", 1)];
     expect(order(list, { team: {}, fixtures: list })).toEqual(["r1", "r1b", "r2"]);
     expect(order(list, null)).toEqual(["r1", "r1b", "r2"]);
+  });
+});
+
+describe("roundShort — the round where a narrow column shows it", () => {
+  it("is R and the number, a named round's letters, or nothing", () => {
+    expect(roundShort({ round: 7 })).toBe("R7");
+    expect(roundShort({ round: null, roundName: "Semi Finals" })).toBe("SF");
+    expect(roundShort({ round: 2, roundName: "Semi Finals" })).toBe("R2");
+    expect(roundShort({ round: null })).toBe("");
+    expect(roundShort(null)).toBe("");
   });
 });

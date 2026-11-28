@@ -171,17 +171,22 @@ covered.
 The live data (`lib/askContext.js`) starts with **today's date in Brisbane**, so "this
 week" and "the next game" mean what they should. Then every game, played and to come,
 oldest first: its date and kick-off, the competition and round ("Season, round 7",
-"Winterfest · Round 2", a finals game by its competition alone), home or away and the
+"Winterfest · Round 2", "Summer Fives · Semi Finals" for a finals round its draw names,
+or by its competition alone), home or away and the
 opponent, the ground, and the result (ours first), that it was called off, or that it's
 coming up. A coming game also has when to arrive, the kit to wear, who is on each duty
 the team has on (fruit, in goal, washing the jerseys, named as the duty cards name them:
-"Sam S.'s family") and the week's focus. After the games: training and the team's other
+"Sam S.'s family"), the week's focus and, in a competition played in a format of its
+own, that format ("5 a side with a keeper, 2 halves of 15 minutes"). After the games: training and the team's other
 dates, the season's record and the squad's size. Nothing else about anyone is sent: no
 emails, phone numbers or birthdays. So "who's on fruit this week?", "what do we wear
 against Wests?" and "where's Thursday's game?" are answered from the schedule itself.
 
-Only a MiniRoos age group (U6–U9) is told it plays MiniRoos. An older team, an Academy
-U10 say, is told its age group and division and nothing more about its program.
+Nothing about a program is built in: the rules Ask knows are the documents the coach
+loads (an academy's rules, a tournament's), and a team is told its age group and
+division and nothing more about its program. The chip asking how long the halves are
+is answered from the match format set in Team settings, and otherwise by Ask from the
+documents.
 
 Requires `ANTHROPIC_API_KEY` (server-side; never sent to the browser). Optional
 `ANTHROPIC_MODEL` overrides the model. Without a key the tab shows a friendly
@@ -551,6 +556,31 @@ For a team defined in `TEAMS`, the same list goes on the team entry:
 `"competitions":[{"id":"winterfest","name":"Winterfest","squadi":{"competitionId":"…","divisionId":"…","teamId":0}}]`.
 `id` is permanent (a game is tagged with it) and `name` can change.
 
+**How it is played.** Each competition can have its own match format, since a tournament
+often differs from the season: players a side (4v4 to 11v11), keepers or not, the game
+straight through or in halves, thirds or quarters, and the minutes of each. A competition
+being added is asked for it, starting from the team's own format (Team settings), with a
+read-back in words ("5 a side with a keeper, 2 halves of 15 minutes: 30 minutes in all"),
+and the team is saved only once it is confirmed. One saved before this was asked shows
+"Not set yet" and plans in the team's format until it is given one. Its games then open in
+the match day planner in that format (a game's own format, set in the planner, still comes
+first), and Ask gives it with each game to come. The season always plays the team's own
+format. In `TEAMS`: `"format":{"playersOnField":5,"hasGK":true,"periods":2,"gameLength":30}`
+(`gameLength` is the whole game, in minutes).
+
+**Where it is played.** A draw that names only the field ("Field 1"), as a club-run
+competition's often does, gives families nothing to find: the competition's **Ground**
+("Riverside Park") goes in front of it at the next sync ("Riverside Park – Field 1"), so
+the game says where it is and Directions opens the ground. A game with no place at all
+is put at the ground. A venue the draw names in full is left as it is. Adding the ground,
+or renaming it, changes no game's place and so sends no change email; a field the draw
+moves still does. In `TEAMS`: `"ground":"…"`.
+
+**Finals rounds.** A round with no number in its draw ("Semi Finals", "Grand Final") keeps
+the draw's name: the game is titled "Summer Fives · Semi Finals", and where a round number
+usually goes (Results, Duties, the stats) it shows the name's letters, SF, with the whole
+name beside it for a screen reader or on a long press.
+
 Each draw has the name the club knows it by. A competition's is the name box at the top
 of its row (a link read fills it in only while it is empty, and it can be typed over at
 any time), and its games are labelled with it. The season can have one too, **Season
@@ -794,7 +824,9 @@ not going. From then on its games are for that squad:
 The season is always everyone. A squad is kept per competition on the team document
 (`competitionSquads`) and saved through its own route, `/api/competition-squad` (coach
 only), so no other save can undo it. If every player in a squad has since left the team,
-the competition goes back to everyone.
+the competition goes back to everyone. A team with no players yet has nobody to pick, and
+the card says to add them under Squad first. A save that fails is said under its own
+competition, and the switch goes back to what is stored.
 
 ### One squad that plays as two teams
 
@@ -922,6 +954,30 @@ second one:
   teams we play come with a logo the site can show, the host any others are on, the field
   names a game had when Dribl gives no logos, and what Dribl's club list holds. A
   screenshot of it settles what Dribl actually sends.
+
+### The team's own logo
+
+A team shows the club's crest until it has a logo of its own. The coach sets one in
+**Team settings → Club logo**, and an admin in Club admin → the team → **Team identity**:
+
+- **Upload a picture**, or **find it on the club's website**: paste the website, tap
+  **Find logos**, and pick the club's logo from what the page offers, read the same careful
+  way as an opposition club's site (above). The site is read by the server, which also
+  fetches the picture picked: only a picture (PNG, JPEG, GIF, WebP, AVIF, ICO or SVG, told
+  by its first bytes rather than by what the site calls it) of at most 2 MB is taken.
+- **Fitted for the circle.** The browser cuts away any see-through margin round the picture
+  and keeps it as a square 256 px PNG, so the logo starts out as big as it fits.
+  **Size in the circle** enlarges it further, up to 160%, seen as it will look beside the
+  team's name on a game, ring and all. The header shows the logo whole.
+- **Kept with the team.** Unlike an opposition club's logo, the team's own is a copy: it
+  shows on every page, so it never depends on the club's site staying as it is, and
+  families' phones never ask the club's site for it. **Save logo** saves the logo, its size
+  and the website it came from (for finding it again) on their own, through
+  `/api/team-settings`; **Undo changes** goes back to what is saved, and **Remove** goes
+  back to the club's crest.
+- **Who can.** Reading a website needs someone signed in: the team's coaches, club admins
+  and the super admin (`/api/logo-site`), not while viewing as someone else, and each
+  sign-in gets 30 reads in ten minutes. In team-code mode only an upload is offered.
 
 Messages that leave the site (the WhatsApp reminder, a shared game, the calendar feed)
 and the Ask tab's answers are plain text, so they name the opposition without a crest.

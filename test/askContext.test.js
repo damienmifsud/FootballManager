@@ -154,3 +154,26 @@ describe("askTeamData — training, the record and the squad", () => {
     ].join("\n"));
   });
 });
+
+describe("askTeamData — named rounds and a competition's own format", () => {
+  const data = {
+    team: { name: "Riverside U10" }, players: [], sessions: [],
+    competitionFormats: { cfives: { playersOnField: 5, hasGK: true, periods: 2, gameLength: 30 } },
+    fixtures: [
+      { id: "a", dateISO: "2026-06-01", time: "17:10", opponent: "Valley Vipers", homeAway: "H", venue: "Field 1", status: "played", us: 3, them: 1, comp: "cfives", compName: "Summer Fives", round: 2 },
+      { id: "b", dateISO: "2026-06-20", time: "17:10", opponent: "Seaside", homeAway: "H", venue: "Field 1", status: "upcoming", comp: "cfives", compName: "Summer Fives", round: 3 },
+      { id: "c", dateISO: "2026-06-27", time: "09:00", opponent: "Wests", homeAway: "A", venue: "Wests Oval", status: "upcoming", round: null, roundName: "Grand Final" }
+    ]
+  };
+  const lines = () => askTeamData(data, "2026-06-10").split("\n").filter((l) => l.startsWith("- "));
+
+  it("gives a competition's format for its games to come, and not for one already played", () => {
+    expect(lines().find((l) => l.includes("Seaside"))).toContain("| format: 5 a side with a keeper, 2 halves of 15 minutes");
+    expect(lines().find((l) => l.includes("Valley Vipers"))).not.toContain("format:");
+  });
+
+  it("names a season round with no number as its draw names it", () => {
+    expect(lines().find((l) => l.includes("Wests"))).toContain("| Season, Grand Final |");
+    expect(lines().find((l) => l.includes("Wests"))).not.toContain("format:");
+  });
+});

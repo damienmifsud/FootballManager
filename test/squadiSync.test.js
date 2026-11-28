@@ -44,6 +44,16 @@ describe("normalize", () => {
     });
   });
 
+  it("keeps the name of a round with no number (a tournament's finals), and none for a numbered round", () => {
+    const [qf] = normalize({ rounds: [{ name: " Quarter Finals ", sequence: 100, matches: [match()] }] }, cfg);
+    expect([qf.round, qf.roundName]).toEqual([null, "Quarter Finals"]);
+    expect(normalize(squadiResponse([match()]), cfg)[0]).not.toHaveProperty("roundName");
+    // A season's finals after its rounds take the next number, and no name.
+    const [fin] = normalize({ rounds: [{ name: "Finals", sequence: 6, matches: [match()] }] }, cfg);
+    expect(fin.round).toBe(7);
+    expect(fin).not.toHaveProperty("roundName");
+  });
+
   it("flips home/away from team1.id and picks the opponent accordingly", () => {
     const away = match({ team1: { id: 222, name: "Wests" }, team2: { id: 110013, name: "Olympic" } });
     const [m] = normalize(squadiResponse([away]), cfg);
@@ -503,6 +513,84 @@ describe("applySync — a game with no round", () => {
     const r = applySync({ fixtures: [typed] }, [rec()], { comp: WINTER });
     expect(r.created).toBe(1);
     expect(r.data.fixtures.map((f) => f.squadiId || "typed")).toEqual(["typed", "dribl:x1"]);
+  });
+});
+
+describe("applySync — a round's name, for a round with no number", () => {
+  const FIVES = { id: "cfives", name: "Summer Fives" };
+  const rec = (over = {}) => ({ squadiId: "majestri:9:rsf:0", round: null, roundName: "Semi Finals", dateISO: "2026-06-25", time: "17:10", opponent: "Valley Vipers", opponentLogo: "", ourLogo: "", homeAway: "H", venue: "Field 1", ...over });
+
+  it("is kept on the game and names it in the change line", () => {
+    const r = applySync({ fixtures: [] }, [rec()], { comp: FIVES });
+    expect(r.data.fixtures[0]).toMatchObject({ round: null, roundName: "Semi Finals" });
+    expect(r.changes[0]).toMatch(/^NEW — Summer Fives Semi Finals vs Valley Vipers: /);
+    expect(applySync({ fixtures: [] }, [rec()]).changes[0]).toMatch(/^NEW — Semi Finals vs Valley Vipers: /);
+  });
+
+  it("follows the draw without a word: named later, renamed, or numbered after all", () => {
+    let r = applySync({ fixtures: [] }, [rec({ roundName: undefined })], { comp: FIVES });
+    expect(r.data.fixtures[0]).not.toHaveProperty("roundName");
+    r = applySync(r.data, [rec()], { comp: FIVES });
+    expect([r.mutated, r.changes, r.data.fixtures[0].roundName]).toEqual([true, [], "Semi Finals"]);
+    r = applySync(r.data, [rec({ roundName: "Grand Final" })], { comp: FIVES });
+    expect([r.changes, r.data.fixtures[0].roundName]).toEqual([[], "Grand Final"]);
+    r = applySync(r.data, [rec({ round: 8 })], { comp: FIVES });
+    expect(r.data.fixtures[0].round).toBe(8);
+    expect(r.data.fixtures[0]).not.toHaveProperty("roundName");
+    // Nothing changed is nothing to save.
+    expect(applySync(r.data, [rec({ round: 8 })], { comp: FIVES }).mutated).toBe(false);
+  });
+
+  it("a name that is a numbered round's, or only a number, is no name; a numbered round keeps none", () => {
+    expect(applySync({ fixtures: [] }, [rec({ roundName: "Round 3" })], { comp: FIVES }).data.fixtures[0]).not.toHaveProperty("roundName");
+    expect(applySync({ fixtures: [] }, [rec({ roundName: "7" })], { comp: FIVES }).data.fixtures[0]).not.toHaveProperty("roundName");
+    expect(applySync({ fixtures: [] }, [rec({ round: 2 })], { comp: FIVES }).data.fixtures[0]).not.toHaveProperty("roundName");
+  });
+});
+
+describe("applySync — a competition played at one ground", () => {
+  const FIVES = { id: "cfives", name: "Summer Fives", ground: "Riverside Park" };
+  const PLAIN = { id: "cfives", name: "Summer Fives" };
+  const rec = (over = {}) => ({ squadiId: "majestri:9:r1:0", round: 1, dateISO: "2026-06-25", time: "17:10", opponent: "Valley Vipers", opponentLogo: "", ourLogo: "", homeAway: "H", venue: "Field 1", ...over });
+  const venueOf = (over, comp = FIVES) => applySync({ fixtures: [] }, [rec(over)], { comp }).data.fixtures[0].venue;
+
+  it("puts the ground in front of a field named alone, and stands for no place at all", () => {
+    expect(venueOf()).toBe("Riverside Park – Field 1");
+    expect(venueOf({ venue: "" })).toBe("Riverside Park");
+    for (const field of ["Pitch 3A", "Court 2", "field 10", "Oval 4", "7", "Field B"]) expect(venueOf({ venue: field }), field).toBe(`Riverside Park – ${field}`);
+    expect(applySync({ fixtures: [] }, [rec()], { comp: FIVES }).changes[0]).toMatch(/@ Riverside Park – Field 1$/);
+  });
+
+  it("leaves a venue the draw names in full, and a field when there is no ground", () => {
+    expect(venueOf({ venue: "Valley Oval – Field 2" })).toBe("Valley Oval – Field 2");
+    expect(venueOf({ venue: "Valley Oval" })).toBe("Valley Oval");
+    expect(venueOf({ venue: "Field 12 near the canteen" })).toBe("Field 12 near the canteen");
+    expect(venueOf({}, PLAIN)).toBe("Field 1");
+    expect(venueOf({}, { ...PLAIN, ground: "   " })).toBe("Field 1");
+  });
+
+  it("is put on the games already there without a word: a ground given, renamed or taken away is no change of place", () => {
+    const before = applySync({ fixtures: [] }, [rec()], { comp: PLAIN }).data;
+    let r = applySync(before, [rec()], { comp: FIVES });
+    expect([r.mutated, r.changes, r.data.fixtures[0].venue]).toEqual([true, [], "Riverside Park – Field 1"]);
+    expect(r.data.fixtures[0].schedChanges.map((c) => c.field)).toEqual(["New game"]);
+    r = applySync(r.data, [rec()], { comp: { ...FIVES, ground: "Riverside Sports Park" } });
+    expect([r.changes, r.data.fixtures[0].venue]).toEqual([[], "Riverside Sports Park – Field 1"]);
+    r = applySync(r.data, [rec()], { comp: PLAIN });
+    expect([r.changes, r.data.fixtures[0].venue]).toEqual([[], "Field 1"]);
+    // A game with no place, given the ground, is the same.
+    const nowhere = applySync({ fixtures: [] }, [rec({ venue: "" })], { comp: PLAIN }).data;
+    expect(applySync(nowhere, [rec({ venue: "" })], { comp: FIVES }).changes).toEqual([]);
+  });
+
+  it("but a field the draw moves is news, said with the ground", () => {
+    const first = applySync({ fixtures: [] }, [rec()], { comp: FIVES }).data;
+    const moved = applySync(first, [rec({ venue: "Field 3" })], { comp: FIVES });
+    expect(moved.changes).toEqual(['Summer Fives Round 1 vs Valley Vipers: venue "Riverside Park – Field 1" → "Riverside Park – Field 3"']);
+    expect(moved.data.fixtures[0].schedChanges.at(-1)).toMatchObject({ field: "Venue", oldText: "Riverside Park – Field 1", newText: "Riverside Park – Field 3" });
+    // So is a field moved before the ground was given.
+    const bare = applySync({ fixtures: [] }, [rec()], { comp: PLAIN }).data;
+    expect(applySync(bare, [rec({ venue: "Field 3" })], { comp: FIVES }).changes).toHaveLength(1);
   });
 });
 

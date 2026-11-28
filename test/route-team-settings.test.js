@@ -457,3 +457,61 @@ describe("POST /api/team-settings — strip (the kit the team wears)", () => {
     expect(setData).not.toHaveBeenCalled();
   });
 });
+
+describe("POST /api/team-settings — the team's own logo, its size in the circle and its website", () => {
+  const NEW = "data:image/png;base64,TkVX";
+
+  it("saves the logo, how far it is enlarged and the website it came from, and nothing else", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { logo: NEW, logoFill: 1.33, logoSite: "valleywanderers.example" } }));
+    expect(res.status).toBe(200);
+    const [, saved] = setData.mock.calls[0];
+    const original = DATA();
+    expect(saved.team).toEqual({ ...original.team, logo: NEW, logoFill: 1.35, logoSite: "https://valleywanderers.example/" });
+    expectRestUntouched(saved, original);
+    expect(await res.json()).toEqual({ ok: true, team: { logo: NEW, logoFill: 1.35, logoSite: "https://valleywanderers.example/" } });
+  });
+
+  it("resizes the logo there is without sending it again", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    await POST(fakeRequest({ body: { logoFill: 9 } }));
+    expect(setData.mock.calls[0][1].team).toEqual({ ...DATA().team, logoFill: 1.6 });
+  });
+
+  it("going back to the club's crest takes the size with it", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    const res = await POST(fakeRequest({ body: { logo: "", logoFill: 1.4, logoSite: "" } }));
+    expect(await res.json()).toEqual({ ok: true, team: { logo: "", logoFill: 1, logoSite: "" } });
+    expect(setData.mock.calls[0][1].team).toMatchObject({ logo: "", logoFill: 1, logoSite: "" });
+  });
+
+  it("refuses what isn't a logo it can keep, rather than taking it as no logo", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    for (const logo of ["https://valleywanderers.example/crest.png", "javascript:alert(1)", "data:text/html;base64,PGI+", "data:image/png;base64," + "A".repeat(300000), 7]) {
+      const res = await POST(fakeRequest({ body: { logo } }));
+      expect([res.status, (await res.json()).error]).toEqual([400, "That picture can't be used as the logo. Try a smaller one."]);
+    }
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("keeps only a public https website, and nothing for anything else", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    for (const logoSite of ["http://192.168.1.4/", "javascript:alert(1)", "ftp://valleywanderers.example", "https://localhost/", 5]) {
+      setData.mockClear();
+      await POST(fakeRequest({ body: { logoSite } }));
+      expect(setData.mock.calls[0][1].team.logoSite).toBe("");
+    }
+  });
+
+  it("is a coach's to set, never a parent's", async () => {
+    parentSession();
+    const { POST } = await loadRoute({ authOn: true });
+    expect((await POST(fakeRequest({ body: { logo: NEW } }))).status).toBe(403);
+    expect(setData).not.toHaveBeenCalled();
+  });
+});
