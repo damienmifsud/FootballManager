@@ -21,7 +21,7 @@ import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport, mergeImportedPlayers, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { parseScheduleImport, onlyGroups, mergeSchedule, scheduleTemplate, stampImport, importBatches, removeImport } from "@/lib/scheduleImport";
 import { planResults, applyResults } from "@/lib/resultsImport";
-import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths } from "@/lib/teamSetup";
+import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths, KITS, sanitizeStrip, gameKit } from "@/lib/teamSetup";
 import { seasonICS } from "@/lib/ics";
 // Competitions (a team's draws beyond its season): labels, list order and
 // what counts toward the season. On a line of its own so the long import
@@ -358,6 +358,7 @@ const CSS = `
 .ng-place{font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:5px;min-width:0;}
 .ng-place svg{flex-shrink:0;}
 .ng-place span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ng-kit{flex-shrink:0;margin-left:auto;white-space:nowrap;}
 .softpill{background:var(--soft);color:var(--ink);border:none;border-radius:999px;padding:7px 12px;font:inherit;font-size:12px;font-weight:800;
   cursor:pointer;min-height:32px;flex-shrink:0;}
 .replyrows{margin-top:10px;}
@@ -1889,6 +1890,7 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
   // card keeps one match-up and one reply block (a reply covers both games)
   // and names each side on its own line: tag, kick-off, field.
   const nextTwin = next ? twinOf(data, next) : null;
+  const nextKit = next ? gameKit(data.team, next) : null;
   const sideOrder = teamSides(data);
   const nextSides = nextTwin ? [next, nextTwin].sort((a, b) => sideOrder.indexOf(a.side) - sideOrder.indexOf(b.side)) : [];
   // "Perry Park – Field 4C": when both games share the ground it is named once
@@ -1944,6 +1946,7 @@ function HomeTab({ data, stats, next, setModal, onOpen, onTab, viewer, me, isCoa
           ) : (
           <div className="ng-venue">
             <span className="ng-place"><MapPin size={12} /><span>{next.venue || "Venue to be confirmed"}</span></span>
+            {nextKit && <span className="mpill kit ng-kit">{nextKit.strip} kit</span>}
             <button className="softpill" onClick={() => openMatch(next)}>Details</button>
           </div>
           )}
@@ -2937,7 +2940,7 @@ function StaffEditor({ t, setT, isCoach }) {
 // team.* fields owned by the narrow /api/team-settings route. They never sit in
 // the Team-details draft, so "Save team details" can't rewrite them with a
 // stale copy and a card's patch can't be mistaken for an edit to the draft.
-const NARROW_TEAM_KEYS = ["parentsSee", "matchFormat", "rules"];
+const NARROW_TEAM_KEYS = ["parentsSee", "matchFormat", "rules", "strip"];
 const teamDetails = (team) => {
   const d = { ...(team || {}) };
   NARROW_TEAM_KEYS.forEach((k) => delete d[k]);
@@ -2999,6 +3002,7 @@ function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal,
 
       {isCoach && <>
         <SeasonCard team={data.team} patchLocal={patchLocal} />
+        <KitCard team={data.team} patchLocal={patchLocal} />
         <ParentsSeeCard team={data.team} patchLocal={patchLocal} />
         <MatchFormatCards team={data.team} patchLocal={patchLocal} />
         <LineupRulesCard team={data.team} patchLocal={patchLocal} />
@@ -3064,6 +3068,63 @@ function SettingsTab({ data, isCoach, persist, patchLocal, setIsCoach, setModal,
         </button>
       </div>
     </>
+  );
+}
+
+// The game's kit on its Edit sheet. With the team's kit set (Team settings),
+// the two kits, the team's chosen unless this game was switched: picking the
+// team's kit again puts the game back on it. With none set, "Not set" too, as
+// before the team had one.
+const kitButton = (k) => `${k.side} (${k.colour})`; // "Home (red)"
+function GameKitField({ team, f, setF }) {
+  const usual = sanitizeStrip(team?.strip);
+  const shown = gameKit(team, f)?.strip || "";
+  const pick = (strip) => setF({ ...f, strip: usual && strip === usual ? "" : strip });
+  const switched = !!usual && shown !== usual;
+  return (
+    <div className="field"><label>Playing kit</label>
+      <div className="seg" role="group" aria-label="Playing kit">
+        {!usual && <button className={!shown ? "sel" : ""} aria-pressed={!shown} onClick={() => setF({ ...f, strip: "" })}>Not set</button>}
+        {KITS.map((k) => <button key={k.strip} className={shown === k.strip ? "sel" : ""} aria-pressed={shown === k.strip} onClick={() => pick(k.strip)}>{kitButton(k)}</button>)}
+      </div>
+      {usual && <div className="note" style={{ marginTop: 6 }}>{switched
+        ? `Switched for this game. The team usually wears the ${KITS.find((k) => k.strip === usual).colour} ${KITS.find((k) => k.strip === usual).name}.`
+        : "The team's kit, from Team settings. Switch it for a colour clash."}</div>}
+    </div>
+  );
+}
+
+// The kit this team wears (team.strip): home (red) or away (blue). Written
+// through /api/team-settings like the cards below; a game can still be
+// switched to the other kit on its Edit sheet.
+function KitCard({ team, patchLocal }) {
+  const cur = sanitizeStrip(team?.strip);
+  const [err, setErr] = useState("");
+  const pick = async (strip) => {
+    if (strip === cur) return;
+    const prev = team.strip;
+    setErr("");
+    teamPatch(patchLocal, { strip });
+    try {
+      const res = await fetchJson("/api/team-settings", { strip });
+      if (res?.team && "strip" in res.team) teamPatch(patchLocal, { strip: res.team.strip });
+    } catch (e) {
+      teamPatch(patchLocal, { strip: prev });
+      setErr(saveErrorText(e));
+    }
+  };
+  const k = KITS.find((x) => x.strip === cur);
+  return (
+    <div className="card">
+      <div className="label" style={{ marginBottom: 10 }}>Playing kit</div>
+      <div className="seg" role="group" aria-label="Playing kit">
+        {KITS.map((x) => <button key={x.strip} className={cur === x.strip ? "sel" : ""} aria-pressed={cur === x.strip} onClick={() => pick(x.strip)}>{kitButton(x)}</button>)}
+      </div>
+      {err && <div className="note" style={{ color: "var(--red)", marginTop: 8 }}>{err}</div>}
+      <div className="note" style={{ marginTop: 10 }}>{k
+        ? `Games are in the ${k.colour} ${k.name} unless you switch one on its Edit sheet, for a colour clash.`
+        : "Pick the kit this team wears. You can still switch any one game to the other kit on its Edit sheet."}</div>
+    </div>
   );
 }
 
@@ -3756,13 +3817,7 @@ function FixtureSheet({ data, persist, payload, close }) {
       </div>
     )}
 
-    <div className="field"><label>Playing strip</label>
-      <div className="seg">
-        <button className={!f.strip ? "sel" : ""} onClick={() => setF({ ...f, strip: "" })}>Not set</button>
-        <button className={f.strip === "Red" ? "sel" : ""} onClick={() => setF({ ...f, strip: "Red" })}>Red</button>
-        <button className={f.strip === "Blue" ? "sel" : ""} onClick={() => setF({ ...f, strip: "Blue" })}>Blue</button>
-      </div>
-    </div>
+    <GameKitField team={data.team} f={f} setF={setF} />
 
     {teamFeatures(data.team).focus && (
     <div className="field" style={{ borderTop: "1px solid var(--line)", paddingTop: 14 }}>
@@ -3878,6 +3933,8 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
   const home = f.homeAway === "H";
   const us = data.team.name, usLogo = data.team.logo || OUR_CREST, opp = oppCrestFor(f.opponent, f.opponentLogo, f.opponentCrest);
   const { cancelled, scored, past, upcoming, result } = fixtureState(f);
+  // The kit for this game: its own when the coach switched it, else the team's.
+  const kit = gameKit(data.team, f);
   const hs = home ? f.us : f.them, as = home ? f.them : f.us;
   // Hero centre: score + Win/Loss/Draw, kick-off + date, Cancelled, or no score.
   const centre = cancelled ? { big: "Cancelled", cls: "loss", sub: "Called off" }
@@ -3932,9 +3989,9 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
           <a className="dirpill" href={mapsUrl(f.venue)} target="_blank" rel="noopener noreferrer"><Navigation size={13} />Directions</a>
         </div>
       )}
-      {upcoming && (f.strip || f.time) && (
+      {upcoming && (kit || f.time) && (
         <div className="mpills">
-          {f.strip && <span className="mpill kit">{f.strip} kit</span>}
+          {kit && <span className="mpill kit">{kit.strip} kit</span>}
           {f.time && <span className="mpill">Arrive {addMin(f.time, -30)}</span>}
         </div>
       )}
@@ -4088,7 +4145,7 @@ function MatchScreen({ data, f, persist, patchLocal, isCoach, viewer, me, setMod
             ? `Result: ${f.us}–${f.them}` +
               ((f.goals || []).length ? `\nGoals: ${(f.goals || []).map(g => `${pname(g.pid)}${g.n > 1 ? " ×" + g.n : ""}`).join(", ")}` : "")
             : `${fmtDate(f.dateISO)} · ${f.time}\n📍 ${f.venue || "TBC"}`) +
-          (f.strip ? `\n👕 Strip: ${f.strip}` : "") +
+          (gameKit(data.team, f) ? `\n👕 Strip: ${gameKit(data.team, f).strip}` : "") +
           (f.focusTitle ? `\n🎯 Focus: ${f.focusTitle}` : "") +
           (f.fruit ? `\n🍊 Fruit: ${pname(f.fruit)}` : "")
         )}>

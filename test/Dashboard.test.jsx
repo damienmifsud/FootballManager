@@ -3694,7 +3694,7 @@ describe("S9 Ask — Direction C", () => {
     await toAsk();
     fireEvent.click(screen.getByText("When and where is our next game?"));
     const ai = await screen.findByText(/Round 7 vs Oxley United/, {}, { timeout: 2000 });
-    expect(ai.textContent).toBe(`Round 7 vs Oxley United — ${fmtDate(daysFromNow(3))}, kick-off 08:00 at Perry Park. We're the home side, so Red kit. Aim to be there by 07:30 for warm-up.From: Team schedule`);
+    expect(ai.textContent).toBe(`Round 7 vs Oxley United — ${fmtDate(daysFromNow(3))}, kick-off 08:00 at Perry Park. We're the home side. Wear the red home kit. Aim to be there by 07:30 for warm-up.From: Team schedule`);
     expect(askCalls()).toEqual([]);
   });
 
@@ -5100,5 +5100,101 @@ describe("Import results", () => {
     fireEvent.change(screen.getByLabelText("Results list"), { target: { value: "R9 3-1\nR1 Lakeside 2-0" } });
     expect(screen.getByRole("button", { name: "Nothing to save" }).disabled).toBe(true);
     expect([...document.querySelectorAll(".ri-row.skip .ri-note")].map((e) => e.textContent)).toEqual(["No season game in round 9", "Round 1 is against Hilltop United U10 Boys"]);
+  });
+});
+
+describe("Playing kit: the team's kit, switched for one game", () => {
+  const game = (over = {}) => ({ id: "f7", round: 7, status: "upcoming", dateISO: daysFromNow(6), time: "09:00", opponent: "Wests", homeAway: "H", venue: "Perry Park", availability: {}, ...over });
+  const load = (data) => { storage.get.mockResolvedValue({ value: JSON.stringify(data) }); render(<App />); return waitForLoaded(); };
+  const toResults = () => fireEvent.click(within(screen.getByRole("navigation")).getByText("Results"));
+  const openGame = async () => { toResults(); fireEvent.click(document.querySelector(".mrow")); await waitFor(() => expect(headerTitle()).toBe("Round 7")); };
+  const kitGroup = () => screen.getByRole("group", { name: "Playing kit" });
+  const kitButtons = () => within(kitGroup()).getAllByRole("button").map((b) => `${b.textContent}${b.getAttribute("aria-pressed") === "true" ? " *" : ""}`);
+  const withKit = (strip, fixtures) => makeData({ team: { ...makeData().team, strip }, fixtures });
+
+  it("a game shows the team's kit, or its own when switched, on its screen and on Home", async () => {
+    await load(withKit("Red", [game()]));
+    expect(document.querySelector(".ng-kit").textContent).toBe("Red kit");
+    await openGame();
+    expect(screen.getByText("Red kit").className).toBe("mpill kit");
+    cleanup();
+    await load(withKit("Red", [game({ strip: "Blue" })]));
+    expect(document.querySelector(".ng-kit").textContent).toBe("Blue kit");
+    await openGame();
+    expect(screen.getByText("Blue kit").className).toBe("mpill kit");
+  });
+
+  it("no kit anywhere until the team or the game has one", async () => {
+    await load(makeData({ fixtures: [game()] }));
+    expect(document.querySelector(".ng-kit")).toBeNull();
+    await openGame();
+    expect(document.querySelector(".mpill.kit")).toBeNull();
+    expect(screen.getByText("Arrive 08:30")).toBeTruthy();
+  });
+
+  it("the Edit sheet offers the two kits with the team's picked; switching one game saves only that game's kit, and picking the team's again clears it", async () => {
+    await load(withKit("Red", [game(), game({ id: "f8", round: 8, dateISO: daysFromNow(13) })]));
+    await enterCoachMode();
+    await openGame();
+    fireEvent.click(screen.getByText("Edit"));
+    await screen.findByText("Edit fixture");
+    expect(kitButtons()).toEqual(["Home (red) *", "Away (blue)"]);
+    expect(screen.getByText("The team's kit, from Team settings. Switch it for a colour clash.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Away (blue)" }));
+    expect(kitButtons()).toEqual(["Home (red)", "Away (blue) *"]);
+    expect(screen.getByText("Switched for this game. The team usually wears the red home kit.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save fixture" }));
+    await waitFor(() => expect(storage.set).toHaveBeenCalled());
+    let saved = JSON.parse(storage.set.mock.calls.at(-1)[1]);
+    expect(saved.fixtures.map((f) => [f.id, f.strip])).toEqual([["f7", "Blue"], ["f8", undefined]]);
+    expect(saved.team.strip).toBe("Red");
+    await waitFor(() => expect(screen.getByText("Blue kit")).toBeTruthy());
+    fireEvent.click(screen.getByText("Edit"));
+    await screen.findByText("Edit fixture");
+    fireEvent.click(screen.getByRole("button", { name: "Home (red)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save fixture" }));
+    await waitFor(() => expect(JSON.parse(storage.set.mock.calls.at(-1)[1]).fixtures[0].strip).toBe(""));
+  });
+
+  it("with no team kit, the Edit sheet keeps Not set as well", async () => {
+    await load(makeData({ fixtures: [game()] }));
+    await enterCoachMode();
+    await openGame();
+    fireEvent.click(screen.getByText("Edit"));
+    await screen.findByText("Edit fixture");
+    expect(kitButtons()).toEqual(["Not set *", "Home (red)", "Away (blue)"]);
+    expect(screen.queryByText(/from Team settings/)).toBeNull();
+  });
+
+  it("Team settings: picking a kit writes only the kit through /api/team-settings, and Home follows it", async () => {
+    stubNarrowRoutes();
+    await load(makeData({ team: { ...makeData().team, parentsSee: { liveScore: false } }, fixtures: [game()] }));
+    await enterCoachMode();
+    await openSettings();
+    const card = screen.getByText("Playing kit", { selector: ".label" }).closest(".card");
+    expect(within(card).getByText("Pick the kit this team wears. You can still switch any one game to the other kit on its Edit sheet.")).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Away (blue)" }));
+    await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy());
+    expect(bodyOf("/api/team-settings")).toEqual({ strip: "Blue" });
+    await waitFor(() => expect(within(card).getByRole("button", { name: "Away (blue)" }).getAttribute("aria-pressed")).toBe("true"));
+    expect(within(card).getByText("Games are in the blue away kit unless you switch one on its Edit sheet, for a colour clash.")).toBeTruthy();
+    expect(storage.set).not.toHaveBeenCalled(); // no whole-document write for this
+  });
+
+  it("Team settings: a failed save puts the kit back and says so", async () => {
+    await load(withKit("Red", [game()]));
+    await enterCoachMode();
+    await openSettings();
+    const card = screen.getByText("Playing kit", { selector: ".label" }).closest(".card");
+    fireEvent.click(within(card).getByRole("button", { name: "Away (blue)" }));
+    await waitFor(() => expect(within(card).getByRole("button", { name: "Home (red)" }).getAttribute("aria-pressed")).toBe("true"));
+    expect(card.querySelector(".note[style*='var(--red)']")).toBeTruthy();
+  });
+
+  it("Share to WhatsApp names the kit the game is in", async () => {
+    await load(withKit("Blue", [game()]));
+    await openGame();
+    const href = decodeURIComponent(screen.getByText("Share to WhatsApp").getAttribute("href"));
+    expect(href).toContain("Strip: Blue");
   });
 });

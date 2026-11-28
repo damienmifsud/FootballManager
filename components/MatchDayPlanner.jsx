@@ -12,6 +12,7 @@ import {
 } from "@/lib/planner";
 import { fmtDate, initials, sideOf, roundLabel } from "@/lib/dashboardData";
 import { oppCrestFor, crestFill } from "@/lib/clubs";
+import { gameKit } from "@/lib/teamSetup";
 
 /* ---------------------------------------------------------------------------
    MATCH DAY — per-fixture lineup + substitution planner.
@@ -251,7 +252,8 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
   // with), so only a coach's change to block 1's GK writes back to the duty.
   const gkBaseRef = useRef(null);
 
-  const kit = fixture.strip === "Blue" ? "#2857C4" : "#C8102E";
+  // The shirts on the pitch: the game's kit (its own, else the team's), red when neither says.
+  const kit = gameKit(data.team, fixture)?.strip === "Blue" ? "#2857C4" : "#C8102E";
   const kitText = kitFg(kit);
   const teamName = data.team?.name || "Team";
 

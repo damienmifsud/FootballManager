@@ -164,9 +164,24 @@ Note: this works on the website only — the chat-artifact sandbox can't iframe 
 
 Signed-in parents and coaches get an **Ask** tab. Coaches load reference material
 in Settings → Team knowledge (upload a PDF — the text is extracted in the browser —
-or paste text). Questions are answered by Claude using ONLY those documents plus a
-summary of your fixtures, training, squad and focuses; it's instructed not to invent
-rules and to say when something isn't covered.
+or paste text). Questions are answered by Claude using ONLY those documents plus the
+team's live data; it's instructed not to invent rules and to say when something isn't
+covered.
+
+The live data (`lib/askContext.js`) starts with **today's date in Brisbane**, so "this
+week" and "the next game" mean what they should. Then every game, played and to come,
+oldest first: its date and kick-off, the competition and round ("Season, round 7",
+"Winterfest · Round 2", a finals game by its competition alone), home or away and the
+opponent, the ground, and the result (ours first), that it was called off, or that it's
+coming up. A coming game also has when to arrive, the kit to wear, who is on each duty
+the team has on (fruit, in goal, washing the jerseys, named as the duty cards name them:
+"Sam S.'s family") and the week's focus. After the games: training and the team's other
+dates, the season's record and the squad's size. Nothing else about anyone is sent: no
+emails, phone numbers or birthdays. So "who's on fruit this week?", "what do we wear
+against Wests?" and "where's Thursday's game?" are answered from the schedule itself.
+
+Only a MiniRoos age group (U6–U9) is told it plays MiniRoos. An older team, an Academy
+U10 say, is told its age group and division and nothing more about its program.
 
 Requires `ANTHROPIC_API_KEY` (server-side; never sent to the browser). Optional
 `ANTHROPIC_MODEL` overrides the model. Without a key the tab shows a friendly
@@ -910,6 +925,18 @@ second one:
 
 Messages that leave the site (the WhatsApp reminder, a shared game, the calendar feed)
 and the Ask tab's answers are plain text, so they name the opposition without a crest.
+
+### The kit to wear
+
+The club has two kits: home (red) and away (blue). Each team wears one of them as a
+rule, set in **team setup**: Club admin → the team → **Playing kit**, or the coach's
+Team settings → **Playing kit**. A new team starts in the home kit. For a colour clash
+the coach switches one game to the other kit on its **Edit** sheet, and choosing the
+team's kit there again puts the game back on it.
+
+A coming game's kit shows on the Next game card, on the game's own screen ("Red kit",
+beside when to arrive), in its WhatsApp message, on the match day pitch, and in Ask.
+A team with no kit set shows none, unless the coach gave a game its own.
 
 ---
 
