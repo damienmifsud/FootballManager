@@ -39,7 +39,7 @@ const firstName = (name) => String(name || "").trim().split(/\s+/)[0] || "";
 // A game shows the opposition's crest; the other kinds an icon.
 const ICONS = { training: ClipboardList, event: Star, carnival: Medal };
 const EventMark = ({ item }) => {
-  if (item.what === "game") return <span className="auth-ev-ic opp"><OppCrest name={item.opponent} className="auth-opp" discClass="auth-opp ph" /></span>;
+  if (item.what === "game") return <span className="auth-ev-ic opp"><OppCrest name={item.opponent} crest={item.opponentCrest} className="auth-opp" discClass="auth-opp ph" /></span>;
   const Icon = ICONS[item.what] || Star;
   return <span className={"auth-ev-ic " + item.what}><Icon size={16} aria-hidden="true" /></span>;
 };

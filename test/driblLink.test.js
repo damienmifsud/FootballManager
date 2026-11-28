@@ -16,6 +16,9 @@ afterEach(() => { politeness.wait = realWait; });
 const LINK = "https://winterleague.dribl.com/fixtures?date_range=default&season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468&timezone=Australia%2FSydney";
 const WHERE = { host: "winterleague.dribl.com", site: "winterleague" };
 const BY_BOTH = "https://mc-api.dribl.com/api/tenants?mc_link=winterleague.dribl.com&slug=winterleague";
+// Dribl's club list for the match centre, asked for alongside a draw (for the club logo library).
+const CLUBS = "https://mc-api.dribl.com/api/list/clubs?tenant=Tn12345678";
+const NO_CLUBS = { count: 0, withLogo: 0, shown: 0, hosts: {}, elsewhere: [], fields: [] };
 const BY_SLUG = "https://mc-api.dribl.com/api/tenants?slug=winterleague";
 const REQUEST = "https://mc-api.dribl.com/api/fixtures?date_range=all&season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468&tenant=Tn12345678&timezone=Australia%2FSydney";
 const CENTRE = { type: "tenants", id: "Tn12345678", attributes: { name: "Winter League", slug: "winterleague", mc_link: "winterleague.dribl.com" } };
@@ -176,15 +179,15 @@ describe("driblRequestFromLink — a page link to the request the sync fetches",
 });
 
 describe("readDriblDraw — what a request's draw says before it is saved", () => {
-  const fixtures = (items) => dribl({ "https://mc-api.dribl.com/api/fixtures": answer({ data: items, links: {}, meta: {} }) });
+  const fixtures = (items) => dribl({ "https://mc-api.dribl.com/api/fixtures": answer({ data: items, links: {}, meta: {} }), [CLUBS]: answer({ data: [] }) });
 
   it("says how many games, for which team, and what the draw calls itself", async () => {
     const d = fixtures(ONE_TEAM);
     expect(await readDriblDraw({ url: REQUEST }, d.fetchImpl)).toEqual({
-      draw: { games: 3, ourGames: 3, ourPast: 0, ourFinished: 0, ourResults: 0, shape: expect.any(Object), teams: [US, "Hilltop United U8", "Lakeside Rovers U8", "Valley Wanderers U8"], ours: US, problem: "", competition: "Winter League", league: "Under 8" },
-      problem: ""
+      draw: { games: 3, ourGames: 3, ourPast: 0, ourFinished: 0, ourResults: 0, shape: expect.any(Object), teams: [US, "Hilltop United U8", "Lakeside Rovers U8", "Valley Wanderers U8"], ours: US, problem: "", logos: expect.any(Object), competition: "Winter League", league: "Under 8" },
+      problem: "", clubs: NO_CLUBS
     });
-    expect(d.urls()).toEqual([REQUEST]);
+    expect(d.urls()).toEqual([REQUEST, CLUBS]);
   });
 
   it("leaves which team is ours to the set-up when the draw does not show it, offering the busiest first", async () => {
@@ -211,15 +214,15 @@ describe("readDriblDraw — what a request's draw says before it is saved", () =
 
   it("reads a draw with nothing in it yet as no games and no problem", async () => {
     expect(await readDriblDraw({ url: REQUEST }, fixtures([]).fetchImpl)).toEqual({
-      draw: { games: 0, ourGames: 0, ourPast: 0, ourFinished: 0, ourResults: 0, shape: { fields: [], statuses: {}, scoreFields: [] }, teams: [], ours: "", problem: "", competition: "", league: "" }, problem: ""
+      draw: { games: 0, ourGames: 0, ourPast: 0, ourFinished: 0, ourResults: 0, shape: { fields: [], statuses: {}, scoreFields: [] }, teams: [], ours: "", problem: "", logos: expect.any(Object), competition: "", league: "" }, problem: "", clubs: expect.any(Object)
     });
   });
 
   it("says why when Dribl does not give the draw", async () => {
-    expect(await readDriblDraw({ url: REQUEST }, dribl({ [REQUEST]: answer({}, 500) }).fetchImpl)).toEqual({ draw: null, problem: "Dribl responded 500" });
-    expect(await readDriblDraw({ url: REQUEST }, dribl({}).fetchImpl)).toEqual({ draw: null, problem: UNREACHABLE });
-    expect(await readDriblDraw({ url: REQUEST }, dribl({ [REQUEST]: answer({ games: [] }) }).fetchImpl)).toEqual({ draw: null, problem: "Unexpected Dribl response shape" });
-    expect(await readDriblDraw({ url: "https://example.com/" }, dribl({}).fetchImpl)).toEqual({ draw: null, problem: "Not a Dribl fixtures request" });
+    expect(await readDriblDraw({ url: REQUEST }, dribl({ [REQUEST]: answer({}, 500) }).fetchImpl)).toEqual({ draw: null, problem: "Dribl responded 500", clubs: expect.any(Object) });
+    expect(await readDriblDraw({ url: REQUEST }, dribl({}).fetchImpl)).toEqual({ draw: null, problem: UNREACHABLE, clubs: expect.any(Object) });
+    expect(await readDriblDraw({ url: REQUEST }, dribl({ [REQUEST]: answer({ games: [] }) }).fetchImpl)).toEqual({ draw: null, problem: "Unexpected Dribl response shape", clubs: expect.any(Object) });
+    expect(await readDriblDraw({ url: "https://example.com/" }, dribl({}).fetchImpl)).toEqual({ draw: null, problem: "Not a Dribl fixtures request", clubs: expect.any(Object) });
   });
 
   it("says now what the sync would say later: games it cannot read, or a kick-off it cannot make sense of", async () => {
@@ -233,14 +236,15 @@ describe("readDriblDraw — what a request's draw says before it is saved", () =
 });
 
 describe("readDriblLink — a pasted link, all the way", () => {
-  it("looks the match centre up, then reads the draw of the request it built: two requests, both to Dribl's API", async () => {
-    const d = dribl({ [BY_BOTH]: answer({ data: CENTRE }), [REQUEST]: answer({ data: ONE_TEAM }) });
+  it("looks the match centre up, then reads the draw of the request it built and its club list: every request to Dribl's API", async () => {
+    const d = dribl({ [BY_BOTH]: answer({ data: CENTRE }), [REQUEST]: answer({ data: ONE_TEAM }), [CLUBS]: answer({ data: [] }) });
     const got = await readDriblLink(LINK, { fetchImpl: d.fetchImpl });
     expect(got).toEqual({
       link: LINK, url: REQUEST, problem: "",
-      draw: { games: 3, ourGames: 3, ourPast: 0, ourFinished: 0, ourResults: 0, shape: expect.any(Object), teams: [US, "Hilltop United U8", "Lakeside Rovers U8", "Valley Wanderers U8"], ours: US, problem: "", competition: "Winter League", league: "Under 8" }
+      draw: { games: 3, ourGames: 3, ourPast: 0, ourFinished: 0, ourResults: 0, shape: expect.any(Object), teams: [US, "Hilltop United U8", "Lakeside Rovers U8", "Valley Wanderers U8"], ours: US, problem: "", logos: expect.any(Object), competition: "Winter League", league: "Under 8" },
+      clubs: NO_CLUBS
     });
-    expect(d.urls()).toEqual([BY_BOTH, REQUEST]);
+    expect(d.urls()).toEqual([BY_BOTH, REQUEST, CLUBS]);
   });
 
   it("uses the team name the set-up already has", async () => {
@@ -250,7 +254,8 @@ describe("readDriblLink — a pasted link, all the way", () => {
 
   it("still gives the request when its draw could not be read, with the reason", async () => {
     const d = dribl({ [BY_BOTH]: answer({ data: CENTRE }), [REQUEST]: answer({}, 503) });
-    expect(await readDriblLink(LINK, { fetchImpl: d.fetchImpl })).toEqual({ link: LINK, url: REQUEST, draw: null, problem: "Dribl responded 503" });
+    // (The club list is asked for alongside and fails the same way; it says so on its own.)
+    expect(await readDriblLink(LINK, { fetchImpl: d.fetchImpl })).toEqual({ link: LINK, url: REQUEST, draw: null, problem: "Dribl responded 503", clubs: { error: UNREACHABLE } });
   });
 
   it("throws when no request could be worked out, and reads no draw", async () => {

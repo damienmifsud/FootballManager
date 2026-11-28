@@ -23,6 +23,8 @@ const SQ = `https://registration.squadi.com/liveScoreSeasonFixture?organisationK
 const DR = "https://winterleague.dribl.com/fixtures?date_range=all&season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468&timezone=Australia%2FBrisbane";
 const REQUEST = "https://mc-api.dribl.com/api/fixtures?date_range=all&season=AbCdEf1234&competition=1pQrStUv90&league=ZyXwVu5678&club=MnOpQr2468&tenant=Tn12345678&timezone=Australia%2FBrisbane";
 const LOOKUP = "https://mc-api.dribl.com/api/tenants?mc_link=winterleague.dribl.com&slug=winterleague";
+// Dribl's club list for the match centre, asked for alongside the draw (for the club logo library).
+const CLUBS = "https://mc-api.dribl.com/api/list/clubs?tenant=Tn12345678";
 const OTHER_SITE = "https://www.example.org/winter-cup/draw";
 const FOUND = {
   ok: true, provider: "squadi", link: SQ, squadi: { competitionId: "777", divisionId: "20001", teamId: 300001 },
@@ -42,7 +44,9 @@ const game = (id, home, away, more = {}) => ({
 const US = "Riverside FC U8 Blues";
 const ONE_TEAM = [game("g1", US, "Hilltop United U8"), game("g2", "Lakeside Rovers U8", US), game("g3", US, "Valley Wanderers U8")];
 const TWO_TEAMS = [game("g1", "Riverside FC U8 Blues", "Hilltop United U8"), game("g2", "Riverside FC U8 Golds", "Lakeside Rovers U8"), game("g3", "Hilltop United U8", "Riverside FC U8 Golds"), game("g4", "Riverside FC U8 Blues", "Riverside FC U8 Golds")];
-const FOUND_ON_DRIBL = "Riverside FC U8 Blues · Winter League · Under 8. 3 games found. They sync whenever a coach opens the team.";
+// What the read-back adds about logos when the made-up draw has none and its club list is empty (lib/dribl.js driblLogos).
+const NO_LOGOS = " Dribl gives no logos with these games (a game there has: date, round, full_round, home_team_name, away_team_name, ground_name, field_name, competition_name, league_name, bye_flag). Dribl's club list is empty.";
+const FOUND_ON_DRIBL = "Riverside FC U8 Blues · Winter League · Under 8. 3 games found. They sync whenever a coach opens the team." + NO_LOGOS;
 const WHICH_IS_OURS = "Winter League · Under 8. 4 games found, but the draw does not show which team is yours. Choose it in the team name box above.";
 
 let teams;
@@ -57,14 +61,14 @@ beforeEach(() => {
   teams = [SAVED];
   saves = []; lookups = []; teamsSent = []; asked = []; hold = null;
   lookup = { ok: true, status: 200, json: FOUND };
-  dribl = { centre: { status: 200, json: { data: { type: "tenants", id: "Tn12345678", attributes: { slug: "winterleague", mc_link: "winterleague.dribl.com" } } } }, draw: { status: 200, json: { data: ONE_TEAM } } };
+  dribl = { centre: { status: 200, json: { data: { type: "tenants", id: "Tn12345678", attributes: { slug: "winterleague", mc_link: "winterleague.dribl.com" } } } }, draw: { status: 200, json: { data: ONE_TEAM } }, clubs: { status: 200, json: { data: [] } } };
   global.fetch = vi.fn(async (url, opts = {}) => {
     const u = String(url), method = opts.method || "GET";
     if (u.startsWith("https://mc-api.dribl.com/")) {
       asked.push({ url: u, opts });
       const isLookup = u.startsWith("https://mc-api.dribl.com/api/tenants");
       if (isLookup && hold) await hold;
-      const answer = isLookup ? dribl.centre : dribl.draw;
+      const answer = isLookup ? dribl.centre : u.startsWith("https://mc-api.dribl.com/api/list/clubs") ? dribl.clubs : dribl.draw;
       if (answer instanceof Error) throw answer;
       return { ok: answer.status >= 200 && answer.status < 300, status: answer.status, json: async () => answer.json };
     }
@@ -351,10 +355,11 @@ describe("a competition's link — on Dribl", () => {
     expect(field("Competition 1 name").value).toBe("Winter League");
     expect(link("Winter League").value).toBe(DR);
     expect(noteOf("Winter League")).toEqual([FOUND_ON_DRIBL, "adm-msg ok", "status"]);
-    // Two plain requests, both to Dribl's API and both without cookies; our own server is not asked to read it.
+    // Three plain requests (the match centre, the draw, its club list), all to Dribl's API and all without cookies; our own server is not asked to read it.
     expect(asked).toEqual([
       { url: LOOKUP, opts: { headers: { Accept: "application/json" }, credentials: "omit", cache: "no-store" } },
-      { url: REQUEST, opts: { headers: { Accept: "application/json" }, credentials: "omit", cache: "no-store" } }
+      { url: REQUEST, opts: { headers: { Accept: "application/json" }, credentials: "omit", cache: "no-store" } },
+      { url: CLUBS, opts: { headers: { Accept: "application/json" }, credentials: "omit", cache: "no-store" } }
     ]);
     expect(lookups).toEqual([]);
     // The team's name is left for the sync to work out, as the draw shows it.
@@ -374,11 +379,11 @@ describe("a competition's link — on Dribl", () => {
     fireEvent.keyDown(link("Cup"), { key: "Enter" });
     release();
     await waitFor(() => expect(request("Cup").value).toBe(REQUEST));
-    expect(asked.map((a) => a.url)).toEqual([LOOKUP, REQUEST]);
+    expect(asked.map((a) => a.url)).toEqual([LOOKUP, REQUEST, CLUBS]);
     expect(field("Competition 1 name").value).toBe("Cup"); // a name already typed is kept
     hold = null;
     fireEvent.keyDown(link("Cup"), { key: "Enter" });
-    await waitFor(() => expect(asked).toHaveLength(4));
+    await waitFor(() => expect(asked).toHaveLength(6));
   });
 
   it("when the draw has more than one of the club's teams, it asks which is ours and offers the names as Dribl spells them", async () => {
@@ -402,7 +407,7 @@ describe("a competition's link — on Dribl", () => {
     fireEvent.change(request("Cup"), { target: { value: REQUEST } });
     fireEvent.change(teamBox("Cup"), { target: { value: "Golds" } });
     paste("Cup", DR);
-    await waitFor(() => expect(noteOf("Cup")).toEqual(["Riverside FC U8 Golds · Winter League · Under 8. 3 games found. They sync whenever a coach opens the team.", "adm-msg ok", "status"]));
+    await waitFor(() => expect(noteOf("Cup")).toEqual(["Riverside FC U8 Golds · Winter League · Under 8. 3 games found. They sync whenever a coach opens the team." + NO_LOGOS, "adm-msg ok", "status"]));
     expect(teamBox("Cup").value).toBe("Golds"); // what was typed is kept
     fireEvent.change(teamBox("Cup"), { target: { value: "Seaside FC" } });
     fireEvent.click(readButton("Cup"));
@@ -480,7 +485,7 @@ describe("a competition's link — on Dribl", () => {
     await waitFor(() => expect(request("Cup").value).toBe(REQUEST));
     expect(link("Cup").value).toBe(DR);
     expect(noteUnder("Cup").textContent).toBe(FOUND_ON_DRIBL);
-    expect(asked.map((a) => a.url)).toEqual([LOOKUP, REQUEST]);
+    expect(asked.map((a) => a.url)).toEqual([LOOKUP, REQUEST, CLUBS]);
     // Put in whole without a paste, over the request that is there: the request is replaced by the one the link gives.
     const DR2 = DR.replace("league=ZyXwVu5678", "league=OtHeR12345");
     fireEvent.change(request("Cup"), { target: { value: DR2 } });
@@ -491,7 +496,7 @@ describe("a competition's link — on Dribl", () => {
     fireEvent.change(request("Cup"), { target: { value: "https://winterleague.dribl.com/fixtures?date_range=all" } });
     expect(request("Cup").value).toBe("https://winterleague.dribl.com/fixtures?date_range=all");
     expect(link("Cup").value).toBe(DR2);
-    expect(asked).toHaveLength(4);
+    expect(asked).toHaveLength(6);
   });
 
   it("typing the request in by hand puts away what the link was read as, the offered names with it", async () => {

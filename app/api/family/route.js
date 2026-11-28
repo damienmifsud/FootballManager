@@ -4,6 +4,7 @@ import { getData } from "@/lib/store";
 import { membershipsForEmail, viewingAs } from "@/lib/directory";
 import { brisbaneTodayISO } from "@/lib/visibility";
 import { familyTeams, familyWeek, FAMILY_DAYS } from "@/lib/familyWeek";
+import { withCrestsSafely } from "@/lib/clubLogoStore";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,8 @@ export async function GET(req) {
 
   const { memberships } = await membershipsForEmail(impersonating || realEmail);
   const teams = familyTeams(memberships);
-  const docs = await Promise.all(teams.map((t) => Promise.resolve(getData(t.teamSlug)).catch(() => null)));
+  // Each game's crest from the club logo library, as the team page has it.
+  const docs = await Promise.all(teams.map((t) => Promise.resolve(getData(t.teamSlug)).then(withCrestsSafely).catch(() => null)));
   const todayISO = brisbaneTodayISO();
   return NextResponse.json({
     todayISO, days: FAMILY_DAYS,

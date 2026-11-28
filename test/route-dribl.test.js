@@ -437,7 +437,8 @@ describe("POST /api/dribl — applying a draw", () => {
     expect([takeLock.mock.calls[0], dropLock.mock.calls[0]]).toEqual([["a", "sync"], ["a", "sync"]]);
     setData.mockRejectedValueOnce(new Error("store down"));
     await post(POST, draws()).catch(() => {});
-    expect(dropLock).toHaveBeenCalledTimes(2);
+    // The team's own lock, both times (the logo library takes and frees its own).
+    expect(dropLock.mock.calls.filter((c) => c[1] === "sync")).toEqual([["a", "sync"], ["a", "sync"]]);
   });
 
   it("applies several competitions' draws in one save, each to its own competition", async () => {

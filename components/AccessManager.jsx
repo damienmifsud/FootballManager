@@ -1,8 +1,9 @@
 "use client";
-// The /admin page. Super admins ("super" scope) get three sections: Teams
+// The /admin page. Super admins ("super" scope) get four sections: Teams
 // (the team wizard and the league link), People (everyone with a login and
-// what each is attached to) and Access (view-as, club admins, per-team role
-// overrides and the role table). Club admins ("club" scope) get the team
+// what each is attached to), Logos (the club logo library: the opposition's
+// logos found on Squadi and Dribl, components/ClubLogos.jsx) and Access
+// (view-as, club admins, per-team role overrides and the role table). Club admins ("club" scope) get the team
 // wizard, the role table and the league link only, with no sections to
 // choose between. Talks to /api/access; lib/directory.js applies whatever is
 // saved here on every request.
@@ -14,6 +15,7 @@ import Link from "next/link";
 import { ChevronRight, Eye, Trophy } from "lucide-react";
 import TeamWizard from "@/components/TeamWizard";
 import PeopleDirectory from "@/components/PeopleDirectory";
+import ClubLogos from "@/components/ClubLogos";
 import RoleMatrix from "@/components/RoleMatrix";
 import { AdminPage } from "@/components/AdminShell";
 import { SignOutButton } from "@/components/AuthShell";
@@ -23,7 +25,7 @@ const ROLE_TONES = { coach: " ok", parent: " info", viewer: " warn", blocked: " 
 
 // The super admin's sections. The one showing is kept in the address
 // (?section=people) so a reload, or coming back from a team, lands on it again.
-const SECTIONS = [["teams", "Teams"], ["people", "People"], ["access", "Access"]];
+const SECTIONS = [["teams", "Teams"], ["people", "People"], ["logos", "Logos"], ["access", "Access"]];
 const sectionInAddress = () => {
   try {
     const wanted = new URLSearchParams(window.location.search).get("section");
@@ -113,6 +115,8 @@ export default function AccessManager({ adminEmail, scope = "super" }) {
       </div>
 
       {showing("people") && <PeopleDirectory onChanged={load} />}
+
+      {showing("logos") && <ClubLogos />}
 
       {showing("access") && !state && !err && <div className="adm-card quiet">Loading access settings…</div>}
 

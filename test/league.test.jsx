@@ -479,7 +479,8 @@ describe("League page", () => {
       await status("Updated 2 items: Round 5 vs Wests: time a → b · NEW — Premier Invitational Round 1 vs Lions: Sat 13 Mar 09:00 @ Lions Park");
       // The button does not wait its turn (due was false), the draw was asked of Dribl itself, with no cookies...
       const toDribl = global.fetch.mock.calls.filter((c) => String(c[0]).startsWith("https://mc-api.dribl.com/"));
-      expect(toDribl.map((c) => c[0])).toEqual([REQUEST]);
+      // (Dribl's club list for its match centre too, for the club logo library: empty here, so not posted.)
+      expect(toDribl.map((c) => c[0])).toEqual([REQUEST, "https://mc-api.dribl.com/api/list/clubs?tenant=T1"]);
       expect(toDribl[0][1]).toMatchObject({ credentials: "omit", headers: { Accept: "application/json" } });
       // ...and what it gave was posted for that competition.
       expect(driblPosts).toEqual([{ draws: [{ comp: "cprem", records: [] }] }]);

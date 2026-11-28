@@ -11,7 +11,7 @@ import {
   autoFillAssignments, minutesFor, rosterForFixture, seedAssignments, timerElapsed
 } from "@/lib/planner";
 import { fmtDate, initials, sideOf, roundLabel } from "@/lib/dashboardData";
-import { crestFor } from "@/lib/clubs";
+import { oppCrestFor } from "@/lib/clubs";
 
 /* ---------------------------------------------------------------------------
    MATCH DAY — per-fixture lineup + substitution planner.
@@ -1113,6 +1113,9 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
       ]
     : [];
   const tabLabel = { plan: "Lineup & subs", time: "Playing time", game: "Game day", format: "Match format" }[view];
+  // The opposition's crest beside its name: built-in artwork, else the logo
+  // the club logo library found (lib/clubs.js oppCrestFor).
+  const oppCrest = oppCrestFor(fixture.opponent, fixture.opponentLogo, fixture.opponentCrest);
 
   return (
     <div className="mdp" style={{ position: "fixed", inset: 0, zIndex: 300, overflowY: "auto", background: P.paper, fontFamily: BODY, color: P.ink }}>
@@ -1127,7 +1130,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
                 {teamName}
               </div>
               <div className="truncate text-xs" style={{ color: P.dim, marginTop: 1 }}>
-                {roundLabel(fixture) || "Match"} {fixture.homeAway === "H" ? "vs" : "@"} {crestFor(fixture.opponent) && <img className="md-crest" src={crestFor(fixture.opponent)} alt="" />}{fixture.opponent}{sideOf(data, fixture) ? " · " + sideOf(data, fixture) : ""} · {fmtDate(fixture.dateISO)}{tabLabel ? " · " + tabLabel : ""}
+                {roundLabel(fixture) || "Match"} {fixture.homeAway === "H" ? "vs" : "@"} {oppCrest.src && <img className={"md-crest" + (oppCrest.drawn ? " drawn" : "")} src={oppCrest.src} alt="" {...(oppCrest.drawn ? { referrerPolicy: "no-referrer" } : {})} />}{fixture.opponent}{sideOf(data, fixture) ? " · " + sideOf(data, fixture) : ""} · {fmtDate(fixture.dateISO)}{tabLabel ? " · " + tabLabel : ""}
               </div>
             </div>
           </div>
@@ -1184,6 +1187,7 @@ const MDP_CSS = `
 @keyframes mdFadeAway { 0% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
 /* The opposition's crest in the header line: registry artwork only (lib/clubs.js), never a hotlink. */
 .md-crest { width: 14px; height: 14px; border-radius: 50%; object-fit: cover; display: inline-block; vertical-align: -2px; margin-right: 4px; }
+.md-crest.drawn { object-fit: contain; background: #fff; padding: 1px; }
 .mdp, .mdp * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 .mdp button { background: none; border: none; padding: 0; margin: 0; font: inherit; color: inherit; text-align: inherit; cursor: pointer; }
 .mdp input, .mdp select { font: inherit; }
