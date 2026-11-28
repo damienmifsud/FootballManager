@@ -2,17 +2,18 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Settings, ClipboardList, BarChart3, Timer,
-  Play, Pause, RotateCcw, Plus, X, Copy, Wand2, Check
+  Play, Pause, RotateCcw, Plus, X, Copy, Wand2, Check, AlertTriangle
 } from "lucide-react";
 import {
   FORMATION_PRESETS, round1, fmtMin, fmtRange, fmtClock,
   defaultFormatForAgeGroup, parseFormation, fallbackFormation, makePositions,
   computeAutoSubs, computeSegments, sanitizeAssignments, diffOnOff,
-  autoFillAssignments, minutesFor, rosterForFixture, seedAssignments, timerElapsed
+  minutesFor, rosterForFixture, seedAssignments, timerElapsed
 } from "@/lib/planner";
+import { buildLineupCtx, fillLineup, ruleReceipts, hasRatings, OPPOSITION_CHIPS, sanitizeOpposition } from "@/lib/lineup";
 import { fmtDate, initials, sideOf, roundLabel } from "@/lib/dashboardData";
 import { oppCrestFor, crestFill } from "@/lib/clubs";
-import { gameKit } from "@/lib/teamSetup";
+import { gameKit, teamRules } from "@/lib/teamSetup";
 
 /* ---------------------------------------------------------------------------
    MATCH DAY — per-fixture lineup + substitution planner.
@@ -213,7 +214,7 @@ function PitchSVG() {
 
 /* --------------------------------- app ----------------------------------- */
 
-export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, close }) {
+export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, onOpenPlayer, close }) {
   const plan0 = fixture.plan || null;
   const initialFormat = () =>
     plan0?.format || data.team?.matchFormat || defaultFormatForAgeGroup(data.team?.ageGroup);
@@ -224,6 +225,11 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
     plan0?.subTimes ?? computeAutoSubs(initialFormat().gameLength, initialFormat().periods, initialFormat().subInterval)
   );
   const [overrides, setOverrides] = useState(() => plan0?.overrides || {});
+  // How strong the other side is: the one knob that trades minutes for strength.
+  const [opposition, setOpposition] = useState(() => sanitizeOpposition(plan0?.opposition));
+  // The last auto-fill's output and the slots the coach had placed before it,
+  // so the "Why this lineup" card can tell the coach's picks from the fill's.
+  const [lastFill, setLastFill] = useState(null);
   const [assignments, setAssignments] = useState(() => {
     if (plan0?.assignments) return plan0.assignments;
     // Fresh plan: pin the fixture's in-goal duty into GK for every block.
@@ -327,7 +333,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
     if (!isCoach) return;
     const gkFirst = plan[0]?.GK || "";
     if (gkBaseRef.current === null) gkBaseRef.current = gkFirst;
-    const payload = { format, subTimes, assignments: plan, overrides, timer, hintSeen };
+    const payload = { format, subTimes, assignments: plan, overrides, timer, hintSeen, opposition };
     const json = JSON.stringify(payload);
     if (json === lastSavedRef.current) return;
     const t = setTimeout(() => {
@@ -339,7 +345,7 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
       setSavedTick((x) => x + 1);
     }, 700);
     return () => clearTimeout(t);
-  }, [format, subTimes, plan, overrides, timer, hintSeen, isCoach, fixture.id, fixture.gk, onSavePlan]);
+  }, [format, subTimes, plan, overrides, timer, hintSeen, opposition, isCoach, fixture.id, fixture.gk, onSavePlan]);
 
   /* settings updaters (regenerate sub times when the match shape changes) */
   const setGameLength = (v) => {
@@ -394,7 +400,30 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
   const copyPrev = (i) => { if (i > 0) mutatePlan((base) => { base[i] = { ...base[i - 1] }; }); };
   const clearBlock = (i) => mutatePlan((base) => { base[i] = {}; });
   const clearAllBlocks = () => mutatePlan((base) => { base.forEach((_, i) => (base[i] = {})); });
-  const runAutoFill = () => setAssignments(autoFillAssignments(plan, segments, positions, roster));
+  // Ratings, rules and opposition for the lineup engine (lib/lineup.js).
+  // Ratings and rules only reach a coach's session; the fill still runs
+  // without them, treating everyone as average.
+  const rules = useMemo(() => teamRules(data.team), [data.team]);
+  const lineupCtx = useMemo(
+    () => buildLineupCtx({ segments, positions, roster, rules, format, opposition }),
+    [segments, positions, roster, rules, format, opposition]
+  );
+  const runAutoFill = () => {
+    const res = fillLineup(plan, lineupCtx);
+    setAssignments(res.plan);
+    setLastFill({ plan: res.plan, locked: res.locked, notes: res.notes });
+  };
+  // Live receipts: recomputed as the coach edits after a fill. A slot counts
+  // as the coach's pick unless the fill put that same player there.
+  const receipts = useMemo(() => {
+    if (!lastFill) return null;
+    const locked = new Set();
+    plan.forEach((seg, i) => Object.keys(seg).forEach((k) => {
+      if (lastFill.locked.has(i + ":" + k) || lastFill.plan[i]?.[k] !== seg[k]) locked.add(i + ":" + k);
+    }));
+    return ruleReceipts(plan, { ...lineupCtx, locked });
+  }, [lastFill, plan, lineupCtx]);
+  const unrated = roster.filter((p) => p.available && !hasRatings(p));
 
   const resetPlan = () => {
     const fmt = data.team?.matchFormat || defaultFormatForAgeGroup(data.team?.ageGroup);
@@ -713,6 +742,18 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
             </Card>
           )}
 
+          <Card className="p-3">
+            <Eyebrow>Opposition</Eyebrow>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {OPPOSITION_CHIPS.map((o) => (
+                <Chip key={o.id} kit={kit} active={opposition === o.id} onClick={() => setOpposition(o.id)}>{o.label}</Chip>
+              ))}
+            </div>
+            <div className="mt-2 text-xs" style={{ color: P.dim }}>
+              {OPPOSITION_CHIPS.find((o) => o.id === opposition).blurb}
+            </div>
+          </Card>
+
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
             {segments.map((s, i) => (
               <Chip key={i} kit={kit} active={i === segIdx} onClick={() => setSegIdx(i)} dot={blockIncomplete(i)}>
@@ -799,9 +840,46 @@ export default function MatchDayPlanner({ data, fixture, isCoach, onSavePlan, cl
             </div>
           </Card>
 
-          <button onClick={runAutoFill} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-base" style={{ background: kit, color: kitText, fontWeight: 700, boxShadow: "0 4px 12px rgba(23,33,27,0.15)" }}>
-            <Wand2 size={18} /> Auto-fill for fair minutes
+          {receipts && (
+            <Card className="p-3">
+              <Eyebrow>Why this lineup</Eyebrow>
+              <div className="mt-2 flex flex-col gap-2">
+                {receipts.map((r) => (
+                  <div key={r.ruleId} className="flex items-start gap-2 text-sm" data-state={r.state}>
+                    <span className="mt-px inline-flex shrink-0 items-center justify-center" style={{ width: 16, height: 16 }}>
+                      {r.state === "ok" ? <Check size={15} color={P.on} aria-label="Done" />
+                        : r.state === "warn" ? <AlertTriangle size={14} color={P.warn} aria-label="Warning" />
+                        : <span className="rounded-full" aria-label={r.state === "na" ? "Doesn't apply" : "Not checked"} style={{ width: 6, height: 6, background: P.faint }} />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span style={{ fontWeight: 600, color: r.state === "ok" || r.state === "warn" ? P.ink : P.dim }}>{r.label}</span>
+                      {r.note && (r.state === "warn" || r.state === "na") && (
+                        <span className="block text-xs" style={{ color: r.state === "warn" ? P.warn : P.dim }}>{r.note}</span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {lastFill.notes.length > 0 && (
+                <div className="mt-2 flex flex-col gap-1 text-xs" style={{ color: P.dim }}>
+                  {lastFill.notes.map((n, i) => <div key={i}>{n}</div>)}
+                </div>
+              )}
+            </Card>
+          )}
+
+          <button onClick={runAutoFill} className="flex w-full flex-col items-center justify-center rounded-2xl py-3 text-base" style={{ background: kit, color: kitText, fontWeight: 700, boxShadow: "0 4px 12px rgba(23,33,27,0.15)" }}>
+            <span className="inline-flex items-center gap-2"><Wand2 size={18} /> Auto-fill</span>
+            <span className="text-xs" style={{ fontWeight: 500, opacity: 0.85 }}>Uses ratings and your lineup rules</span>
           </button>
+          {unrated.length > 0 && (
+            <div className="px-1 text-xs" style={{ color: P.dim }}>
+              {unrated.length === 1 ? "1 player has" : unrated.length + " players have"} no ratings yet, so auto-fill treats them as average.{" "}
+              {onOpenPlayer ? (
+                <button onClick={() => onOpenPlayer(unrated[0].id)} style={{ color: P.ink, fontWeight: 600, textDecoration: "underline" }}>Rate them in Squad.</button>
+              ) : "Rate them in Squad."}
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => copyPrev(segIdx)}

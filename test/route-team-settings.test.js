@@ -294,10 +294,12 @@ describe("POST /api/team-settings — rules", () => {
     const saved = setData.mock.calls[0][1];
     expect(saved.team.rules).toEqual([
       { id: "r_custom1", text: "Sam always starts in goal", builtin: false, createdAt: 1700000000000 },
-      { id: "bi-period", text: "Everyone available plays in both halves", builtin: true, off: true },
+      { id: "bi-period", text: "Everyone available plays in every half", builtin: true, off: true },
       { id: "bi-weak-wide", text: "Less confident players start out wide, not through the middle", builtin: true },
       { id: "bi-gk-break", text: "Keeper changes only at the break", builtin: true },
-      { id: "bi-rating-zero", text: "Nobody plays a spot they're rated 0 in", builtin: true }
+      { id: "bi-rating-zero", text: "Nobody plays a spot they're rated 0 in", builtin: true },
+      { id: "bi-no-double-bench", text: "Nobody sits out two blocks in a row", builtin: true },
+      { id: "bi-sticky-positions", text: "Players come back on in the position they left", builtin: true }
     ]);
     const original = DATA();
     expect(saved.team).toEqual({ ...original.team, rules: saved.team.rules });
@@ -310,7 +312,7 @@ describe("POST /api/team-settings — rules", () => {
     const { POST } = await loadRoute({ authOn: true });
     const res = await POST(fakeRequest({ body: { rules: "none" } }));
     expect(res.status).toBe(200);
-    expect(setData.mock.calls[0][1].team.rules.map((r) => r.id)).toEqual(["bi-period", "bi-gk-break", "bi-rating-zero"]);
+    expect(setData.mock.calls[0][1].team.rules.map((r) => r.id)).toEqual(["bi-period", "bi-gk-break", "bi-rating-zero", "bi-weak-wide", "bi-no-double-bench", "bi-sticky-positions"]);
   });
 });
 

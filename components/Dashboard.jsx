@@ -21,7 +21,7 @@ import MatchDayPlanner from "@/components/MatchDayPlanner";
 import { parsePlayerImport, mergeImportedPlayers, mergeImportedStaff, PLAYER_FILE_ACCEPT } from "@/lib/majestri";
 import { parseScheduleImport, onlyGroups, mergeSchedule, scheduleTemplate, stampImport, importBatches, removeImport } from "@/lib/scheduleImport";
 import { planResults, applyResults } from "@/lib/resultsImport";
-import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths, KITS, sanitizeStrip, gameKit } from "@/lib/teamSetup";
+import { teamFeatures, teamParentsSee, PARENTS_SEE_LABELS, PARENTS_SEE_GROUPS, teamRules, ruleLabel, teamSeason, sanitizeSeason, seasonLabel, seasonYears, seasonMonths, KITS, sanitizeStrip, gameKit } from "@/lib/teamSetup";
 import { seasonICS } from "@/lib/ics";
 // Competitions (a team's draws beyond its season): labels, list order and
 // what counts toward the season. On a line of its own so the long import
@@ -1414,6 +1414,7 @@ export default function App() {
           fixture={(data.fixtures || []).find((x) => x.id === modal.payload?.id) || modal.payload}
           isCoach={isCoach}
           onSavePlan={savePlan}
+          onOpenPlayer={(id) => { setModal(null); openPlayer({ id }); }}
           close={() => setModal(null)}
         />
       ) : modal ? (
@@ -3456,10 +3457,12 @@ function MatchFormatCards({ team, patchLocal }) {
   </>);
 }
 
-// Lineup rules the planner's Suggest honours, in priority order. Built-ins can
-// be switched off but not deleted; custom rules can be dragged to re-rank.
+// Lineup rules the planner's auto-fill honours, in priority order. Built-ins
+// can be switched off but not deleted; custom rules can be dragged to re-rank.
+// Rule 1 reads in the team's halves, thirds or quarters (ruleLabel).
 function LineupRulesCard({ team, patchLocal }) {
   const rules = teamRules(team);
+  const fmt = team.matchFormat || defaultFormatForAgeGroup(team.ageGroup);
   const [err, setErr] = useState("");
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState("");
@@ -3510,9 +3513,9 @@ function LineupRulesCard({ team, patchLocal }) {
           onDrop={(e) => { e.preventDefault(); move(dragId, r.id); setDragId(null); }} onDragEnd={() => setDragId(null)}>
           <span className="n">{i + 1}</span>
           {!r.builtin && <GripVertical size={15} aria-hidden="true" style={{ color: "var(--muted)", cursor: "grab", flexShrink: 0 }} />}
-          <span style={{ flex: 1, fontSize: 13.5 }}>{r.text}</span>
+          <span style={{ flex: 1, fontSize: 13.5 }}>{ruleLabel(r, fmt)}</span>
           {r.builtin && <span className="bi">Built in</span>}
-          <Switch on={!r.off} label={r.text} onClick={() => toggleOff(r.id)} />
+          <Switch on={!r.off} label={ruleLabel(r, fmt)} onClick={() => toggleOff(r.id)} />
           {!r.builtin && (
             <button type="button" className="iconbtn" style={{ width: 28, height: 28 }} aria-label={"Delete rule: " + r.text} onClick={() => remove(r.id)}><Trash2 size={13} /></button>
           )}

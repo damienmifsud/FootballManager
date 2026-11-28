@@ -1111,15 +1111,17 @@ describe("Settings — match format autosave", () => {
 });
 
 describe("Settings — lineup rules", () => {
-  it("lists the three seeded built-ins with 'Built in' tags and no delete buttons", async () => {
+  it("lists all six seeded built-ins with 'Built in' tags and no delete buttons", async () => {
     stubNarrowRoutes();
     storage.get.mockResolvedValue({ value: JSON.stringify(makeData()) });
     render(<App />);
     await enterCoachMode();
     await openSettings();
     expect(await screen.findByText("Lineup rules")).toBeTruthy();
-    expect(screen.getAllByText("Built in")).toHaveLength(3);
-    expect(screen.getByText("Everyone available plays in both halves")).toBeTruthy();
+    expect(screen.getAllByText("Built in")).toHaveLength(6);
+    // Rule 1 reads in the team's periods (a U8 team plays two halves).
+    expect(screen.getByText("Everyone available plays in every half")).toBeTruthy();
+    expect(screen.getByText("Players come back on in the position they left")).toBeTruthy();
     expect(screen.getByText("Keeper changes only at the break")).toBeTruthy();
     expect(screen.getByText("Nobody plays a spot they're rated 0 in")).toBeTruthy();
     expect(screen.getByText("In priority order: an earlier rule beats a later one.")).toBeTruthy();
@@ -1138,9 +1140,9 @@ describe("Settings — lineup rules", () => {
     fireEvent.keyDown(inp, { key: "Enter" });
     await waitFor(() => expect(callTo("/api/team-settings")).toBeTruthy());
     const { rules } = bodyOf("/api/team-settings");
-    expect(rules.map((r) => r.id).slice(0, 3)).toEqual(["bi-period", "bi-gk-break", "bi-rating-zero"]);
-    expect(rules[3]).toMatchObject({ text: "No twins on together", builtin: false });
-    // Rendered as rule 4 with a delete button; the input has closed.
+    expect(rules.map((r) => r.id).slice(0, 6)).toEqual(["bi-period", "bi-gk-break", "bi-rating-zero", "bi-weak-wide", "bi-no-double-bench", "bi-sticky-positions"]);
+    expect(rules[6]).toMatchObject({ text: "No twins on together", builtin: false });
+    // Rendered as rule 7 with a delete button; the input has closed.
     expect(await screen.findByText("No twins on together")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete rule: No twins on together" })).toBeTruthy();
     expect(screen.queryByPlaceholderText("e.g. Twins never on together")).toBeNull();

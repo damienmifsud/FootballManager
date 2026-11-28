@@ -83,7 +83,7 @@ describe("coach view", () => {
 
   it("auto-fill fills the empty spots with available players only", async () => {
     renderPlanner();
-    fireEvent.click(screen.getByText(/Auto-fill for fair minutes/));
+    fireEvent.click(screen.getByText("Auto-fill"));
     await waitFor(() => {
       const last = onSavePlan.mock.calls.at(-1);
       expect(last).toBeTruthy();
@@ -353,5 +353,50 @@ describe("the shirts on the pitch", () => {
     renderPlanner();
     expect(painted(RED)).toBeGreaterThan(0);
     expect(painted(BLUE)).toBe(0);
+  });
+});
+
+// Slice 3 step 1: opposition chips, the ratings-aware auto-fill, the "Why this
+// lineup" receipts and the unrated nudge.
+describe("ratings-aware auto-fill", () => {
+  const rated = () => {
+    const d = makeData();
+    d.team.rules = [{ id: "bi-period", text: "Everyone available plays in both halves", builtin: true }];
+    d.players = d.players.map((p) => p.id === "p1" ? { ...p, coach: { ratings: { GK: 4, DEF: 2, MID: 2, FWD: 2 } } } : p);
+    return d;
+  };
+
+  it("saves the chosen opposition with the plan and shows its blurb", async () => {
+    renderPlanner();
+    expect(screen.getByText(/Balanced: fair minutes/)).toBeTruthy(); // About even by default
+    fireEvent.click(screen.getByText("Much stronger"));
+    expect(screen.getByText(/Strongest shape all game/)).toBeTruthy();
+    await waitFor(() => expect(onSavePlan.mock.calls.at(-1)?.[1].opposition).toBe("hardest"), { timeout: 2500 });
+  });
+
+  it("opens with the fixture's saved opposition", () => {
+    renderPlanner({ fixture: makeFixture({ plan: { opposition: "weaker", subTimes: [10, 30], assignments: [{}, {}, {}, {}], hintSeen: true } }) });
+    expect(screen.getByText(/Mix it up/)).toBeTruthy();
+  });
+
+  it("shows the Why this lineup card after auto-fill, with a row for every active rule", async () => {
+    renderPlanner({ data: rated() });
+    expect(screen.queryByText("Why this lineup")).toBeNull();
+    fireEvent.click(screen.getByText("Auto-fill"));
+    expect(await screen.findByText("Why this lineup")).toBeTruthy();
+    // The stored list held only rule 1; the other five are appended, on.
+    for (const label of ["Everyone available plays in every half", "Keeper changes only at the break",
+      "Nobody plays a spot they're rated 0 in", "Players come back on in the position they left"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    expect(screen.getByText("Uses ratings and your lineup rules")).toBeTruthy();
+  });
+
+  it("nudges about unrated players and opens the first one", () => {
+    const onOpenPlayer = vi.fn();
+    renderPlanner({ data: rated(), onOpenPlayer });
+    expect(screen.getByText(/1 player has no ratings yet, so auto-fill treats them as average/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Rate them in Squad."));
+    expect(onOpenPlayer).toHaveBeenCalledWith("p3");
   });
 });

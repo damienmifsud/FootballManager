@@ -128,6 +128,22 @@ describe("POST /api/plan — account mode", () => {
     expect(saved.team).toEqual({ name: "A" });
     expect(saved.players).toHaveLength(2);
   });
+
+  it("keeps the opposition strength when it is one of the four, drops it otherwise", async () => {
+    coachSession();
+    const { POST } = await loadRoute({ authOn: true });
+    for (const opposition of ["weaker", "even", "stronger", "hardest"]) {
+      setData.mockClear();
+      await POST(fakeRequest({ body: { fixtureId: "f1", plan: { ...PLAN, opposition } } }));
+      expect(setData.mock.calls[0][1].fixtures[0].plan.opposition).toBe(opposition);
+    }
+    for (const opposition of ["brutal", 3, null, ""]) {
+      setData.mockClear();
+      const res = await POST(fakeRequest({ body: { fixtureId: "f1", plan: { ...PLAN, opposition } } }));
+      expect(res.status).toBe(200);
+      expect(setData.mock.calls[0][1].fixtures[0].plan).toEqual(PLAN);
+    }
+  });
 });
 
 describe("POST /api/plan — legacy team-code mode", () => {
